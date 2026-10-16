@@ -1,0 +1,1 @@
+"""Skypass Group Ticketing adapter."""
