@@ -44,6 +44,7 @@ def is_configured() -> bool:
     return bool(
         settings.skypass_endpoint
         and settings.skypass_client_id
+        and settings.skypass_client_id.get_secret_value()
         and settings.skypass_client_secret
         and settings.skypass_client_secret.get_secret_value()
     )
@@ -76,7 +77,12 @@ async def _authenticate(client: httpx.AsyncClient, base_url: str) -> str:
         response = await client.post(
             f"{base_url}/auth",
             files={
-                "api_key": (None, settings.skypass_client_id or ""),
+                "api_key": (
+                    None,
+                    settings.skypass_client_id.get_secret_value()
+                    if settings.skypass_client_id
+                    else "",
+                ),
                 "api_secret": (None, secret.get_secret_value()),
             },
         )

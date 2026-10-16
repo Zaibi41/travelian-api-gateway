@@ -20,6 +20,10 @@ async def fetch_inventory() -> list[GroupInventory]:
         settings.dhillu_sahi_base_url,
         timeout_seconds=settings.dhillu_sahi_timeout_seconds,
     )
-    login = await client.login(settings.dhillu_sahi_email or "", settings.dhillu_sahi_password or "")
+    password = settings.dhillu_sahi_password
+    login = await client.login(
+        settings.dhillu_sahi_email or "",
+        password.get_secret_value() if password else "",
+    )
     rows = await client.fetch_groups(login["token"], settings.dhillu_sahi_group_sector_id)
     return normalize_groups(rows)

@@ -1,14 +1,16 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.api.routes import router
 from app.core.config import settings
+from app.core.parameter_store import load_parameter_store_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Shared async HTTP client can be added here as vendor adapters are integrated.
+    await asyncio.to_thread(load_parameter_store_settings)
     yield
 
 

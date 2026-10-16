@@ -344,7 +344,8 @@ class BookingDetailsRequest(BaseModel):
 
 
 def _credentials_configured() -> bool:
-    return bool(settings.dhillu_sahi_email and settings.dhillu_sahi_password)
+    password = settings.dhillu_sahi_password
+    return bool(settings.dhillu_sahi_email and password and password.get_secret_value())
 
 
 def _not_configured_outcome() -> tuple[list[VendorIssue], list[VendorResult]]:
@@ -359,7 +360,11 @@ async def _authenticated_dhillu_sahi_client() -> tuple[DhilluSahiAuthClient, str
         settings.dhillu_sahi_base_url,
         timeout_seconds=settings.dhillu_sahi_timeout_seconds,
     )
-    login = await client.login(settings.dhillu_sahi_email or "", settings.dhillu_sahi_password or "")
+    password = settings.dhillu_sahi_password
+    login = await client.login(
+        settings.dhillu_sahi_email or "",
+        password.get_secret_value() if password else "",
+    )
     return client, login["token"]
 
 

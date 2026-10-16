@@ -86,6 +86,33 @@ For local development, copy `.env.example` to `.env` in the project root and set
 
 Skypass Group Ticketing inventory uses `SKYPASS_ENDPOINT`, `SKYPASS_CLIENT_ID` (sent as the documented `api_key` form field), and `SKYPASS_CLIENT_SECRET` (sent as `api_secret`). The adapter authenticates with `POST /auth`, reads `access_token`, and requests `GET /tickets` with Bearer authorization. It maps all documented Skypass ticket types and their outbound sector legs into the shared inventory schema. Both inventory and filtered search can include `Two Way` records. Seat availability is left unknown because `open_seats_slot` is an identifier, not a seat count.
 
+### AWS Parameter Store configuration
+
+Create the parameters in **AWS Systems Manager → Parameter Store**, in the same AWS region where the API runs. Use the exact names below. These names assume `SSM_PARAMETER_PREFIX=/travelian/prod`:
+
+| Parameter name | Type | Value to enter |
+| --- | --- | --- |
+| `/travelian/prod/group-ticketing/dhillu-sahi/base-url` | `String` | Dhillu & Sahi base URL |
+| `/travelian/prod/group-ticketing/dhillu-sahi/email` | `SecureString` | Dhillu & Sahi account email |
+| `/travelian/prod/group-ticketing/dhillu-sahi/password` | `SecureString` | Dhillu & Sahi account password |
+| `/travelian/prod/group-ticketing/dhillu-sahi/group-sector-id` | `String` | Confirmed sector ID for the account |
+| `/travelian/prod/group-ticketing/skypass/endpoint` | `String` | Skypass API host, for example `https://dev.skypass.pk` |
+| `/travelian/prod/group-ticketing/skypass/client-id` | `SecureString` | Skypass API key (`api_key`) |
+| `/travelian/prod/group-ticketing/skypass/client-secret` | `SecureString` | Skypass API secret (`api_secret`) |
+
+For another environment, such as staging, change the prefix and use it consistently in every parameter name. For example, with `SSM_PARAMETER_PREFIX=/travelian/staging`, the Dhillu & Sahi password name becomes `/travelian/staging/group-ticketing/dhillu-sahi/password`.
+
+Set these application environment variables in the ECS task definition, EC2 service, or local `.env`:
+
+```dotenv
+AWS_REGION=<the-region-containing-the-parameters>
+SSM_PARAMETER_PREFIX=/travelian/prod
+```
+
+At startup, the API requests the configured names from Parameter Store in one `GetParameters` call with decryption enabled. A value found in Parameter Store overrides its environment setting. If an individual parameter is missing, that setting falls back to the matching environment variable, such as `DHILLU_SAHI_PASSWORD` or `SKYPASS_CLIENT_SECRET`. If AWS is unreachable or denies access, startup fails instead of silently using potentially stale credentials. Leave `SSM_PARAMETER_PREFIX` empty to use environment settings only. Values load once at startup; restart the API after changing parameters.
+
+The API workload should use its AWS IAM role; do not put AWS access keys in `.env`. Grant the role `ssm:GetParameters` only for the relevant path. For the production prefix above, the resource ARN pattern is `arn:aws:ssm:<region>:<account-id>:parameter/travelian/prod/*`. If you encrypt `SecureString` values with a customer-managed KMS key, also grant `kms:Decrypt` for that key. See [AWS Parameter Store access guidance](https://docs.aws.amazon.com/systems-manager/latest/userguide/ps-restrict-parameter-access.html) and [SecureString decryption permissions](https://docs.aws.amazon.com/systems-manager/latest/userguide/ps-restrict-decryption.html).
+
 Group availability checks use `POST /v1/group-ticketing/check-availability` with `{ "pnr": "33MBD5", "adult": 1, "child": 1, "price": 78000 }`. The adapter logs in and calls the documented `/api/check-availbility` endpoint with the Bearer token and those JSON fields. A valid upstream `data.status: false` means the vendor successfully answered that seats are unavailable; it is distinct from a vendor request failure or timeout.
 
 Group booking uses `POST /v1/group-ticketing/bookings`. It validates that every passenger array (`titles`, `firstname`, `lastname`, `dob`, `passport_no`, `passport_expiry_date`, `type`) has the same nonzero length and that `updated_at` is timezone-aware. It maps directly to the supplier's `/api/add-booking` contract. This is a state-changing operation and is not automatically retried; a timeout is reported as an indeterminate vendor failure and should be reconciled with the supplier before the client retries.
