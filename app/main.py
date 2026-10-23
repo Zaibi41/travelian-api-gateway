@@ -4,14 +4,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.routes import router
+from app.api.routes.operations import router as operations_router
 from app.core.config import settings
 from app.core.parameter_store import load_parameter_store_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.ready = False
     await asyncio.to_thread(load_parameter_store_settings)
-    yield
+    app.state.ready = True
+    try:
+        yield
+    finally:
+        app.state.ready = False
 
 
 app = FastAPI(
@@ -27,4 +33,5 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+app.include_router(operations_router)
 app.include_router(router, prefix=settings.api_prefix)

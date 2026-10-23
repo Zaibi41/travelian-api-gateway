@@ -11,7 +11,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` for the interactive API docs. The `/v1/health` endpoint reports service health.
+Open `http://127.0.0.1:8000/docs` for the interactive API docs.
+
+| Endpoint | Purpose | Response |
+| --- | --- | --- |
+| `GET /health` | Application is responding | HTTP 200, `{"status":"ok"}` |
+| `GET /ready` | Application is ready to serve requests | HTTP 200, `{"status":"ready"}` after startup configuration loads; otherwise HTTP 503, `{"status":"not_ready"}` |
+
+These endpoints are also available under `/v1` (or the configured API prefix). Readiness tracks application startup and shutdown; it does not call supplier APIs.
 
 ## Product APIs
 
@@ -135,4 +142,29 @@ app/
 
 ## Production deployment
 
-Put the service behind HTTPS and a managed DNS name such as `api.travelian.pk`. Before production traffic, add supplier-specific auth/retries and rate limits, request tracing, metrics, and a durable booking/offer lifecycle. Flight search fan-out is async within a request; longer workflows such as bookings should use persisted state and background jobs rather than keeping an HTTP request open.
+Pull requests into `main` run CI on Python 3.12. A push to `main` runs the production workflow: test, package that commit and its resolved runtime dependencies, verify SHA-256 locally and remotely, upload over verified SSH, activate a release, restart systemd, and verify `GET /health`. Manual workflow runs deploy only when the selected branch is `main`. Merging into `main` triggers deployment, so merge only after deployment approval and the prerequisites below are complete.
+
+Production uses the existing Lightsail instance `travelian-api-prod-02` in `ap-southeast-1`, outbound IP `52.76.26.224`, SSH user `deploy`, and `/opt/travelian-api`. The service binds to `127.0.0.1:8000` with one Uvicorn worker. No DNS, proxy, firewall, or other service changes are part of deployment.
+
+Before the first merge:
+
+- An administrator must enable `travelian-api.service` at boot; it was disabled during the 2026-10-23 audit. Existing deployment sudo permissions do not include enablement and need not be broadened.
+- Provision `/opt/travelian-api/shared/.env`, readable by `deploy` with mode `600`. It was missing during the audit. Set `ENABLE_DEMO_VENDOR=false` and configure authoritative supplier settings or `AWS_REGION=ap-southeast-1` and `SSM_PARAMETER_PREFIX` with working Parameter Store access. Deployment refuses to activate without the shared environment file. Health/readiness do not certify supplier configuration or availability.
+- Confirm the production environment contains `LIGHTSAIL_SSH_PRIVATE_KEY`, `LIGHTSAIL_HOST`, and the previously verified `LIGHTSAIL_SSH_KNOWN_HOSTS`. The audit confirmed these names exist. Add a `main` deployment policy and required PR checks when the GitHub plan permits; the environment currently has no protection rules, and the branch-protection API returned a plan restriction. The workflow independently checks `main` and tests before deployment.
+- Agree on a separate, approved `/v2` proxy integration and access controls before public traffic. The booking routes have no application-level authentication. For a proxy preserving the `/v2` path, configure `API_PREFIX=/v2`; otherwise agree on the rewrite first. Existing DNS and production routing must remain untouched by this workflow.
+
+Release directories are named `<commit-SHA>-<workflow-run-ID>-<attempt>`. A workflow rerun creates a fresh directory, including after a failed first deployment. Existing releases are never overwritten or automatically deleted. Both preparation/activation and manual rollback use the shared deployment lock; extraction also takes the lock. Partial directories remain for diagnosis, while new attempts use different directories.
+
+The deployment script requires Python 3.12, creates a virtual environment per release, installs the artifact's `requirements.lock` using binary wheels without a pip cache, checks dependencies, and atomically switches `current`. Health verification makes up to 30 attempts with a three-second curl timeout and two-second pauses (about 150 seconds maximum). A failed activation restores, restarts, and verifies the previous release and exits nonzero. On a failed first deployment, it stops the service and removes the failed active link. A failed stop is reported as critical. There is no prior application to restore on the first deployment.
+
+After a healthy deployment, the release receives `.deployment-success`. Manual rollback accepts only a release with that marker and its Python environment:
+
+```bash
+bash /opt/travelian-api/current/deploy/rollback.sh <previous-release-ID>
+```
+
+Rollback restarts and verifies the target; if it fails, it restores and verifies the original release and returns failure. An already active rollback target must still pass health verification. Shared configuration is not versioned or reverted with application code; keep it compatible with retained rollback releases. Releases are retained without automatic cleanup; monitor disk usage.
+
+After deployment, verify `systemctl is-active travelian-api.service`, `systemctl is-enabled travelian-api.service`, and `curl --fail http://127.0.0.1:8000/health` over SSH. Expected health is `{"status":"ok"}`. Check `/ready` and `journalctl -u travelian-api.service` for startup failures. A localhost health check does not verify the separate public `/v2` routing.
+
+See [the production audit](deploy/PRODUCTION_AUDIT.md) for findings, validation, and the approval boundary.
