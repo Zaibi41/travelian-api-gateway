@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, HTTPException
@@ -90,8 +90,15 @@ class GroupSearchRequest(BaseModel):
         return self
 
 
+# Supplier PNRs are opaque identifiers and can include punctuation. Keep them
+# unchanged, bounded, and free of whitespace/control characters.
+GroupPNR = Annotated[
+    str, Field(strict=True, min_length=1, max_length=32, pattern=r"^[!-~]+$")
+]
+
+
 class GroupAvailabilityRequest(BaseModel):
-    pnr: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9]+$")
+    pnr: GroupPNR
     adult: int = Field(ge=0, le=100)
     child: int = Field(ge=0, le=100)
     price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
@@ -108,7 +115,7 @@ class GroupAvailabilityResponse(BaseModel):
 
 
 class GroupBookingRequest(BaseModel):
-    pnr: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9]+$")
+    pnr: GroupPNR
     agent: int = Field(gt=0)
     updated_at: datetime
     remarks: str = Field(default="", max_length=2000)
