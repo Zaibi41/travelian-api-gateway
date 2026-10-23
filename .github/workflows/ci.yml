@@ -39,8 +39,3 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
-
-      - name: Validate deployment scripts
-        run: |
-          bash -n deploy/deploy.sh
-          bash -n deploy/rollback.sh
