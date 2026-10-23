@@ -5,9 +5,6 @@ on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -33,6 +30,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pytest
+          python -m pip check
+
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy/deploy.sh
+          bash -n deploy/rollback.sh
 
       - name: Validate Python syntax
         run: python -m compileall -q app tests

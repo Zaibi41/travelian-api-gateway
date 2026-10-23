@@ -1,0 +1,228 @@
+
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travelian-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: -r requirements.txt
+          python -m pip freeze > /tmp/requirements.lock
+          python -m pip install pytest
+          python -m pip check
+
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy/deploy.sh
+          bash -n deploy/rollback.sh
+
+      - name: Compile application
+        run: python -m compileall -q app
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Create release archive
+        run: |
+          set -euo pipefail
+
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git archive \
+            --format=tar \
+            --output="/tmp/${GITHUB_SHA}.tar" \
+            HEAD
+
+          tar -rf "/tmp/${GITHUB_SHA}.tar" -C /tmp requirements.lock
+          gzip "/tmp/${GITHUB_SHA}.tar"
+
+          cd /tmp
+
+          sha256sum "${GITHUB_SHA}.tar.gz" \
+            > "${GITHUB_SHA}.tar.gz.sha256"
+
+      - name: Upload tested release
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: |
+            /tmp/${{ github.sha }}.tar.gz
+            /tmp/${{ github.sha }}.tar.gz.sha256
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Lightsail
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download tested release
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: release
+
+      - name: Verify downloaded release
+        env:
+          SHA: ${{ github.sha }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum -c "${SHA}.tar.gz.sha256"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.LIGHTSAIL_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" \
+            > "$HOME/.ssh/id_ed25519"
+
+          printf '%s\n' "$SSH_KNOWN_HOSTS" \
+            > "$HOME/.ssh/known_hosts"
+
+          chmod 600 \
+            "$HOME/.ssh/id_ed25519" \
+            "$HOME/.ssh/known_hosts"
+
+      - name: Upload release archive
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+          SHA: ${{ github.sha }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          scp \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=yes \
+            "release/${SHA}.tar.gz" \
+            "release/${SHA}.tar.gz.sha256" \
+            "deploy@${HOST}:/opt/travelian-api/shared/"
+
+      - name: Install and activate release
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+          SHA: ${{ github.sha }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=yes \
+            "deploy@${HOST}" \
+            "bash -s -- '${SHA}' '${RELEASE_ID}'" <<'REMOTE'
+          set -Eeuo pipefail
+
+          SHA="$1"
+          APP_DIR="/opt/travelian-api"
+          RELEASE_ID="$2"
+          [[ "$SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RELEASE_ID" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+          RELEASE_DIR="$APP_DIR/releases/$RELEASE_ID"
+
+          exec 9>"$APP_DIR/shared/deployment.lock"
+          flock -n 9 || { echo "ERROR: Another deployment or rollback is running."; exit 1; }
+
+          cd "$APP_DIR/shared"
+
+          # Verify archive integrity.
+          sha256sum -c "${SHA}.tar.gz.sha256"
+
+          # Never overwrite an existing release.
+          if [[ -e "$RELEASE_DIR" || -L "$RELEASE_DIR" ]]; then
+              echo "ERROR: Release directory already exists."
+              exit 1
+          fi
+
+          # Reject unsafe archive entries.
+          python3.12 -c '
+          import sys
+          import tarfile
+          from pathlib import PurePosixPath
+
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              for member in archive:
+                  path = PurePosixPath(member.name)
+
+                  if (
+                      path.is_absolute()
+                      or ".." in path.parts
+                      or not (member.isfile() or member.isdir())
+                  ):
+                      raise SystemExit(
+                          f"ERROR: Unsafe archive entry: {member.name}"
+                      )
+
+          print("Archive safety check passed.")
+          ' "${SHA}.tar.gz"
+
+          # Create and extract the new release.
+          mkdir "$RELEASE_DIR"
+
+          tar -xzf "${SHA}.tar.gz" \
+              -C "$RELEASE_DIR" \
+              --no-same-owner \
+              --no-same-permissions
+
+          rm -f \
+            "$APP_DIR/shared/${SHA}.tar.gz" \
+            "$APP_DIR/shared/${SHA}.tar.gz.sha256"
+
+          # Release extraction lock; deploy.sh locks preparation and activation.
+          flock -u 9
+          exec 9>&-
+          bash "$RELEASE_DIR/deploy/deploy.sh" "$RELEASE_ID"
+          REMOTE
