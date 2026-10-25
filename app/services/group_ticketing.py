@@ -1,8 +1,10 @@
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import date
+from uuid import NAMESPACE_URL, uuid5
 
-from app.schemas.group_ticketing import GroupInventory
+from app.schemas.group_ticketing import GroupInventory, GroupTicket
 from app.services.vendor_fanout import gather_vendor_calls
 from app.vendors.group_ticketing.dhillu_sahi.inventory import fetch_inventory as fetch_dhillu_sahi_inventory
 from app.vendors.group_ticketing.dhillu_sahi.inventory import is_configured as dhillu_sahi_is_configured
@@ -78,3 +80,17 @@ def filter_group_inventory(
         if matching_tickets:
             filtered.append(group.model_copy(update={"tickets": matching_tickets}))
     return filtered
+
+
+def group_ticket_id(ticket: GroupTicket) -> str:
+    """Identify the supplier record without exposing supplier routing in the ID.
+
+    Exclude mutable price, capacity and timestamp so a refresh can return updated
+    values. No source ordering or synthetic PNR is used. Ambiguous matches must
+    be rejected by selection rather than choosing an arbitrary record.
+    """
+    identity = {
+        key: getattr(ticket, key)
+        for key in ("vendor", "pnr", "departure_date", "sector", "ticket_type", "subparts")
+    }
+    return str(uuid5(NAMESPACE_URL, json.dumps(identity, sort_keys=True)))

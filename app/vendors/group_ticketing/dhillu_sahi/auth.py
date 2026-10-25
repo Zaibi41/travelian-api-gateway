@@ -28,6 +28,7 @@ class DhilluSahiAuthClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 3.0))
         self.transport = transport
+        self.agent_id: int | None = None
 
     def _new_http_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self.timeout, transport=self.transport)
@@ -48,6 +49,8 @@ class DhilluSahiAuthClient:
             raise DhilluSahiAuthError("Dhillu & Sahi login response did not match the expected schema") from exc
         if not isinstance(token, str) or not token.strip():
             raise DhilluSahiAuthError("Dhillu & Sahi login response contained an invalid token")
+        agent_id = success.get("agent_id")
+        self.agent_id = agent_id if type(agent_id) is int and agent_id > 0 else None
         return success
 
     async def fetch_groups(self, token: str, sector_id: str | None = None) -> list[dict[str, Any]]:
@@ -100,7 +103,7 @@ class DhilluSahiAuthClient:
             )
         data = payload.get("data")
         booking_id = data.get("id") if isinstance(data, dict) else None
-        if payload.get("success") is not True or not isinstance(booking_id, int):
+        if payload.get("success") is not True or (type(booking_id) is not int or booking_id <= 0):
             raise DhilluSahiAuthError("Dhillu & Sahi booking response did not match the expected schema")
         return booking_id
 

@@ -19,7 +19,20 @@ class Settings(BaseSettings):
     aws_region: str | None = None
     ssm_parameter_prefix: str | None = None
     log_level: str = "INFO"
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    cognito_issuer: str | None = None
+    cognito_app_client_id: str | None = None
+    cognito_agency_claim: str | None = None
+    booking_create_groups: list[str] = []
+    booking_details_groups: list[str] = []
+    agency_admin_read_groups: list[str] = []
+    agency_admin_write_groups: list[str] = []
+    agency_admin_review_groups: list[str] = []
+    integration_search_scope: str | None = None
+    integration_booking_create_scope: str | None = None
+    integration_booking_details_scope: str | None = None
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
 
 settings = Settings()

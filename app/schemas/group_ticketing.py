@@ -13,6 +13,8 @@ class GroupTicket(BaseModel):
     price: str | int | float | None = None
     currency: str | None = None
     remaining: int | None = None
+    updated_at: str | None = None
+    sold: str | int | None = None
     baggage: str | int | None = None
     meal: str | int | None = None
     ticket_type: str | int | None = None

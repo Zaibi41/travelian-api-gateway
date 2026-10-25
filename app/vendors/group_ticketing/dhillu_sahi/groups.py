@@ -10,6 +10,7 @@ class DhilluSahiTicket(BaseModel):
 
     pnr: str | None = None
     date: str | None = None
+    updated_at: str | None = None
     sector: str | None = None
     airline: str | None = Field(default=None, alias="air_line")
     airline_logo: str | None = Field(default=None, alias="air_line_logo")
@@ -47,6 +48,8 @@ def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi
                 airline_logo=ticket.airline_logo or airline_logo,
                 price=ticket.price,
                 remaining=ticket.remaining,
+                updated_at=ticket.updated_at,
+                sold=ticket.sold,
                 baggage=ticket.baggage,
                 meal=ticket.meal,
                 ticket_type=ticket.ticket_type,

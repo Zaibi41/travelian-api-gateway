@@ -1,5 +1,14 @@
 # Agent guidance
 
+## Identifier conventions
+
+- Generate new Travelian-owned public resource IDs in canonical, lowercase, hyphenated UUID format. Use `str(uuid4())` for newly created resources and `str(uuid5(...))` only when stable deterministic identity is required.
+- Do not add resource-name prefixes such as `agency-` or return UUIDs using `.hex`.
+- Preserve external identifiers exactly as supplied, including supplier booking IDs, PNRs, Cognito subjects and app-client IDs. Never convert them to Travelian UUIDs.
+- Internal audit/event sequence primary keys may remain integers when they are not public resource identifiers.
+- Preserve existing identifiers and relationships. When changing an exposed identifier format, document the compatibility impact, retain legacy lookup support where applicable, and use reviewed migrations if stored values or foreign keys must change. Do not silently rewrite existing records.
+- Add regression coverage for new public ID generation and any legacy compatibility affected by the change.
+
 ## Project structure
 
 - This repository is the Travelian API gateway.
