@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.api.routes.operations import router as operations_router
@@ -33,5 +34,15 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+if settings.cors_allowed_origins:
+    # Exact origins only (validated in Settings). Bearer tokens, no cookies.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+        max_age=600,
+    )
 app.include_router(operations_router)
 app.include_router(router, prefix=settings.api_prefix)

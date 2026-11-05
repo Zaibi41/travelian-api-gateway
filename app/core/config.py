@@ -1,5 +1,10 @@
-from pydantic import SecretStr
+import re
+
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Exact browser origin: scheme, host, optional port. No path, no wildcard.
+_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?$")
 
 
 class Settings(BaseSettings):
@@ -30,9 +35,32 @@ class Settings(BaseSettings):
     integration_search_scope: str | None = None
     integration_booking_create_scope: str | None = None
     integration_booking_details_scope: str | None = None
+    # Admin Dashboard (data: gateway `bookings` table).
+    dashboard_expiring_hold_hours: int = 2
+    dashboard_timezone: str = "Asia/Karachi"
+    # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
+    cors_allowed_origins: list[str] = []
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def exact_origins_only(cls, origins: list[str]) -> list[str]:
+        for origin in origins:
+            if not _ORIGIN.fullmatch(origin):
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS entries must be exact origins like "
+                    "https://admin.example.com (no wildcard, path or trailing slash)."
+                )
+        return origins
+
+    @field_validator("dashboard_expiring_hold_hours")
+    @classmethod
+    def positive_window(cls, hours: int) -> int:
+        if not 1 <= hours <= 168:
+            raise ValueError("DASHBOARD_EXPIRING_HOLD_HOURS must be between 1 and 168.")
+        return hours
 
 
 settings = Settings()

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.routes.admin_dashboard import router as admin_dashboard_router
 from app.api.routes.admin_users import router as admin_users_router
 from app.api.routes.agencies import router as agencies_router
 from app.api.routes.agency_applications import router as agency_applications_router
@@ -32,3 +33,5 @@ router.include_router(agency_integrations_router)
 router.include_router(integration_group_ticketing_router)
 
 router.include_router(admin_users_router)
+
+router.include_router(admin_dashboard_router)
