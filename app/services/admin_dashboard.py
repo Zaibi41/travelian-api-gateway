@@ -137,6 +137,7 @@ def scoped(bookings: Iterable[BookingRow], query: DashboardQuery) -> list[Bookin
 def build_summary(
     bookings: Iterable[BookingRow], query: DashboardQuery, now: datetime, window_hours: int, can_see_margin: bool,
 ) -> DashboardSummary:
+    bookings = list(bookings)  # iterated more than once below
     window = timedelta(hours=window_hours)
     selected = scoped(bookings, query)
     period_rows = [booking for booking in selected if in_period(booking, query.period, now)]
@@ -152,6 +153,8 @@ def build_summary(
 
     return DashboardSummary(
         generated_at=now,
+        # Any imported row anywhere in the table, regardless of filters.
+        contains_sample_data=any(booking.import_source for booking in bookings),
         needs_action=NeedsAction(
             pending_issuance=sum(is_pending_issuance(booking) for booking in selected),
             payment_pending=sum(is_payment_pending(booking, now) for booking in selected),

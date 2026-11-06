@@ -1067,6 +1067,12 @@
           "business": {
             "$ref": "#/components/schemas/BusinessResults"
           },
+          "contains_sample_data": {
+            "default": false,
+            "description": "True while the bookings table holds rows from a one-time import (sample/test data).",
+            "title": "Contains Sample Data",
+            "type": "boolean"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",

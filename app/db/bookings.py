@@ -3,6 +3,7 @@ the Admin Dashboard. Booking creation through the gateway is not built yet."""
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -11,6 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db import agencies
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,14 +32,22 @@ class BookingRow:
     currency: str | None
     total_minor: int | None
     supplier_cost_minor: int | None
+    #: Set on rows loaded by a one-time import (e.g. "legacy_test_csv"); None for real bookings.
+    import_source: str | None = None
 
 
 _SELECT = text(
     """SELECT reference, pnr, product, provider_id, booking_status, payment_status,
            issuance_status, created_at, hold_expires_at, currency, total_minor,
-           supplier_cost_minor
+           supplier_cost_minor, import_source
        FROM bookings"""
 )
+
+
+def _error_type(error: Exception) -> str:
+    """Error type only (e.g. "ProgrammingError/UndefinedTable"); never messages or data."""
+    original = getattr(error, "orig", None)
+    return f"{type(error).__name__}/{type(original).__name__}" if original is not None else type(error).__name__
 
 
 def list_dashboard_bookings() -> list[BookingRow]:
@@ -44,7 +55,11 @@ def list_dashboard_bookings() -> list[BookingRow]:
         # agencies.application_engine is resolved at call time (tests patch it).
         with agencies.application_engine().begin() as connection:
             rows = connection.execute(_SELECT).mappings().all()
-    except (SQLAlchemyError, HTTPException):
+    except HTTPException:
+        logger.warning("Bookings read failed: database not configured")
+        raise BookingsUnavailable() from None
+    except SQLAlchemyError as error:
+        logger.warning("Bookings read failed: %s", _error_type(error))
         raise BookingsUnavailable() from None
     return [
         BookingRow(
@@ -52,6 +67,7 @@ def list_dashboard_bookings() -> list[BookingRow]:
             status=row["booking_status"], payment_status=row["payment_status"], ticket_status=row["issuance_status"],
             created_at=row["created_at"], hold_expires_at=row["hold_expires_at"], currency=row["currency"],
             total_minor=row["total_minor"], supplier_cost_minor=row["supplier_cost_minor"],
+            import_source=row["import_source"],
         )
         for row in rows
     ]

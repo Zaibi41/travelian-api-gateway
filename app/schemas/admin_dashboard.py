@@ -40,6 +40,9 @@ class BusinessResults(BaseModel):
 
 class DashboardSummary(BaseModel):
     source: Literal["gateway_bookings"] = "gateway_bookings"
+    contains_sample_data: bool = Field(
+        False, description="True while the bookings table holds rows from a one-time import (sample/test data)."
+    )
     generated_at: datetime
     needs_action: NeedsAction
     business: BusinessResults
