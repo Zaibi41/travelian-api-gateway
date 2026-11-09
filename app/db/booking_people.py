@@ -53,6 +53,7 @@ class AuditEvent:
     actor_user_id: str | None
     created_at: datetime
     details: dict[str, Any]
+    actor_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,14 +83,16 @@ def read(reference: str) -> People | None:
             {"b": booking_id},
         ).mappings().all()
         events = connection.execute(
-            text("SELECT action, actor_user_id, created_at, details FROM booking_events WHERE booking_id = :b ORDER BY created_at, id"),
+            text("SELECT e.action, e.actor_user_id, e.created_at, e.details, r.name AS actor_role FROM booking_events e"
+                 " LEFT JOIN users u ON u.id = e.actor_user_id LEFT JOIN roles r ON r.id = u.role_id"
+                 " WHERE e.booking_id = :b ORDER BY e.created_at, e.id"),
             {"b": booking_id},
         ).mappings().all()
     return People(
         customer=Customer(**row) if row else None,
         travelers=[Traveler(**t) for t in travelers],
         events=[AuditEvent(e["action"], e["actor_user_id"], e["created_at"],
-                           {k: v for k, v in (e["details"] or {}).items() if k in AUDIT_DETAIL_KEYS}) for e in events],
+                           {k: v for k, v in (e["details"] or {}).items() if k in AUDIT_DETAIL_KEYS}, e["actor_role"]) for e in events],
     )
 
 

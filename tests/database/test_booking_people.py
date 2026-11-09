@@ -74,6 +74,7 @@ def test_list_detail_passengers_and_audit_read_the_saved_people(database):
     assert "AB1234567" not in body and "1990-01-31" not in body and "2030-05-01" not in body
     assert detail.passengers[0].document_expiry_masked == "2030-••-••" and detail.passengers[0].document_validity == "valid"
     assert [(e.action, e.details.get("travelers")) for e in detail.audit] == [("hold_created", 2)]
+    assert detail.audit[0].actor_user_id == ACTOR
 
 
 def test_reveal_returns_full_values_and_logs_who_which_and_why(database):

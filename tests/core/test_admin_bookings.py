@@ -220,7 +220,7 @@ def test_agency_and_customer_roles_are_refused_and_reads_fail_closed(monkeypatch
 PEOPLE = booking_people.People(
     customer=booking_people.Customer("Test", "Customer", "92", "3001234567", "ops@example.invalid"),
     travelers=[booking_people.Traveler(0, "ADT", "MR", "Test", "Passenger", "1990-••-••", "PSPT", "••••••567", "PAK", "PAK", date(2027, 1, 15), None)],
-    events=[booking_people.AuditEvent("hold_created", "u-1", NOW, {"label": "UAT test data", "pnr": "PNR2"})],
+    events=[booking_people.AuditEvent("hold_created", "u-1", NOW, {"label": "UAT test data", "pnr": "PNR2"}, "super_admin")],
 )
 REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(supplier_names=False, cost_and_margin=False, reveal_identity=True))
 
@@ -229,7 +229,9 @@ def test_detail_shows_customer_masked_passengers_and_audit_when_saved(monkeypatc
     body = client(monkeypatch, viewer=STAFF, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()
     assert body["customer"] == {"first_name": "Test", "last_name": "Customer", "phone": "+92 3001234567", "email": "ops@example.invalid"}
     assert body["passengers"][0]["document_number_masked"] == "••••••567" and body["passengers"][0]["date_of_birth_masked"] == "1990-••-••"
-    assert [e["action"] for e in body["audit"]] == ["hold_created"]
+    assert [(e["action"], e["actor_role"]) for e in body["audit"]] == [("hold_created", "super_admin")]
+    assert body["can_reveal_identity"] is False
+    assert client(monkeypatch, viewer=REVEALER, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()["can_reveal_identity"] is True
     passenger = body["passengers"][0]
     assert passenger["document_expiry_masked"] == "2027-••-••" and "document_expiry" not in passenger
     assert passenger["document_validity"] == "expiring"  # 15 Jan 2027 is within 6 months of today (5 Nov 2026 in these tests)

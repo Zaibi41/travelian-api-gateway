@@ -131,6 +131,7 @@ class BookingPassenger(BaseModel):
 class BookingAuditEntry(BaseModel):
     action: str
     actor_user_id: str | None = None
+    actor_role: str | None = Field(None, description="The actor's role. User names aren't stored in the gateway yet.")
     at: datetime
     details: dict[str, Any] = Field(description="Whitelisted, no personal data.")
 
@@ -164,6 +165,7 @@ class BookingDetail(BaseModel):
     customer: BookingCustomer | None = Field(None, description="Omitted when no customer was saved.")
     passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
+    can_reveal_identity: bool = Field(False, description="Whether this viewer may call the reveal endpoint (the endpoint still checks).")
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )

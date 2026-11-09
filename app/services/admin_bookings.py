@@ -207,7 +207,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
         customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
-        fare=fare, sections_not_available=missing,
+        fare=fare, sections_not_available=missing, can_reveal_identity=visibility.reveal_identity,
     )
     if people and people.customer:
         c = people.customer
@@ -225,7 +225,8 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
             for t in people.travelers
         ]
     if people and people.events:
-        detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, at=e.created_at, details=e.details) for e in people.events]
+        detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
+                        for e in people.events]
     if visibility.supplier_names and booking.provider:
         detail.provider = booking.provider
     if visibility.cost_and_margin:
