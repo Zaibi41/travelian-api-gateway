@@ -126,6 +126,6 @@ export TRAVELIAN_TEST_DATABASE_URL='postgresql+psycopg://travelian_local:<passwo
 unset TRAVELIAN_TEST_DATABASE_URL
 ```
 
-Expected on 9 November 2026: 437 passed, 47 skipped without a test database; 484 passed with one.
+Expected on 9 November 2026: 521 passed, 47 skipped without a test database; 568 passed with one.
 
 Supplier tests use a mocked supplier and never call a real one.
