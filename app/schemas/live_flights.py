@@ -5,10 +5,11 @@ leave the gateway. `supplier` and `supplier_cost` are only set for viewers with 
 matching permission; routes serialize with response_model_exclude_none.
 """
 
+import re
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class FlightMoney(BaseModel):
@@ -89,6 +90,10 @@ _NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"
 
 
 class HoldPassenger(BaseModel):
+    """Our checks (the supplier and airline may add their own): passport needs number, issuing
+    country and expiry; a Pakistani national ID (CNIC / B-form) is 13 digits. Expiry against the
+    travel dates is checked when the hold is placed."""
+
     type: Literal["ADT", "CHD", "INF"]
     title: Literal["MR", "MRS", "MISS", "MASTER"]
     first_name: str = Field(pattern=_NAME)
@@ -99,6 +104,17 @@ class HoldPassenger(BaseModel):
     document_country: str | None = Field(None, pattern=r"^[A-Z]{3}$")
     document_expiry: date | None = None
     nationality: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+
+    @model_validator(mode="after")
+    def document_rules(self):
+        if self.id_type == "PSPT":
+            missing = [label for label, value in (("passport number", self.document_number), ("issuing country", self.document_country),
+                                                  ("passport expiry", self.document_expiry)) if not value]
+            if missing:
+                raise ValueError(f"{self.first_name}: {', '.join(missing)} required for a passport.")
+        if self.id_type == "NATI" and self.nationality == "PAK" and not re.fullmatch(r"\d{13}", self.document_number or ""):
+            raise ValueError(f"{self.first_name}: a Pakistani national ID (CNIC or B-form) is 13 digits.")
+        return self
 
 
 class HoldContact(BaseModel):
@@ -125,3 +141,4 @@ class HoldView(BaseModel):
     time_limit: datetime | None = Field(None, description="The hold expires then unless ticketed. There is no cancel call.")
     selling_total: FlightMoney
     label: Literal["UAT test data"] = "UAT test data"
+    warnings: list[str] = Field(default_factory=list, description="Not errors: e.g. passport valid for under 6 months on an international route.")

@@ -40,8 +40,10 @@ def make_quote(adults=1, infants=0, selling=46_700, price_changed=False):
     return quote
 
 
-ADULT = {"type": "ADT", "title": "MR", "first_name": "Test", "last_name": "Passenger", "date_of_birth": "1990-01-01", "id_type": "PSPT", "document_number": "AB1234567"}
-INFANT = {"type": "INF", "title": "MISS", "first_name": "Baby", "last_name": "Passenger", "date_of_birth": "2026-01-01", "id_type": "PSPT"}
+ADULT = {"type": "ADT", "title": "MR", "first_name": "Test", "last_name": "Passenger", "date_of_birth": "1990-01-01", "id_type": "PSPT",
+         "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2031-01-01", "nationality": "PAK"}
+INFANT = {"type": "INF", "title": "MISS", "first_name": "Baby", "last_name": "Passenger", "date_of_birth": "2026-01-01", "id_type": "PSPT",
+          "document_number": "CD7654321", "document_country": "PAK", "document_expiry": "2031-01-01", "nationality": "PAK"}
 
 
 def hold_request(total=46_700, passengers=None, accept=False):
@@ -222,3 +224,74 @@ def test_hold_saves_the_customer_and_travelers_with_infant_link():
     assert (adult.passenger_type, adult.document_number, adult.infant_of_position) == ("ADT", "AB1234567", None)
     assert (infant.passenger_type, infant.infant_of_position) == ("INF", 0)
     assert "AB1234567" not in repr(kwargs["travelers"]) and "1990" not in str(kwargs["audit"])
+
+
+@pytest.mark.parametrize("change,message", [
+    ({"document_number": None}, "passport number"),
+    ({"document_country": None}, "issuing country"),
+    ({"document_expiry": None}, "passport expiry"),
+])
+def test_passport_needs_number_country_and_expiry(change, message):
+    with pytest.raises(ValueError, match=message):
+        hold_request(passengers=[{**ADULT, **change}])
+
+
+@pytest.mark.parametrize("passenger,ok", [
+    ({"id_type": "NATI", "nationality": "PAK", "document_number": "3520212345671"}, True),
+    ({"id_type": "NATI", "nationality": "PAK", "document_number": "352021234567"}, False),   # 12 digits
+    ({"id_type": "NATI", "nationality": "PAK", "document_number": "35202A2345671"}, False),
+    ({"id_type": "NATI", "nationality": "PAK", "document_number": None}, False),
+    ({"id_type": "NATI", "nationality": "GBR", "document_number": "X1234"}, True),          # only Pakistani IDs are checked
+    ({"id_type": "NATI", "nationality": None, "document_number": None}, True),
+])
+def test_cnic_is_13_digits_only_for_pakistani_nationals(passenger, ok):
+    data = {**ADULT, "document_country": None, "document_expiry": None, **passenger}
+    if ok:
+        hold_request(passengers=[data])
+    else:
+        with pytest.raises(ValueError, match="13 digits"):
+            hold_request(passengers=[data])
+
+
+def quote_for(origin, destination, departure="2026-11-27", return_date=None):
+    request = FlightSearchRequest(origin=origin, destination=destination, departure_date=departure, return_date=return_date, adults=1)
+    ref = live_flights.FareRef("outbound", f"{origin}{destination}", "MM112@2026-11-27T23:00", "EB", "OLD-HASH", None)
+    live_flights._store_quote(live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 45_770, 46_700, [], live_flights._now() + 600))
+    return request
+
+
+@pytest.mark.parametrize("expiry,return_date", [("2026-11-26", None), ("2026-11-29", "2026-11-30")])
+def test_passport_expiring_before_the_last_travel_date_is_refused_before_booking(expiry, return_date):
+    quote_for("KHI", "MUX", return_date=return_date)
+    client = fake_client()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(passengers=[{**ADULT, "document_expiry": expiry}]), client)
+    assert error.value.status == 422 and "expires before the last travel date" in error.value.message
+    assert client.booking.await_count == 0 and client.search.await_count == 0
+
+
+@pytest.mark.parametrize("origin,destination,expiry,warned", [
+    ("KHI", "DXB", "2027-03-01", True),    # international, under 6 months after 27 Nov 2026
+    ("KHI", "DXB", "2027-05-27", False),   # exactly 6 months: fine
+    ("DXB", "LHE", "2027-01-15", True),
+    ("KHI", "MUX", "2027-01-15", False),   # domestic: no warning
+    ("KHI", "MUX", "2026-11-27", False),   # expires on the travel day: allowed
+])
+def test_short_validity_on_an_international_route_is_a_warning_not_an_error(origin, destination, expiry, warned):
+    search = FlightSearchRequest(origin=origin, destination=destination, departure_date="2026-11-27", adults=1)
+    warnings = flight_holds.passport_warnings(hold_request(passengers=[{**ADULT, "document_expiry": expiry}]), search)
+    assert warnings == (["Test's passport is valid for less than 6 months after travel. Check the destination's entry rules."] if warned else [])
+
+
+def test_warnings_come_back_with_the_hold(monkeypatch):
+    make_quote()
+    monkeypatch.setattr(flight_holds, "is_domestic", lambda *codes: False)  # treat KHI-MUX as international
+    view, _ = run(hold_request(passengers=[{**ADULT, "document_expiry": "2027-02-01"}]), fake_client())
+    assert view.pnr == "63B55C" and len(view.warnings) == 1
+
+
+def test_month_arithmetic_handles_month_ends():
+    from datetime import date
+    assert flight_holds._add_months(date(2026, 8, 31), 6) == date(2027, 2, 28)
+    assert flight_holds._add_months(date(2027, 8, 31), 6) == date(2028, 2, 29)
+    assert flight_holds._add_months(date(2026, 11, 27), 6) == date(2027, 5, 27)

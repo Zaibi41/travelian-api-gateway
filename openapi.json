@@ -2871,6 +2871,7 @@
         "type": "object"
       },
       "HoldPassenger": {
+        "description": "Our checks (the supplier and airline may add their own): passport needs number, issuing\ncountry and expiry; a Pakistani national ID (CNIC / B-form) is 13 digits. Expiry against the\ntravel dates is checked when the hold is placed.",
         "properties": {
           "date_of_birth": {
             "format": "date",
@@ -3046,6 +3047,14 @@
             ],
             "description": "The hold expires then unless ticketed. There is no cancel call.",
             "title": "Time Limit"
+          },
+          "warnings": {
+            "description": "Not errors: e.g. passport valid for under 6 months on an international route.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [

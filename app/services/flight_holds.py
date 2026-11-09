@@ -14,6 +14,7 @@ from datetime import date, datetime, timezone
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, BackOfficeUser
 from app.core import pii
+from app.core.pakistan_airports import is_domestic
 from app.db import supplier_bookings
 from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
 from app.services import live_flights
@@ -33,6 +34,35 @@ class HoldError(Exception):
 
 def _age_on(birth: date, on: date) -> int:
     return on.year - birth.year - ((on.month, on.day) < (birth.month, birth.day))
+
+
+def _add_months(day: date, months: int) -> date:
+    month = day.month - 1 + months
+    year, month = day.year + month // 12, month % 12 + 1
+    for last in (31, 30, 29, 28):
+        try:
+            return date(year, month, min(day.day, last))
+        except ValueError:
+            continue
+    raise ValueError(day)
+
+
+def passport_warnings(request: HoldRequest, search) -> list[str]:
+    """Expiry before the last travel date: error (422). Under 6 months' validity on an
+    international route: a warning only (the destination's own rules decide)."""
+    last_travel = search.return_date or search.departure_date
+    international = not is_domestic(search.origin, search.destination)
+    warnings = []
+    for passenger in request.passengers:
+        expiry = passenger.document_expiry
+        if passenger.id_type != "PSPT" or expiry is None:
+            continue
+        if expiry < last_travel:
+            raise HoldError(422, f"{passenger.first_name}'s passport expires before the last travel date.")
+        if international and expiry < _add_months(last_travel, 6):
+            warnings.append(f"{passenger.first_name}'s passport is valid for less than 6 months after travel. "
+                            "Check the destination's entry rules.")
+    return warnings
 
 
 def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, str]]:
@@ -121,6 +151,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     if given != counts:
         raise HoldError(422, "The passengers must match the search (adults, children, infants).")
     passengers = _supplier_passengers(request, quote.request.departure_date)
+    warnings = passport_warnings(request, quote.request)
 
     client = (client_factory or configured_client)()
     # 1. Fresh reprice: the supplier total must still match what the user confirmed.
@@ -194,4 +225,4 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
                              "Check the total with the supplier before taking any payment.")
     return HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
-                    selling_total=FlightMoney(amount_minor=selling_total, currency=currency))
+                    selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings)
