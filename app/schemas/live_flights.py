@@ -84,6 +84,10 @@ class RepriceView(BaseModel):
     new_total: FlightMoney = Field(description="The verified selling total now (same as selling_total).")
     booking_enabled: bool = Field(description="Whether this gateway may place a hold for this user.")
     supplier_total: FlightMoney | None = Field(None, description="Only with the cost and margin permission.")
+    old_price_per_adult: FlightMoney | None = Field(None, description="Selling price per adult at the search prices (all legs).")
+    new_price_per_adult: FlightMoney | None = Field(None, description="Selling price per adult now (all legs). Omitted with no adult.")
+    price_difference_per_adult: FlightMoney | None = Field(None, description="New less old price per adult; negative when the price fell.")
+    margin: FlightMoney | None = Field(None, description="Selling total less supplier total. Only with the cost and margin permission.")
 
 
 _NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"

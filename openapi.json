@@ -3893,9 +3893,42 @@
             "title": "Expires At",
             "type": "string"
           },
+          "margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling total less supplier total. Only with the cost and margin permission."
+          },
+          "new_price_per_adult": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling price per adult now (all legs). Omitted with no adult."
+          },
           "new_total": {
             "$ref": "#/components/schemas/FlightMoney",
             "description": "The verified selling total now (same as selling_total)."
+          },
+          "old_price_per_adult": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling price per adult at the search prices (all legs)."
           },
           "old_total": {
             "anyOf": [
@@ -3919,6 +3952,17 @@
             "description": "True when the revalidated total differs from the search result. A hold then needs accept_price_change.",
             "title": "Price Changed",
             "type": "boolean"
+          },
+          "price_difference_per_adult": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New less old price per adult; negative when the price fell."
           },
           "quote_id": {
             "description": "Opaque. Valid for 10 minutes, for the user who repriced.",

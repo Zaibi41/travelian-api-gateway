@@ -93,7 +93,7 @@ def test_children_need_explicit_fare_info_totals():
     test, patcher, result = searched(STAFF, client, body)
     refused = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]})
     patcher.stop()
-    assert refused.status_code == 422 and "Child and infant" in refused.json()["detail"]
+    assert refused.status_code == 422 and "Child and infant" in refused.json()["detail"] and refused.json()["code"] == "adults_only"
 
 
 @pytest.mark.parametrize("case,status", [("gone", 409), ("expired", 404), ("wrong_count", 422), ("no_markup", 409), ("supplier_down", 502)])
@@ -107,6 +107,9 @@ def test_reprice_refusals(case, status):
         response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": search_id, "fare_ids": fare_ids})
     patcher.stop()
     assert response.status_code == status, response.text
+    expected_code = {"gone": "fare_gone", "expired": "search_expired", "wrong_count": "invalid_selection", "no_markup": "no_selling_price",
+                     "supplier_down": "not_confirmed"}[case]
+    assert response.json()["code"] == expected_code and response.json()["detail"]
 
 
 def test_round_trip_reprices_both_legs():
@@ -229,3 +232,26 @@ def test_live_shape_child_or_infant_priced_from_components_that_match_final_tota
 def test_live_shape_infant_without_a_verified_breakdown_is_refused(fare_info):
     response, _ = live_reprice(fare_info=fare_info, infants=1)
     assert response.status_code == 422 and live_flights._quotes == {}
+
+
+def test_reprice_sends_per_adult_old_new_and_difference_and_margin_only_with_cost_permission():
+    for viewer, sees_cost in ((STAFF, False), (ADMIN, True)):
+        client = fake_client(search_data(), search_data(total="500.00"), fare_info={"FINAL_TOTAL": "1000.00"})
+        test, patcher, result = searched(viewer, client)
+        body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
+        patcher.stop()
+        # 457.70 -> Rs 467 per adult (2%); now 500.00 -> Rs 510; difference Rs 43
+        assert body["old_price_per_adult"]["amount_minor"] == 46_700 and body["new_price_per_adult"]["amount_minor"] == 51_000
+        assert body["price_difference_per_adult"]["amount_minor"] == 4_300
+        if sees_cost:
+            assert body["margin"]["amount_minor"] == 102_000 - 100_000 and body["supplier_total"]["amount_minor"] == 100_000
+        else:
+            assert "margin" not in body and "supplier_total" not in body
+
+
+def test_lower_price_gives_a_negative_difference():
+    client = fake_client(search_data(), search_data(total="400.00"), fare_info={"FINAL_TOTAL": "800.00"})
+    test, patcher, result = searched(STAFF, client)
+    body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
+    patcher.stop()
+    assert body["price_changed"] is True and body["price_difference_per_adult"]["amount_minor"] == 40_800 - 46_700

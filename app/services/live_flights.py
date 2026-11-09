@@ -186,10 +186,14 @@ _quotes: OrderedDict[str, "Quote"] = OrderedDict()
 
 
 class RepriceError(Exception):
-    def __init__(self, status: int, message: str):
+    """code: stable reason for clients (fare_gone, search_expired, adults_only, no_selling_price,
+    not_confirmed, change_too_large, invalid_selection); message: the sentence to show."""
+
+    def __init__(self, status: int, message: str, code: str = "not_confirmed"):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code
 
 
 @dataclass
@@ -227,11 +231,11 @@ def _store_quote(quote: Quote) -> None:
 def _selected_refs(session: SearchSession, fare_ids: list[str]) -> list[FareRef]:
     refs = [session.fares.get(fare_id) for fare_id in fare_ids]
     if any(ref is None for ref in refs):
-        raise RepriceError(404, "That fare isn't part of this search. Search again.")
+        raise RepriceError(404, "That fare isn't part of this search. Search again.", code="invalid_selection")
     directions = [ref.direction for ref in refs]
     expected = ["outbound", "return"] if session.request.return_date else ["outbound"]
     if directions != expected:
-        raise RepriceError(422, "Choose one outbound fare" + (" and one return fare." if session.request.return_date else "."))
+        raise RepriceError(422, "Choose one outbound fare" + (" and one return fare." if session.request.return_date else "."), code="invalid_selection")
     return refs  # type: ignore[return-value]
 
 
@@ -256,7 +260,7 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
         flight = next((f for f in (leg.flights if leg else []) if f.key == ref.flight_key), None)
         fare = next((f for f in (flight.fares if flight else []) if f.code == ref.fare_code), None)
         if fare is None:
-            raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.")
+            raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
         fresh.append(FareRef(ref.direction, ref.route_key, ref.flight_key, fare.code, fare.fare_hash, fare.adult_total))
 
     fallback = await account_currency(client)
@@ -289,7 +293,7 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
         currencies = {fare_currency(r.adult_total, fallback) for r in fresh} | {fare_currency(final, fallback)}
         priced = [("ADT", request.adults, each)]
     else:
-        raise RepriceError(422, "Child and infant fares can't be confirmed for this fare yet. Search for adults only.")
+        raise RepriceError(422, "Child and infant fares can't be confirmed for this fare yet. Search for adults only.", code="adults_only")
     if len(currencies) != 1 or None in currencies:
         raise RepriceError(502, "The supplier's fare currency is unclear. This fare can't be confirmed.")
     return nld, fresh, currencies.pop(), priced  # type: ignore[return-value]
@@ -343,7 +347,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
 
     session = get_session(search_id, viewer.user_id)
     if session is None:
-        raise RepriceError(404, "This search has expired. Search again.")
+        raise RepriceError(404, "This search has expired. Search again.", code="search_expired")
     wanted = _selected_refs(session, fare_ids)
     try:
         client = (client_factory or configured_client)()
@@ -355,7 +359,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
     for kind, number, cost_each in priced:
         selling_each = sell(cost_each)
         if selling_each is None:
-            raise RepriceError(409, "No selling price is configured for flights, so this fare can't be confirmed.")
+            raise RepriceError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
         passengers.append((kind, number, cost_each, selling_each))
     supplier_total = sum(number * cost for _, number, cost, _ in passengers)
     selling_total = sum(number * selling for _, number, _, selling in passengers)
@@ -365,7 +369,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
     price_changed = old_adult != new_adult or (old_total is not None and old_total != selling_total)
     if price_changed and not price_change_allowed(old_total, selling_total):
         raise RepriceError(409, f"The price changed from {money_text(old_total or 0, currency)} to {money_text(selling_total, currency)}, "
-                                "more than the allowed change. Search again.")
+                                "more than the allowed change. Search again.", code="change_too_large")
     quote = Quote(
         id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=session.request, nld=nld, refs=fresh, currency=currency,
         supplier_total_minor=supplier_total, selling_total_minor=selling_total, passengers=passengers,
@@ -380,6 +384,15 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         passengers=[PassengerPrice(type=kind, count=number, selling_each=FlightMoney(amount_minor=selling, currency=currency)) for kind, number, _, selling in passengers],
         price_changed=price_changed, booking_enabled=can_book(viewer),
     )
+    old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
+    new_each = next((selling for kind, _, _, selling in passengers if kind == "ADT"), None)
+    if old_each is not None:
+        view.old_price_per_adult = FlightMoney(amount_minor=old_each, currency=currency)
+    if new_each is not None:
+        view.new_price_per_adult = FlightMoney(amount_minor=new_each, currency=currency)
+    if old_each is not None and new_each is not None:
+        view.price_difference_per_adult = FlightMoney(amount_minor=new_each - old_each, currency=currency)
     if viewer.visibility.cost_and_margin:
         view.supplier_total = FlightMoney(amount_minor=supplier_total, currency=currency)
+        view.margin = FlightMoney(amount_minor=selling_total - supplier_total, currency=currency)
     return view

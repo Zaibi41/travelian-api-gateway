@@ -7,6 +7,7 @@ selling price; supplier name and cost only with permission; NLD and fare hashes 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.core.field_visibility import BackOfficeUser, require_back_office, require_search_viewer
 from app.schemas.flights import FlightSearchRequest
@@ -36,7 +37,8 @@ async def reprice_flights(request: RepriceRequest, viewer: Viewer) -> RepriceVie
     try:
         return await live_flights.reprice(request.search_id, request.fare_ids, viewer)
     except live_flights.RepriceError as error:
-        raise HTTPException(error.status, error.message) from None
+        # detail: the sentence to show; code: a stable reason the page can act on.
+        return JSONResponse({"detail": error.message, "code": error.code}, status_code=error.status)
 
 
 @router.post(
