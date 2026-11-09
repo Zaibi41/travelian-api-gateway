@@ -31,7 +31,9 @@ def new_reference() -> str:
 
 def _event(connection, booking_id: str, actor: str | None, action: str, details: dict[str, Any]) -> None:
     connection.execute(
-        text("INSERT INTO booking_events (id, booking_id, actor_user_id, action, details) VALUES (:id, :b, :a, :action, CAST(:d AS jsonb))"),
+        # clock_timestamp(): the real time of each event, so events in one transaction keep their order.
+        text("INSERT INTO booking_events (id, booking_id, actor_user_id, action, details, created_at)"
+             " VALUES (:id, :b, :a, :action, CAST(:d AS jsonb), clock_timestamp())"),
         {"id": str(uuid4()), "b": booking_id, "a": actor, "action": action, "d": json.dumps(details)},
     )
 
@@ -122,57 +124,3 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
         _event(connection, booking_id, actor_user_id, "hold_created",
                {**audit, "label": "UAT test data", "travelers": len(travelers or [])})
     return reference
-
-
-@dataclass(frozen=True)
-class TicketingTarget:
-    id: str
-    reference: str
-    pnr: str | None
-    provider: str | None
-    booking_status: str
-    issuance_status: str
-    hold_expires_at: datetime | None
-    currency: str
-    supplier_cost_minor: int | None
-    supplier_ref: str | None
-
-
-def claim_for_ticketing(reference: str, actor_user_id: str, check) -> TicketingTarget:
-    """Lock the booking, run `check(target)` (raises to refuse), then mark issuance 'unknown'
-    before the supplier call, so a second attempt can never send ticketing twice."""
-    with agencies.application_engine().begin() as connection:
-        row = connection.execute(
-            text("SELECT id, reference, pnr, provider_id, booking_status, issuance_status, hold_expires_at, currency,"
-                 " supplier_cost_minor, supplier_ref FROM bookings WHERE reference = :ref FOR UPDATE"),
-            {"ref": reference},
-        ).mappings().first()
-        if row is None:
-            raise LookupError(reference)
-        target = TicketingTarget(row["id"], row["reference"], row["pnr"], row["provider_id"], row["booking_status"],
-                                 row["issuance_status"], row["hold_expires_at"], row["currency"], row["supplier_cost_minor"],
-                                 row["supplier_ref"])
-        check(target)
-        connection.execute(text("UPDATE bookings SET issuance_status = 'unknown', updated_at = now(), revision = revision + 1 WHERE id = :id"), {"id": target.id})
-        _event(connection, target.id, actor_user_id, "ticketing_requested", {"pnr": target.pnr})
-    return target
-
-
-def record_ticketing(booking_id: str, actor_user_id: str, outcome: str, response: dict[str, Any], details: dict[str, Any]) -> None:
-    """outcome: 'issued' or 'unknown'."""
-    with agencies.application_engine().begin() as connection:
-        if outcome == "issued":
-            connection.execute(
-                text("UPDATE bookings SET issuance_status = 'issued', booking_status = 'ticket_issued', updated_at = now(),"
-                     " revision = revision + 1, supplier_response = COALESCE(supplier_response, '{}'::jsonb) || jsonb_build_object('ticketing', CAST(:r AS jsonb))"
-                     " WHERE id = :id"),
-                {"id": booking_id, "r": json.dumps(response)},
-            )
-        else:
-            connection.execute(
-                text("UPDATE bookings SET issuance_status = 'unknown', updated_at = now(), revision = revision + 1,"
-                     " supplier_response = COALESCE(supplier_response, '{}'::jsonb) || jsonb_build_object('ticketing', CAST(:r AS jsonb))"
-                     " WHERE id = :id"),
-                {"id": booking_id, "r": json.dumps(response)},
-            )
-        _event(connection, booking_id, actor_user_id, f"ticketing_{outcome}", details)

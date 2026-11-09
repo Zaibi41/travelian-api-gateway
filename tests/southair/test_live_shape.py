@@ -93,3 +93,19 @@ def test_price_is_supplier_amount_plus_markup_and_cost_only_with_permission():
     assert [f["supplier_cost"]["amount_minor"] for f in admin] == [1_333_000, 1_492_400, 1_651_800]
     assert [f["selling_price"]["amount_minor"] for f in staff] == [1_399_700, 1_567_100, 1_734_400]
     assert all("supplier_cost" not in f and "supplier" not in f for f in staff)
+
+
+def test_pnr_state_from_the_recorded_uat_shape():
+    from tests.southair.fixtures import pnr_info
+    assert normalize.pnr_state(pnr_info(), "63B55C").kind == "not_issued"
+    assert normalize.pnr_state(pnr_info(tickets=("2147483647001", "2147483647002"), paid=457.70), "63B55C").kind == "issued"
+    for unclear in (pnr_info(tickets=("2147483647001", None)), pnr_info(paid=457.70), pnr_info(status="XX"),
+                    pnr_info(pnr="OTHER1"), {"names": []}, None):
+        assert normalize.pnr_state(unclear, "63B55C").kind == "unclear"
+    assert normalize.pnr_state(pnr_info(), "63B55C").tickets == [("ADT", None), ("INF", None)]
+
+
+def test_cash_amount_is_digits_only():
+    assert normalize.cash_amount(normalize.Amount(Decimal("13330"), None)) == "13330"
+    assert normalize.cash_amount(normalize.Amount(Decimal("457.70"), None)) == "457.7"
+    assert normalize.cash_amount(normalize.Amount(Decimal("13330.00"), None)) == "13330"

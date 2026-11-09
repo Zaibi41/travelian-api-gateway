@@ -77,3 +77,20 @@ def live_fare_info_with(kind, final_total):
         other = {"BASE": {"FARE": {"VALUE": 7896}, "YR": {"VALUE": 316}, "YQ": {"VALUE": 316}},
                  "TFC": {"YI": {"VALUE": 20}, "XZ": {"VALUE": 100}, "SP": {"VALUE": 500}, "N9": {"VALUE": 50}, "PK": {"VALUE": 1500}}, "TAX": []}
     return {"ADT": {**adult, "TAX": []}, kind: other, **({"FINAL_TOTAL": final_total} if final_total is not None else {})}
+
+
+def pnr_info(pnr="63B55C", status="BK", tickets=(None, None), paid=0, total=457.70, can_ticketing=True):
+    """Sanitized pnr_info in the UAT shape recorded on 9 Nov 2026 (field names and status values as
+    seen; no passenger data). The ticketed variant (tkt_no set, totalAmountPaid = total) is not yet
+    seen live: ticketing can't run in UAT with a zero balance."""
+    types = ["ADT", "INF"][:len(tickets)]
+    return {
+        "PNRN": pnr, "invoice_no": "", "totalAmountPaid": paid, "can_ticketing": can_ticketing, "can_update_res": 1, "seat_status": "HK",
+        "res": {"pnrn": pnr, "status": status, "total_amount": total, "booked_currency": "PKR"},
+        "names": [{"name_type": kind, "tkt_no": number, "id_type": "PSPT"} for kind, number in zip(types, tickets)],
+        "flight": [{"seat_status": "HK"}],
+    }
+
+
+#: Ticketing answer as documented in the supplier guide (data.booking_status "OK", pnrn, invoice_no).
+TICKETING_OK = {"booking_status": "OK", "pnrn": "63B55C", "invoice_no": "INV-UAT-1"}

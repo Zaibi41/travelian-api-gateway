@@ -496,6 +496,12 @@
             "title": "Booking Id",
             "type": "string"
           },
+          "can_issue_tickets": {
+            "default": false,
+            "description": "Whether this viewer may issue, verify and resolve (the endpoints still check).",
+            "title": "Can Issue Tickets",
+            "type": "boolean"
+          },
           "can_record_payments": {
             "default": false,
             "description": "Whether this viewer may record a payment (the endpoint still checks).",
@@ -1542,6 +1548,8 @@
           "issuance": {
             "enum": [
               "not_issued",
+              "requested",
+              "processing",
               "issued",
               "unknown"
             ],
@@ -3369,6 +3377,204 @@
         "title": "IntegrationRegistration",
         "type": "object"
       },
+      "IssuanceChecklist": {
+        "description": "What stands between this booking and a ticket. Supplier fields only with the cost and margin permission.",
+        "properties": {
+          "amount_due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "amount_paid": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "blockers": {
+            "description": "Why issuing (or requesting) isn't possible now; empty when it is.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_issue": {
+            "description": "This viewer may issue now: permission, ticketing on, no blockers.",
+            "title": "Can Issue",
+            "type": "boolean"
+          },
+          "can_request": {
+            "title": "Can Request",
+            "type": "boolean"
+          },
+          "full_payment_recorded": {
+            "title": "Full Payment Recorded",
+            "type": "boolean"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "issuance_status": {
+            "enum": [
+              "not_issued",
+              "requested",
+              "processing",
+              "issued",
+              "unknown"
+            ],
+            "title": "Issuance Status",
+            "type": "string"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "supplier_amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "supplier_balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission; omitted if the supplier didn't answer."
+          },
+          "ticketing_enabled": {
+            "title": "Ticketing Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuance_status",
+          "blockers",
+          "full_payment_recorded",
+          "amount_paid",
+          "amount_due",
+          "ticketing_enabled",
+          "can_request",
+          "can_issue"
+        ],
+        "title": "IssuanceChecklist",
+        "type": "object"
+      },
+      "IssuanceRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "IssuanceRequest",
+        "type": "object"
+      },
+      "IssuanceResolveRequest": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "issued",
+              "not_issued"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          },
+          "ticket_numbers": {
+            "description": "Required for every traveler when outcome is issued.",
+            "items": {
+              "$ref": "#/components/schemas/TicketNumber"
+            },
+            "title": "Ticket Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "reason"
+        ],
+        "title": "IssuanceResolveRequest",
+        "type": "object"
+      },
+      "IssuanceResult": {
+        "properties": {
+          "issuance_status": {
+            "enum": [
+              "not_issued",
+              "requested",
+              "processing",
+              "issued",
+              "unknown"
+            ],
+            "title": "Issuance Status",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "issued",
+              "not_issued",
+              "unknown",
+              "requested"
+            ],
+            "title": "Result",
+            "type": "string"
+          },
+          "tickets": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TicketNumber"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result",
+          "issuance_status",
+          "message"
+        ],
+        "title": "IssuanceResult",
+        "type": "object"
+      },
       "JourneyView": {
         "properties": {
           "destination": {
@@ -3879,6 +4085,27 @@
           }
         },
         "title": "SupplierPayment",
+        "type": "object"
+      },
+      "TicketNumber": {
+        "properties": {
+          "position": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "ticket_number": {
+            "pattern": "^[A-Za-z0-9-]{6,32}$",
+            "title": "Ticket Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "ticket_number"
+        ],
+        "title": "TicketNumber",
         "type": "object"
       },
       "TokenResponse": {
@@ -4451,7 +4678,7 @@
                 "type": "null"
               }
             ],
-            "description": "Not recorded yet.",
+            "description": "Set when the ticket is issued.",
             "title": "Ticket Number"
           },
           "title": {
@@ -5511,6 +5738,8 @@
                 {
                   "enum": [
                     "not_issued",
+                    "requested",
+                    "processing",
                     "issued",
                     "unknown"
                   ],
@@ -5701,6 +5930,339 @@
           }
         ],
         "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/issuance": {
+      "get": {
+        "description": "The checks before issuing. Supplier amount, balance and margin only with the cost and margin permission.",
+        "operationId": "issuance_checklist_v1_admin_bookings__booking_id__issuance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceChecklist"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Issuance Checklist",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/issuance/issue": {
+      "post": {
+        "description": "Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown.",
+        "operationId": "issue_ticket_v1_admin_bookings__booking_id__issuance_issue_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Issue Ticket",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/issuance/request": {
+      "post": {
+        "description": "Ask an approver to issue: needs full payment recorded and a valid hold.",
+        "operationId": "request_issuance_v1_admin_bookings__booking_id__issuance_request_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssuanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Issuance",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/issuance/resolve": {
+      "post": {
+        "description": "Mark an unknown issuance as issued (ticket number for every traveler) or not issued, with a reason.",
+        "operationId": "resolve_issuance_v1_admin_bookings__booking_id__issuance_resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssuanceResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "description": "Missing ticket numbers or reason."
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Issuance",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/issuance/verify": {
+      "post": {
+        "description": "For an unknown issuance: check the PNR with the supplier again (read-only) and settle it if clear.",
+        "operationId": "verify_issuance_v1_admin_bookings__booking_id__issuance_verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Issuance",
         "tags": [
           "admin bookings"
         ]

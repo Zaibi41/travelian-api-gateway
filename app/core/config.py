@@ -58,6 +58,8 @@ class Settings(BaseSettings):
 
     southair_booking_enabled: bool = False
     southair_ticketing_enabled: bool = False
+    # Issuing stops this many seconds before the hold's time limit.
+    ticketing_deadline_margin_seconds: int = Field(120, ge=0, le=3600)
     # Flight selling price = supplier fare + percent + fixed amount per passenger (D23).
     # With both at 0 no selling price is returned and nothing can be confirmed or held.
     flight_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)

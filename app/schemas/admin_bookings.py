@@ -20,7 +20,7 @@ Product = Literal["flight", "group", "hotel", "umrah"]
 BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired"]
 PaymentStatus = Literal["paid", "unpaid", "part_paid"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
-IssuanceStatus = Literal["not_issued", "issued", "unknown"]
+IssuanceStatus = Literal["not_issued", "requested", "processing", "issued", "unknown"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
@@ -126,7 +126,7 @@ class BookingPassenger(BaseModel):
     document_validity: Literal["valid", "expiring", "expired"] | None = Field(
         None, description="From the expiry date today: expired, expiring within 6 months, or valid. Omitted without an expiry.")
     infant_of_position: int | None = Field(None, description="For an infant: the position of the adult it travels with.")
-    ticket_number: str | None = Field(None, description="Not recorded yet.")
+    ticket_number: str | None = Field(None, description="Set when the ticket is issued.")
 
 
 class BookingAuditEntry(BaseModel):
@@ -164,6 +164,45 @@ class RecordPaymentResponse(BaseModel):
     payment_status: PaymentStatus
 
 
+class IssuanceChecklist(BaseModel):
+    """What stands between this booking and a ticket. Supplier fields only with the cost and margin permission."""
+
+    issuance_status: IssuanceStatus
+    blockers: list[str] = Field(description="Why issuing (or requesting) isn't possible now; empty when it is.")
+    full_payment_recorded: bool
+    amount_paid: BookingMoney
+    amount_due: BookingMoney
+    hold_expires_at: datetime | None = None
+    ticketing_enabled: bool
+    can_request: bool
+    can_issue: bool = Field(description="This viewer may issue now: permission, ticketing on, no blockers.")
+    supplier_amount: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+    supplier_balance: BookingMoney | None = Field(None, description="Only with the cost and margin permission; omitted if the supplier didn't answer.")
+    margin: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+
+
+class IssuanceRequest(BaseModel):
+    note: str | None = Field(None, max_length=500)
+
+
+class TicketNumber(BaseModel):
+    position: int = Field(ge=0, le=8)
+    ticket_number: str = Field(pattern=r"^[A-Za-z0-9-]{6,32}$")
+
+
+class IssuanceResolveRequest(BaseModel):
+    outcome: Literal["issued", "not_issued"]
+    reason: str = Field(min_length=5, max_length=500)
+    ticket_numbers: list[TicketNumber] = Field(default_factory=list, description="Required for every traveler when outcome is issued.")
+
+
+class IssuanceResult(BaseModel):
+    result: Literal["issued", "not_issued", "unknown", "requested"]
+    issuance_status: IssuanceStatus
+    message: str
+    tickets: list[TicketNumber] = []
+
+
 class RevealRequest(BaseModel):
     reason: str = Field(min_length=5, max_length=500, description="Why the full values are needed. Logged with the reveal.")
 
@@ -198,6 +237,7 @@ class BookingDetail(BaseModel):
     amount_paid: BookingMoney | None = Field(None, description="Sum of recorded payments.")
     amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
+    can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )

@@ -324,3 +324,78 @@ def test_part_paid_counts_as_unpaid_on_the_card_and_filters_as_part_paid(monkeyp
     assert [i["statuses"]["payment"] for i in body["items"]] == ["part_paid", "paid"]
     filtered = client(monkeypatch, rows=rows).get("/v1/admin/bookings", params={"payment_status": "part_paid"}).json()
     assert [i["booking_id"] for i in filtered["items"]] == ["TRV-1"]
+
+
+ISSUER = BackOfficeUser("u-7", "staff", NONE, frozenset({"issue_tickets"}))
+ISSUER_COST = BackOfficeUser("u-8", "staff", FieldVisibility(supplier_names=False, cost_and_margin=True), frozenset({"issue_tickets"}))
+
+
+def issuance_target(**overrides):
+    from app.db import issuance as store
+    values = dict(id="b1", reference="TRV-2", pnr="PNR2", provider="southair", product="flight", booking_status="held",
+                  issuance_status="not_issued", hold_expires_at=NOW + timedelta(hours=5), currency="PKR", total_minor=1_000_000,
+                  supplier_cost_minor=900_000, supplier_ref="REF", paid_minor=1_000_000, traveler_types=[(0, "ADT")])
+    values.update(overrides)
+    return store.Target(**values)
+
+
+def checklist(monkeypatch, viewer, target, balance="50000.00"):
+    from unittest.mock import AsyncMock, MagicMock
+    from app.core.config import settings
+    from app.db import issuance as store
+    monkeypatch.setattr(store, "load", lambda reference: target)
+    supplier = MagicMock()
+    supplier.profile = AsyncMock(return_value={"limit": {"cap": balance, "ccy": "PKR"}})
+    monkeypatch.setattr(routes, "configured_client", lambda: supplier)
+    monkeypatch.setattr(settings, "southair_ticketing_enabled", True)
+    return client(monkeypatch, viewer=viewer).get("/v1/admin/bookings/TRV-2/issuance")
+
+
+@pytest.mark.parametrize("viewer", [STAFF, STAFF_NAMES, ISSUER])
+def test_checklist_has_no_supplier_fields_without_cost_permission(monkeypatch, viewer):
+    response = checklist(monkeypatch, viewer, issuance_target())
+    body = response.json()
+    assert response.status_code == 200 and not ({"supplier_amount", "supplier_balance", "margin"} & set(body))
+    assert "southair" not in response.text.lower() and "900000" not in response.text
+    assert body["can_issue"] is (viewer is ISSUER) and body["full_payment_recorded"] is True and body["blockers"] == []
+
+
+@pytest.mark.parametrize("viewer", [SUPER_ADMIN, ISSUER_COST])
+def test_checklist_shows_supplier_amount_balance_and_margin_with_cost_permission(monkeypatch, viewer):
+    body = checklist(monkeypatch, viewer, issuance_target()).json()
+    assert body["supplier_amount"]["amount_minor"] == 900_000 and body["margin"]["amount_minor"] == 100_000
+    assert body["supplier_balance"]["amount_minor"] == 5_000_000
+    assert "southair" not in str(body).lower()
+
+
+def test_checklist_blockers(monkeypatch):
+    target = issuance_target(paid_minor=400_000, hold_expires_at=NOW + timedelta(seconds=30))
+    body = checklist(monkeypatch, ISSUER, target).json()
+    assert body["can_issue"] is False and body["can_request"] is False and body["amount_due"]["amount_minor"] == 600_000
+    assert any("Full payment" in b for b in body["blockers"]) and any("expired" in b for b in body["blockers"])
+
+
+@pytest.mark.parametrize("path,body", [("/issue", None), ("/verify", None), ("/resolve", {"outcome": "not_issued", "reason": "Supplier said so"})])
+def test_issue_verify_and_resolve_need_the_permission(monkeypatch, path, body):
+    from app.services import issuance
+    monkeypatch.setattr(issuance.store, "load", lambda reference: issuance_target(issuance_status="unknown"))
+    monkeypatch.setattr(issuance.store, "claim", lambda *a: (_ for _ in ()).throw(AssertionError("must not claim")))
+    response = client(monkeypatch, viewer=STAFF).post(f"/v1/admin/bookings/TRV-2/issuance{path}", json=body)
+    assert response.status_code == 403 and "issue tickets permission" in response.json()["detail"]
+
+
+def test_resolve_needs_a_reason_and_one_ticket_per_traveler(monkeypatch):
+    api = client(monkeypatch, viewer=ISSUER)
+    assert api.post("/v1/admin/bookings/TRV-2/issuance/resolve", json={"outcome": "not_issued", "reason": ""}).status_code == 422
+    assert api.post("/v1/admin/bookings/TRV-2/issuance/resolve", json={"outcome": "issued", "reason": "Confirmed",
+                    "ticket_numbers": [{"position": 0, "ticket_number": "2147483647001"}, {"position": 0, "ticket_number": "2147483647002"}]}).status_code == 422
+
+
+def test_issue_result_carries_no_supplier_fields(monkeypatch):
+    from app.services import issuance
+    async def issue(reference, viewer, client_factory=None):
+        return issuance.Outcome("issued", "issued", "Ticket issued.", {0: "2147483647001"})
+    monkeypatch.setattr(issuance, "issue", issue)
+    response = client(monkeypatch, viewer=ISSUER).post("/v1/admin/bookings/TRV-2/issuance/issue")
+    assert response.json() == {"result": "issued", "issuance_status": "issued", "message": "Ticket issued.",
+                               "tickets": [{"position": 0, "ticket_number": "2147483647001"}]}

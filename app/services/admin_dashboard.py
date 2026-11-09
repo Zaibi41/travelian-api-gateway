@@ -92,7 +92,12 @@ def _overdue(booking: BookingRow, now: datetime) -> bool:
 
 
 def is_pending_issuance(booking: BookingRow) -> bool:
-    return booking.product == "flight" and booking.status in {"payment_received", "confirmed"} and booking.ticket_status != "issued"
+    """Paid or confirmed and waiting for a ticket: also a fully paid hold, or one with issuance
+    requested or in progress. Issued and unknown issuance are counted elsewhere."""
+    if booking.product != "flight" or booking.ticket_status in ("issued", "unknown"):
+        return False
+    return (booking.status in {"payment_received", "confirmed"} or booking.ticket_status in ("requested", "processing")
+            or (booking.status in OPEN_HOLD and booking.payment_status == "paid"))
 
 
 def is_payment_pending(booking: BookingRow, now: datetime) -> bool:

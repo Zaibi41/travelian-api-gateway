@@ -23,11 +23,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core import pii
 from app.core.config import settings
-from app.core.field_visibility import RECORD_PAYMENTS
+from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
 from app.db import booking_payments, booking_people
+from app.db import issuance as issuance_store
+from app.services import issuance as issuance_service
+from app.vendors.flights.southair import normalize as southair_normalize
+from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingPayment, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product,
-    RecordPaymentRequest, RecordPaymentResponse, RevealRequest, RevealResponse,
+    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceChecklist, IssuanceRequest,
+    IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
+    RevealRequest, RevealResponse, TicketNumber,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -90,7 +95,8 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     except (SQLAlchemyError, HTTPException):
         logger.warning("Booking people read failed")
         people = None  # the tabs stay "not available" rather than failing the whole page
-    return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS))
+    return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
+                                can_issue_tickets=viewer.can(ISSUE_TICKETS))
 
 
 @router.post(
@@ -145,3 +151,81 @@ async def reveal_traveler_identity(
         logger.error("Identity reveal failed: key not available or value unreadable")
         raise HTTPException(503, "Identity details can't be shown right now.") from None
     return RevealResponse(**values)
+
+
+# ---------- issuance ----------
+
+ISSUANCE_RESPONSES = {
+    403: {"description": "Needs the issue_tickets permission."}, 404: {"description": "No such booking."},
+    409: {"description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."},
+    502: {"description": "The supplier couldn't be checked before sending. Nothing was issued."},
+}
+
+
+def _result(outcome: issuance_service.Outcome) -> IssuanceResult:
+    return IssuanceResult(result=outcome.result, issuance_status=outcome.issuance_status, message=outcome.message,
+                          tickets=[TicketNumber(position=p, ticket_number=n) for p, n in sorted(outcome.tickets.items())])
+
+
+async def _run(call):
+    try:
+        return _result(await call)
+    except issuance_store.IssuanceRefused as error:
+        raise HTTPException(error.status, error.message) from None
+
+
+@router.get("/{booking_id}/issuance", response_model=IssuanceChecklist, response_model_exclude_none=True, responses=ISSUANCE_RESPONSES)
+async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """The checks before issuing. Supplier amount, balance and margin only with the cost and margin permission."""
+    try:
+        target = await run_in_threadpool(issuance_store.load, booking_id)
+    except issuance_store.IssuanceRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    blockers = issuance_store.blockers(target, _now(), settings.ticketing_deadline_margin_seconds)
+    status = target.issuance_status
+    issuable = status in issuance_store.ISSUABLE and not blockers
+    money = lambda minor: BookingMoney(amount_minor=minor, currency=target.currency)  # noqa: E731
+    checklist = IssuanceChecklist(
+        issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor >= target.total_minor,
+        amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor, 0)),
+        hold_expires_at=target.hold_expires_at, ticketing_enabled=settings.southair_ticketing_enabled,
+        can_request=issuable and status == "not_issued",
+        can_issue=issuable and viewer.can(ISSUE_TICKETS) and settings.southair_ticketing_enabled,
+    )
+    if viewer.visibility.cost_and_margin and target.supplier_cost_minor is not None:
+        checklist.supplier_amount = money(target.supplier_cost_minor)
+        checklist.margin = money(target.total_minor - target.supplier_cost_minor)
+        try:
+            cap = southair_normalize.parse_amount(((await configured_client().profile()).get("limit") or {}).get("cap"))
+            if cap is not None:
+                checklist.supplier_balance = BookingMoney(amount_minor=int(cap.value * 100), currency=target.currency)
+        except SouthairError:
+            pass  # omitted: the supplier didn't answer
+    return checklist
+
+
+@router.post("/{booking_id}/issuance/request", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
+async def request_issuance(viewer: Viewer, request: IssuanceRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """Ask an approver to issue: needs full payment recorded and a valid hold."""
+    return await _run(issuance_service.request(booking_id, viewer, (request.note or "").strip() or None))
+
+
+@router.post("/{booking_id}/issuance/issue", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
+async def issue_ticket(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown."""
+    return await _run(issuance_service.issue(booking_id, viewer))
+
+
+@router.post("/{booking_id}/issuance/verify", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
+async def verify_issuance(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """For an unknown issuance: check the PNR with the supplier again (read-only) and settle it if clear."""
+    return await _run(issuance_service.verify(booking_id, viewer))
+
+
+@router.post("/{booking_id}/issuance/resolve", response_model=IssuanceResult, responses={**ISSUANCE_RESPONSES, 422: {"description": "Missing ticket numbers or reason."}})
+async def resolve_issuance(viewer: Viewer, request: IssuanceResolveRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """Mark an unknown issuance as issued (ticket number for every traveler) or not issued, with a reason."""
+    tickets = {t.position: t.ticket_number.upper() for t in request.ticket_numbers}
+    if len(tickets) != len(request.ticket_numbers):
+        raise HTTPException(422, "Give one ticket number per traveler.")
+    return await _run(issuance_service.resolve(booking_id, viewer, request.outcome, request.reason.strip(), tickets))

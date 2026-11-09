@@ -56,8 +56,8 @@ def payment_status(booking: BookingRow) -> str:
 
 
 def issuance_status(booking: BookingRow) -> str:
-    if booking.ticket_status == "unknown":
-        return "unknown"
+    if booking.ticket_status in ("unknown", "requested", "processing"):
+        return booking.ticket_status
     return "issued" if booking.ticket_status == "issued" or booking.status == "ticket_issued" else "not_issued"
 
 
@@ -195,7 +195,7 @@ def find_booking(bookings: Iterable[BookingRow], booking_id: str) -> BookingRow 
 
 
 def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None, today=None,
-                 can_record_payments: bool = False) -> BookingDetail:
+                 can_record_payments: bool = False, can_issue_tickets: bool = False) -> BookingDetail:
     billable = _money(booking.total_minor, booking.currency)
     fare = BookingFare(billable_price=billable)
     missing = list(SECTIONS_NOT_AVAILABLE)
@@ -205,13 +205,15 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         missing.remove("audit")
     if people and people.payments:
         missing.remove("payments")
+    if people and any(t.ticket_number for t in people.travelers):
+        missing.remove("tickets")
     detail = BookingDetail(
         sample=is_sample(booking), sample_label=data_label(booking),
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
         customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
         fare=fare, sections_not_available=missing, can_reveal_identity=visibility.reveal_identity,
-        can_record_payments=can_record_payments,
+        can_record_payments=can_record_payments, can_issue_tickets=can_issue_tickets,
     )
     paid = sum(p.amount_minor for p in people.payments) if people else 0
     if people is not None:
@@ -235,7 +237,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
                 document_country=t.document_country, nationality=t.nationality,
                 document_expiry_masked=pii.mask_date(t.document_expiry.isoformat()) if t.document_expiry else None,
                 document_validity=pii.document_validity(t.document_expiry, today or datetime.now().date()),
-                infant_of_position=t.infant_of_position,
+                infant_of_position=t.infant_of_position, ticket_number=t.ticket_number,
             )
             for t in people.travelers
         ]

@@ -292,3 +292,52 @@ def fare_info_component_totals(data: dict[str, Any] | None) -> dict[str, Amount]
                 total += amount.value
         totals[kind] = Amount(total, None)
     return totals or None
+
+
+@dataclass(frozen=True)
+class PnrState:
+    """What pnr_info says about ticketing. kind: issued, not_issued or unclear."""
+
+    kind: str
+    status: str | None
+    tickets: list[tuple[str, str | None]]  # (passenger type, ticket number or None) in supplier order
+    total: Amount | None
+    can_ticketing: bool
+
+
+def _empty(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and value.strip() in ("", "-"))
+
+
+def pnr_state(data: dict[str, Any] | None, pnr: str | None = None) -> PnrState:
+    """Decide from pnr_info (UAT shape, 9 Nov 2026: res.status, res.total_amount, totalAmountPaid,
+    can_ticketing, names[].name_type / tkt_no).
+
+    issued:     every passenger has a ticket number.
+    not_issued: status BK (booked), no ticket number, nothing paid.
+    unclear:    anything else (some tickets, money paid without tickets, another status, wrong PNR).
+    """
+    if not isinstance(data, dict):
+        return PnrState("unclear", None, [], None, False)
+    res = data.get("res") if isinstance(data.get("res"), dict) else {}
+    names = [n for n in data.get("names") or [] if isinstance(n, dict)]
+    tickets = [(str(n.get("name_type") or ""), None if _empty(n.get("tkt_no")) else str(n.get("tkt_no")).strip()[:32]) for n in names]
+    status = _text(res.get("status"), 8)
+    total = parse_amount(res.get("total_amount"))
+    paid = parse_amount(data.get("totalAmountPaid"))
+    same_pnr = pnr is None or str(data.get("PNRN") or res.get("pnrn") or "").upper() == pnr.upper()
+    if not same_pnr or not names:
+        kind = "unclear"
+    elif all(number for _, number in tickets):
+        kind = "issued"
+    elif status == "BK" and not any(number for _, number in tickets) and paid is not None and paid.value == 0:
+        kind = "not_issued"
+    else:
+        kind = "unclear"
+    return PnrState(kind, status, tickets, total, data.get("can_ticketing") is True)
+
+
+def cash_amount(amount: Amount) -> str:
+    """The exact amount for ticketing: digits, no currency or separators ("13330", "13330.50")."""
+    value = amount.value
+    return str(int(value)) if value == value.to_integral_value() else format(value.normalize(), "f")

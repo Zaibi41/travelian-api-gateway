@@ -85,7 +85,7 @@ def test_agency_and_customer_are_refused_before_any_data(monkeypatch, role):
 
 
 @pytest.mark.parametrize("role,granted,expected", [
-    ("super_admin", set(), {fv.RECORD_PAYMENTS}),
+    ("super_admin", set(), {fv.RECORD_PAYMENTS, fv.ISSUE_TICKETS}),
     ("staff", set(), set()),
     ("staff", {fv.RECORD_PAYMENTS, fv.SEE_COST_AND_MARGIN}, {fv.RECORD_PAYMENTS}),
     ("agency_owner", {fv.RECORD_PAYMENTS}, set()),
