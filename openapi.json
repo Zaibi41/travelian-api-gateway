@@ -1607,6 +1607,104 @@
         "title": "DashboardSummary",
         "type": "object"
       },
+      "FareView": {
+        "properties": {
+          "baggage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baggage"
+          },
+          "id": {
+            "description": "Opaque fare ID, valid until the search expires.",
+            "title": "Id",
+            "type": "string"
+          },
+          "meal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meal"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "refund": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund"
+          },
+          "selling_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per adult. Omitted when no markup is configured or the supplier sent no total."
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the supplier names permission.",
+            "title": "Supplier"
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per adult. Only with the cost and margin permission."
+          },
+          "time_limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier's hold time text, e.g. '1 hours for domestic'.",
+            "title": "Time Limit"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "FareView",
+        "type": "object"
+      },
       "FilterOption": {
         "properties": {
           "label": {
@@ -1625,57 +1723,23 @@
         "title": "FilterOption",
         "type": "object"
       },
-      "FlightOffer": {
+      "FlightMoney": {
         "properties": {
+          "amount_minor": {
+            "description": "Integer minor units (paisa for PKR).",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
           "currency": {
             "title": "Currency",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "price": {
-            "title": "Price",
-            "type": "string"
-          },
-          "seats_available": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Seats Available"
-          },
-          "segments": {
-            "items": {
-              "$ref": "#/components/schemas/FlightSegment"
-            },
-            "title": "Segments",
-            "type": "array"
-          },
-          "validating_airline": {
-            "title": "Validating Airline",
-            "type": "string"
-          },
-          "vendor": {
-            "title": "Vendor",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "vendor",
-          "validating_airline",
-          "price",
-          "currency",
-          "segments"
+          "amount_minor",
+          "currency"
         ],
-        "title": "FlightOffer",
+        "title": "FlightMoney",
         "type": "object"
       },
       "FlightSearchRequest": {
@@ -1763,118 +1827,176 @@
         "title": "FlightSearchRequest",
         "type": "object"
       },
-      "FlightSearchResponse": {
+      "FlightSearchView": {
         "properties": {
-          "offers": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "journeys": {
             "items": {
-              "$ref": "#/components/schemas/FlightOffer"
+              "$ref": "#/components/schemas/JourneyView"
             },
-            "title": "Offers",
+            "title": "Journeys",
             "type": "array"
           },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D24: \"Some results may be missing\" when a provider fails, no provider names.",
+            "title": "Notice"
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProviderStatus"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the supplier names permission.",
+            "title": "Providers"
+          },
           "search_id": {
+            "description": "Opaque. Fare IDs from this search expire with it.",
             "title": "Search Id",
             "type": "string"
           },
           "status": {
             "enum": [
               "complete",
-              "partial",
               "unavailable"
             ],
             "title": "Status",
             "type": "string"
-          },
-          "vendor_results": {
-            "items": {
-              "$ref": "#/components/schemas/VendorResult"
-            },
-            "title": "Vendor Results",
-            "type": "array"
-          },
-          "vendors_failed": {
-            "items": {
-              "$ref": "#/components/schemas/VendorIssue"
-            },
-            "title": "Vendors Failed",
-            "type": "array"
-          },
-          "vendors_queried": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Queried",
-            "type": "array"
-          },
-          "vendors_succeeded": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Succeeded",
-            "type": "array"
           }
         },
         "required": [
           "search_id",
+          "expires_at",
           "status",
-          "offers",
-          "vendors_queried",
-          "vendors_succeeded",
-          "vendors_failed",
-          "vendor_results"
+          "journeys"
         ],
-        "title": "FlightSearchResponse",
+        "title": "FlightSearchView",
         "type": "object"
       },
-      "FlightSegment": {
+      "FlightView": {
         "properties": {
-          "airline": {
-            "title": "Airline",
-            "type": "string"
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Code"
           },
-          "arrival_at": {
-            "format": "date-time",
-            "title": "Arrival At",
-            "type": "string"
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
           },
-          "cabin": {
-            "title": "Cabin",
-            "type": "string"
+          "arrival_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Local"
           },
-          "departure_at": {
-            "format": "date-time",
-            "title": "Departure At",
-            "type": "string"
-          },
-          "destination": {
-            "title": "Destination",
-            "type": "string"
+          "departure_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local time, YYYY-MM-DDTHH:MM.",
+            "title": "Departure Local"
           },
           "duration_minutes": {
-            "minimum": 0.0,
-            "title": "Duration Minutes",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "fares": {
+            "items": {
+              "$ref": "#/components/schemas/FareView"
+            },
+            "title": "Fares",
+            "type": "array"
           },
           "flight_number": {
-            "title": "Flight Number",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "id": {
+            "description": "Opaque flight ID.",
+            "title": "Id",
             "type": "string"
           },
-          "origin": {
-            "title": "Origin",
-            "type": "string"
+          "stop_cities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Stop Cities",
+            "type": "array"
+          },
+          "stops": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stops"
           }
         },
         "required": [
-          "airline",
-          "flight_number",
-          "origin",
-          "destination",
-          "departure_at",
-          "arrival_at",
-          "duration_minutes",
-          "cabin"
+          "id",
+          "fares"
         ],
-        "title": "FlightSegment",
+        "title": "FlightView",
         "type": "object"
       },
       "ForgotPasswordRequest": {
@@ -2843,6 +2965,41 @@
         "title": "IntegrationRegistration",
         "type": "object"
       },
+      "JourneyView": {
+        "properties": {
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "outbound",
+              "return"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "flights": {
+            "items": {
+              "$ref": "#/components/schemas/FlightView"
+            },
+            "title": "Flights",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "direction",
+          "origin",
+          "destination",
+          "flights"
+        ],
+        "title": "JourneyView",
+        "type": "object"
+      },
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2928,6 +3085,29 @@
           "message"
         ],
         "title": "PasswordResetMessage",
+        "type": "object"
+      },
+      "ProviderStatus": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "responded",
+              "failed",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "ProviderStatus",
         "type": "object"
       },
       "RefreshRequest": {
@@ -6262,7 +6442,7 @@
     },
     "/v1/live-ticketing/flights/search": {
       "post": {
-        "description": "Search configured live-ticketing flight suppliers concurrently.",
+        "description": "Search Southair. Fare IDs stay valid for 15 minutes, for the user who searched.",
         "operationId": "search_flights_v1_live_ticketing_flights_search_post",
         "requestBody": {
           "content": {
@@ -6279,11 +6459,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FlightSearchResponse"
+                  "$ref": "#/components/schemas/FlightSearchView"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
           },
           "422": {
             "content": {
@@ -6296,6 +6482,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Search Flights",
         "tags": [
           "live ticketing"
