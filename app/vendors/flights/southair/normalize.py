@@ -3,8 +3,12 @@
 Handles both shapes seen for fares:
 - guide 2.2: flights.N.CLASS.<code> = {ACCEPTANCE, TARRIF: {ADT: {BASE, TAX, TOTAL}}, FEATURES}
 - UAT (per the Postman collection): flights.N.AVB.CABIN.<code> = {STATUS, HASH, ...}
-A fare without a usable hash is not offered. A fare without an explicit adult TOTAL has
-no price (never computed from parts).
+- UAT as returned live (9 Nov 2026): no FLT_MAIN (times, STOP_COUNT and flight_time in
+  minutes are on FLT_INFO.<route>.INFO), the per-adult total in ACC (equal to fare_info's
+  FINAL_TOTAL for one adult, unchanged by the passenger mix) and features in
+  HIGHLIGHT[].INFO {title, feature_code, info}.
+A fare without a usable hash is not offered. A fare without an explicit adult total
+(TARRIF.ADT.TOTAL or ACC) has no price (never computed from parts).
 """
 
 from __future__ import annotations
@@ -95,11 +99,35 @@ def _local(value: Any) -> str | None:
 
 
 def _minutes(value: Any) -> int | None:
+    """"01h 00m" or plain minutes (130 / "130") -> minutes."""
     text = _text(value)
+    if text and text.isdigit():
+        return int(text)
     match = _DURATION.fullmatch(text.strip()) if text else None
     if not match or not any(match.groups()):
         return None
     return int(match.group(1) or 0) * 60 + int(match.group(2) or 0)
+
+
+#: HIGHLIGHT feature codes -> the feature names used below.
+_FEATURE_CODES = {"checkin_baggage": "baggage"}
+#: Supplier wording for "no checked bag" -> what we show. Anything else passes through.
+_NO_CHECKED_BAGGAGE = re.compile(r"^\s*(nil+|no(ne)?|0\s*(kg|pc|pcs)?)(\s+(checked|checkin|check-in))?(\s+baggage)?\s*$", re.I)
+
+
+def baggage_text(value: str | None) -> str | None:
+    """Supplier checked-baggage text for display: "Nill Baggage" -> "No checked baggage"."""
+    if value is None:
+        return None
+    return "No checked baggage" if _NO_CHECKED_BAGGAGE.match(value) else value
+
+
+def _utc_minutes(start: Any, end: Any) -> int | None:
+    begin, finish = _local(start), _local(end)
+    if not begin or not finish:
+        return None
+    minutes = int((datetime.fromisoformat(finish) - datetime.fromisoformat(begin)).total_seconds() // 60)
+    return minutes if minutes > 0 else None
 
 
 def _features(fare: dict[str, Any]) -> dict[str, str]:
@@ -109,6 +137,13 @@ def _features(fare: dict[str, Any]) -> dict[str, str]:
             title, text = _text(item.get("title"), 40), _text(item.get("service_text"))
             if title and text:
                 found[title.lower()] = text
+    for item in fare.get("HIGHLIGHT") or []:
+        info = item.get("INFO") if isinstance(item, dict) else None
+        if isinstance(info, dict):
+            name = _FEATURE_CODES.get(str(info.get("feature_code") or "")) or (_text(info.get("title"), 40) or "").lower()
+            text = _text(info.get("info"))
+            if name and text:
+                found.setdefault(name, text)
     return found
 
 
@@ -128,6 +163,8 @@ def _fare(code: str, raw: Any, uat_shape: bool) -> Fare | None:
         return None
     adult = (raw.get("TARRIF") or {}).get("ADT") if isinstance(raw.get("TARRIF"), dict) else None
     total = parse_amount(adult.get("TOTAL")) if isinstance(adult, dict) else None
+    if total is None and uat_shape:
+        total = parse_amount(raw.get("ACC"))
     if total is not None and total.currency is None and isinstance(adult, dict):
         base = adult.get("BASE")
         base_fare = parse_amount(base.get("FARE")) if isinstance(base, dict) else None
@@ -137,7 +174,7 @@ def _fare(code: str, raw: Any, uat_shape: bool) -> Fare | None:
     return Fare(
         code=str(code)[:16], fare_hash=fare_hash.strip(), adult_total=total,
         meal=features.get("meal"), refund=features.get("refund"), time_limit=features.get("time limit"),
-        baggage=features.get("baggage"),
+        baggage=baggage_text(features.get("baggage")),
     )
 
 
@@ -156,6 +193,19 @@ def _flight(raw: Any) -> Flight | None:
     fares = [fare for code, value in (source or {}).items() if (fare := _fare(code, value, uat_shape))] if isinstance(source, dict) else []
     if not fares:
         return None
+    infos = [s["INFO"] for s in segments if isinstance(s.get("INFO"), dict)]
+    if not main and infos:
+        # Live UAT: no FLT_MAIN. One segment carries everything; for several, take the
+        # ends and count the connections (duration only from the UTC times).
+        first, last = infos[0], infos[-1]
+        main = {"dep_date_time": first.get("dep_date_time"), "arr_date_time": last.get("arr_date_time"),
+                "dep_dt_utc": first.get("dep_dt_utc")}
+        if len(infos) == 1:
+            main.update({key: first.get(key) for key in ("STOP_COUNT", "STOP_CITY", "flight_time")})
+        else:
+            main["STOP_COUNT"] = len(infos) - 1
+            main["STOP_CITY"] = ",".join(filter(None, (_text(info.get("arr_city"), 3) for info in infos[:-1])))
+            main["flight_time"] = _utc_minutes(first.get("dep_dt_utc"), last.get("arr_dt_utc"))
     departure = _local(main.get("dep_date_time"))
     try:
         stops = int(main.get("STOP_COUNT")) if main.get("STOP_COUNT") not in (None, "") else None

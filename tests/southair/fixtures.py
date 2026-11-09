@@ -27,3 +27,31 @@ def search_data(round_trip=False, **kwargs):
         back = flight("MM115", "2026-11-30 10:00:00", "2026-11-30 11:00:00", total="400.00", fare_hash=HASH_RET)
         result["MUX-KHI"] = {"itinerary": {"FROM": "MUX", "TO": "KHI", "DATE": "30 Nov 2026"}, "flights": {"1": back}}
     return {"request": {"adult": "1", "NLD": NLD}, "result": result}
+
+
+HASH_LIVE = {"EB": "HASH-LIVE-EB-SECRET", "EV": "HASH-LIVE-EV-SECRET", "EP": "HASH-LIVE-EP-SECRET"}
+
+
+def live_uat_search_data():
+    """Sanitized copy of a real UAT search, LHE-KHI 19 Nov 2026 (shape and amounts; NLD and hashes replaced)."""
+    def highlight(baggage):
+        return [
+            {"LIMITED": 0, "INFO": {"title": "Checkin Baggage", "feature_code": "checkin_baggage", "icon_code": "fa fa-suitcase", "info": baggage}},
+            {"LIMITED": 0, "INFO": {"title": "Validity", "feature_code": "validity", "icon_code": "fa fa-ticket", "info": "Validity 6 Months"}},
+        ]
+    info = {"airline_id": 1, "flight_no": "266", "dep_city": "LHE", "arr_city": "KHI", "dep_date_time": "2026-11-19 00:25:00",
+            "arr_date_time": "2026-11-19 02:35:00", "dep_dt_utc": "2026-11-18 19:25:00", "arr_dt_utc": "2026-11-18 21:35:00",
+            "leg_no": 1, "is_connecting": 0, "conn_to": "", "equipment_id": 1, "flight_status": "ONTIME", "STOP_COUNT": 0,
+            "STOP_CITY": "-", "flight_time": 130, "callsign": "Z8266", "short": "Z8266 19NOV LHEKHI", "operated_by": None}
+    flight = {
+        "FLT_INFO": {"LHEKHI": {"INFO": info, "OPRT": {"name": "South Air", "iata_code": "Z8", "icao_code": "SOA", "ticket_code": "995"},
+                                "EQPT": {"full_type": "ATR72-500", "short_type": "AT75"}}},
+        "AVB": {"CABIN": {
+            "EB": {"STATUS": 1, "ACC": 13330, "HASH": HASH_LIVE["EB"], "HIGHLIGHT": highlight("Nill Baggage")},
+            "EV": {"STATUS": 1, "ACC": 14924, "HASH": HASH_LIVE["EV"], "HIGHLIGHT": highlight("20KG")},
+            "EP": {"STATUS": 1, "ACC": 16518, "HASH": HASH_LIVE["EP"], "HIGHLIGHT": highlight("30KG")},
+        }, "SEAT": "HK"},
+    }
+    return {"request": {"adult": "1", "child": "0", "infant": "0", "travel_type": "O", "dep_city": "LHE", "arr_city": "KHI",
+                        "dep_date": "19-11-2026", "NLD": NLD},
+            "result": {"LHE-KHI": {"itinerary": {"FROM": "LHE", "TO": "KHI", "DATE": "19 Nov 2026"}, "flights": {"6af1bc80e37bf": flight}}}}
