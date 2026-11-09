@@ -1048,16 +1048,23 @@
             "type": "array"
           },
           "providers": {
-            "items": {
-              "$ref": "#/components/schemas/FilterOption"
-            },
-            "title": "Providers",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FilterOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted unless the caller can see supplier names.",
+            "title": "Providers"
           }
         },
         "required": [
-          "products",
-          "providers"
+          "products"
         ],
         "title": "DashboardFilterOptions",
         "type": "object"
@@ -2607,7 +2614,8 @@
             "enum": [
               "customer",
               "agency_owner",
-              "super_admin"
+              "super_admin",
+              "staff"
             ],
             "title": "Role",
             "type": "string"
@@ -2652,7 +2660,8 @@
             "enum": [
               1,
               2,
-              3
+              3,
+              4
             ],
             "title": "Role Id",
             "type": "integer"
@@ -3641,7 +3650,7 @@
             }
           },
           {
-            "description": "Provider name, case-insensitive.",
+            "description": "Provider name, case-insensitive. Requires supplier visibility.",
             "in": "query",
             "name": "provider",
             "required": false,
@@ -3655,7 +3664,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Provider name, case-insensitive.",
+              "description": "Provider name, case-insensitive. Requires supplier visibility.",
               "title": "Provider"
             }
           }
@@ -3672,7 +3681,7 @@
             "description": "Successful Response"
           },
           "403": {
-            "description": "Caller is not a local super_admin."
+            "description": "Caller is not back office, or asked for a field it may not see."
           },
           "422": {
             "content": {
@@ -3739,7 +3748,7 @@
             "description": "Successful Response"
           },
           "403": {
-            "description": "Caller is not a local super_admin."
+            "description": "Caller is not back office, or asked for a field it may not see."
           },
           "422": {
             "content": {
@@ -3781,7 +3790,7 @@
             "description": "Successful Response"
           },
           "403": {
-            "description": "Caller is not a local super_admin."
+            "description": "Caller is not back office, or asked for a field it may not see."
           },
           "503": {
             "description": "Dashboard booking data is not available."
@@ -3873,7 +3882,7 @@
             }
           },
           {
-            "description": "Provider name, case-insensitive.",
+            "description": "Provider name, case-insensitive. Requires supplier visibility.",
             "in": "query",
             "name": "provider",
             "required": false,
@@ -3887,7 +3896,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Provider name, case-insensitive.",
+              "description": "Provider name, case-insensitive. Requires supplier visibility.",
               "title": "Provider"
             }
           }
@@ -3904,7 +3913,7 @@
             "description": "Successful Response"
           },
           "403": {
-            "description": "Caller is not a local super_admin."
+            "description": "Caller is not back office, or asked for a field it may not see."
           },
           "422": {
             "content": {

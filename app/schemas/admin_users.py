@@ -10,7 +10,7 @@ class UserRecord(BaseModel):
     cognito_issuer: str
     cognito_sub: str
     role_id: int
-    role: Literal["customer", "agency_owner", "super_admin"]
+    role: Literal["customer", "agency_owner", "super_admin", "staff"]
     active: bool
     revision: int
     created_at: datetime
@@ -34,7 +34,7 @@ class AdminChange(BaseModel):
 
 
 class UserRoleChange(AdminChange):
-    role_id: Literal[1, 2, 3]
+    role_id: Literal[1, 2, 3, 4]
 
     @field_validator("role_id", mode="before")
     @classmethod

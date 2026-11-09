@@ -45,6 +45,7 @@ def test_admin_user_listing_roles_counts_and_changes(administration):
         {"id": 1, "name": "customer"},
         {"id": 2, "name": "agency_owner"},
         {"id": 3, "name": "super_admin"},
+        {"id": 4, "name": "staff"},
     ]
     counts = client.get("/v1/admin/dashboard/overview").json()
     assert counts["user_coverage"] == "local_profiles"

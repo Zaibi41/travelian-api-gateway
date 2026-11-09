@@ -11,7 +11,7 @@ from app.db.agencies import transaction
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user-id", type=UUID, required=True)
-    parser.add_argument("--role", choices=["customer", "super_admin"], required=True)
+    parser.add_argument("--role", choices=["customer", "super_admin", "staff"], required=True)
     parser.add_argument("--reason", required=True)
     args = parser.parse_args()
     if not args.reason.strip() or len(args.reason) > 1000:

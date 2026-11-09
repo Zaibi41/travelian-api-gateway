@@ -79,4 +79,4 @@ class FilterOption(BaseModel):
 
 class DashboardFilterOptions(BaseModel):
     products: list[FilterOption]
-    providers: list[FilterOption]
+    providers: list[FilterOption] | None = Field(None, description="Omitted unless the caller can see supplier names.")

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.api.routes import admin_dashboard as routes
-from app.core.agency_security import require_local_admin
+from app.core.field_visibility import ALL, BackOfficeUser, require_back_office
 from app.core.config import Settings
 from app.db import bookings as booking_store
 from app.db.bookings import BookingRow, BookingsUnavailable
@@ -109,15 +109,16 @@ def test_filter_options():
 
 # ---------- routes ----------
 
-def client(monkeypatch, bookings=None, admin=True):
+def client(monkeypatch, bookings=None, admin=True, viewer=None):
     app = FastAPI()
     app.include_router(routes.router, prefix="/v1")
     if admin:
-        app.dependency_overrides[require_local_admin] = lambda: object()
+        user = viewer or BackOfficeUser(user_id="u-admin", role="super_admin", visibility=ALL)
+        app.dependency_overrides[require_back_office] = lambda: user
     else:
         def deny():
-            raise HTTPException(403, "Agency administration access denied.")
-        app.dependency_overrides[require_local_admin] = deny
+            raise HTTPException(403, "Back-office access denied.")
+        app.dependency_overrides[require_back_office] = deny
 
     def read():
         if bookings is None:
