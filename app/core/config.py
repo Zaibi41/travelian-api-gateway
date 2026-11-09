@@ -1,6 +1,7 @@
 import re
+from decimal import Decimal
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Exact browser origin: scheme, host, optional port. No path, no wildcard.
@@ -38,6 +39,13 @@ class Settings(BaseSettings):
     # Admin Dashboard (data: gateway `bookings` table).
     dashboard_expiring_hold_hours: int = 2
     dashboard_timezone: str = "Asia/Karachi"
+    # Group Ticketing selling price = supplier price + percent + fixed amount (D23).
+    # With both at 0 no selling price is returned, so the supplier price is never
+    # passed off as a selling price.
+    group_ticketing_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)
+    group_ticketing_markup_fixed_minor: int = Field(0, ge=0)
+    # Suppliers that send no currency price in this currency.
+    group_ticketing_default_currency: str = Field("PKR", pattern=r"^[A-Z]{3}$")
     # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
     cors_allowed_origins: list[str] = []
     model_config = SettingsConfigDict(

@@ -30,6 +30,8 @@ PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN)
 FULL_ACCESS_ROLES = {"super_admin"}
 GRANTABLE_ROLES = {"staff"}
 BACK_OFFICE_ROLES = FULL_ACCESS_ROLES | GRANTABLE_ROLES
+#: Roles that may search supplier inventory (Group Ticketing, flights).
+SEARCH_ROLES = BACK_OFFICE_ROLES | {"agency_owner"}
 
 
 @dataclass(frozen=True)
@@ -72,14 +74,14 @@ class BackOfficeUser:
     visibility: FieldVisibility
 
 
-def _back_office_user(identity) -> BackOfficeUser:
+def _back_office_user(identity, allowed: set[str] = BACK_OFFICE_ROLES, denied: str = "Back-office access denied.") -> BackOfficeUser:
     from app.db.agencies import transaction
     from app.db.users import ensure_user
 
     with transaction() as connection:
         profile = ensure_user(connection, identity)
-        if profile.role not in BACK_OFFICE_ROLES:
-            raise HTTPException(403, "Back-office access denied.")
+        if profile.role not in allowed:
+            raise HTTPException(403, denied)
         granted = granted_permissions(connection, profile.id, profile.role_id)
     return BackOfficeUser(user_id=profile.id, role=profile.role, visibility=resolve_visibility(profile.role, granted))
 
@@ -88,3 +90,10 @@ async def require_back_office(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> BackOfficeUser:
     return await run_in_threadpool(_back_office_user, user)
+
+
+async def require_search_viewer(
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> BackOfficeUser:
+    """Internal or agency role. Customers are refused. Visibility as resolve_visibility."""
+    return await run_in_threadpool(_back_office_user, user, SEARCH_ROLES, "Search access denied.")

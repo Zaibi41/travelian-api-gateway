@@ -14,6 +14,7 @@ from app.api.routes.integration_group_ticketing import (
     router as integration_group_ticketing_router,
 )
 from app.api.routes.live_ticketing import router as live_ticketing_router
+from app.api.routes.logos import router as logos_router
 from app.api.routes.operations import router as operations_router
 
 router = APIRouter()
@@ -38,3 +39,4 @@ router.include_router(admin_users_router)
 router.include_router(admin_dashboard_router)
 
 router.include_router(admin_bookings_router)
+router.include_router(logos_router)

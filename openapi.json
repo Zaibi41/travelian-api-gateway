@@ -2227,11 +2227,11 @@
         "title": "GroupBookingResponse",
         "type": "object"
       },
-      "GroupInventoryResponse": {
+      "GroupInventoryView": {
         "properties": {
           "data": {
             "items": {
-              "$ref": "#/components/schemas/PublicGroupInventory"
+              "$ref": "#/components/schemas/GroupView"
             },
             "title": "Data",
             "type": "array"
@@ -2240,7 +2240,26 @@
         "required": [
           "data"
         ],
-        "title": "GroupInventoryResponse",
+        "title": "GroupInventoryView",
+        "type": "object"
+      },
+      "GroupMoney": {
+        "properties": {
+          "amount_minor": {
+            "description": "Integer minor units (paisa for PKR).",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "currency"
+        ],
+        "title": "GroupMoney",
         "type": "object"
       },
       "GroupQuoteAcknowledgement": {
@@ -2383,6 +2402,264 @@
           "departure_date"
         ],
         "title": "GroupSearchRequest",
+        "type": "object"
+      },
+      "GroupTicketView": {
+        "properties": {
+          "airline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline"
+          },
+          "baggage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baggage"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "departure_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HH:MM of the first segment, when the supplier sends it.",
+            "title": "Departure Time"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gateway path for the airline logo.",
+            "title": "Logo Url"
+          },
+          "meal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meal"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier PNR. Only with the supplier names permission.",
+            "title": "Pnr"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "selling_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per adult. Omitted when no markup is configured or the price is unknown."
+          },
+          "sold": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold"
+          },
+          "subparts": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw supplier segments. Only with the supplier names permission.",
+            "title": "Subparts"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the supplier names permission.",
+            "title": "Supplier"
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "ticket_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Type"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "GroupTicketView",
+        "type": "object"
+      },
+      "GroupView": {
+        "properties": {
+          "airline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "sector": {
+            "title": "Sector",
+            "type": "string"
+          },
+          "tickets": {
+            "items": {
+              "$ref": "#/components/schemas/GroupTicketView"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "sector",
+          "tickets"
+        ],
+        "title": "GroupView",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2651,236 +2928,6 @@
           "message"
         ],
         "title": "PasswordResetMessage",
-        "type": "object"
-      },
-      "PublicGroupInventory": {
-        "properties": {
-          "airline": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Airline"
-          },
-          "airline_logo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Airline Logo"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "sector": {
-            "title": "Sector",
-            "type": "string"
-          },
-          "tickets": {
-            "items": {
-              "$ref": "#/components/schemas/PublicGroupTicket"
-            },
-            "title": "Tickets",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "sector",
-          "tickets"
-        ],
-        "title": "PublicGroupInventory",
-        "type": "object"
-      },
-      "PublicGroupTicket": {
-        "properties": {
-          "airline": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Airline"
-          },
-          "airline_logo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Airline Logo"
-          },
-          "baggage": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Baggage"
-          },
-          "currency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Currency"
-          },
-          "departure_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Departure Date"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "meal": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Meal"
-          },
-          "pnr": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pnr"
-          },
-          "price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price"
-          },
-          "remaining": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Remaining"
-          },
-          "sector": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sector"
-          },
-          "sold": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sold"
-          },
-          "subparts": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Subparts",
-            "type": "array"
-          },
-          "ticket_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ticket Type"
-          },
-          "updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "title": "PublicGroupTicket",
         "type": "object"
       },
       "RefreshRequest": {
@@ -5715,6 +5762,12 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5763,6 +5816,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
           },
           "422": {
             "content": {
@@ -5813,6 +5872,12 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5824,6 +5889,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Check Group Availability",
         "tags": [
           "group ticketing"
@@ -5855,6 +5925,12 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5866,6 +5942,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Request Group Quote",
         "tags": [
           "group ticketing"
@@ -5881,13 +5962,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupInventoryResponse"
+                  "$ref": "#/components/schemas/GroupInventoryView"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Fetch Group Inventory",
         "tags": [
           "group ticketing"
@@ -5913,11 +6005,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupInventoryResponse"
+                  "$ref": "#/components/schemas/GroupInventoryView"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
           },
           "422": {
             "content": {
@@ -5930,6 +6028,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Search Group Inventory",
         "tags": [
           "group ticketing"
@@ -5957,11 +6060,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublicGroupTicket"
+                  "$ref": "#/components/schemas/GroupTicketView"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
           },
           "422": {
             "content": {
@@ -5974,6 +6083,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Fetch Group Ticket",
         "tags": [
           "group ticketing"
@@ -6055,7 +6169,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupInventoryResponse"
+                  "$ref": "#/components/schemas/GroupInventoryView"
                 }
               }
             },
@@ -6091,7 +6205,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupInventoryResponse"
+                  "$ref": "#/components/schemas/GroupInventoryView"
                 }
               }
             },
@@ -6158,6 +6272,48 @@
         "summary": "Search Flights",
         "tags": [
           "live ticketing"
+        ]
+      }
+    },
+    "/v1/logos/{logo_id}": {
+      "get": {
+        "operationId": "logo_v1_logos__logo_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "logo_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Logo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Unknown logo."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logo",
+        "tags": [
+          "logos"
         ]
       }
     },

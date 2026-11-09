@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
-from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.booking_security import require_booking_authorization
+from app.core.field_visibility import BackOfficeUser, FieldVisibility, require_search_viewer
+from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, ticket_view
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
@@ -21,7 +23,14 @@ from app.services.vendor_fanout import gather_vendor_calls
 from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient, DhilluSahiAuthError
 from app.schemas.group_ticketing import GroupInventory
 
-router = APIRouter(prefix="/group-ticketing", tags=["group ticketing"])
+# Sign-in required (internal or agency role; customers get 403). What each caller
+# receives is decided in app.services.group_ticketing_view (D23).
+router = APIRouter(
+    prefix="/group-ticketing",
+    tags=["group ticketing"],
+    responses={401: {"description": "Not signed in."}, 403: {"description": "Role may not search."}},
+)
+Viewer = Annotated[BackOfficeUser, Depends(require_search_viewer)]
 VENDOR_NAME = "dhillu_sahi"
 
 
@@ -45,36 +54,6 @@ class GroupQuoteAcknowledgement(BaseModel):
     request_id: str
     status: Literal["received"]
     message: str
-
-
-class GroupInventoryResponse(BaseModel):
-    data: list[PublicGroupInventory]
-
-
-class PublicGroupTicket(BaseModel):
-    id: str
-    updated_at: str | None = None
-    sold: str | int | None = None
-    pnr: str | None = None
-    departure_date: str | None = None
-    sector: str | None = None
-    airline: str | None = None
-    airline_logo: str | None = None
-    price: str | int | float | None = None
-    currency: str | None = None
-    remaining: int | None = None
-    baggage: str | int | None = None
-    meal: str | int | None = None
-    ticket_type: str | int | None = None
-    subparts: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class PublicGroupInventory(BaseModel):
-    id: str
-    sector: str
-    airline: str | None = None
-    airline_logo: str | None = None
-    tickets: list[PublicGroupTicket]
 
 
 class GroupSearchRequest(BaseModel):
@@ -248,7 +227,7 @@ class BookingDetailsResponse(BaseModel):
     vendor_results: list[VendorResult]
 
 
-@router.post("/flight-quotes", response_model=GroupQuoteAcknowledgement, status_code=202)
+@router.post("/flight-quotes", response_model=GroupQuoteAcknowledgement, status_code=202, dependencies=[Depends(require_search_viewer)])
 async def request_group_quote(request: GroupQuoteRequest) -> GroupQuoteAcknowledgement:
     """Accept a group quote request; sourcing workflow is not wired yet."""
     return GroupQuoteAcknowledgement(
@@ -258,19 +237,17 @@ async def request_group_quote(request: GroupQuoteRequest) -> GroupQuoteAcknowled
     )
 
 
-@router.get("/inventory", response_model=GroupInventoryResponse)
-async def fetch_group_inventory() -> GroupInventoryResponse:
-    """Fetch and combine all group inventory from configured suppliers."""
+async def inventory_for(visibility: FieldVisibility) -> GroupInventoryView:
+    """All group inventory from configured suppliers, as `visibility` may see it."""
     try:
         groups = await fetch_all_group_inventory()
     except GroupInventoryUnavailable as exc:
         raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
-    return GroupInventoryResponse(data=_public_group_inventory(groups))
+    return inventory_view(groups, visibility)
 
 
-@router.post("/search", response_model=GroupInventoryResponse)
-async def search_group_inventory(request: GroupSearchRequest) -> GroupInventoryResponse:
-    """Search combined one-way inventory; adult count defaults to one."""
+async def search_for(request: "GroupSearchRequest", visibility: FieldVisibility) -> GroupInventoryView:
+    """Combined one-way inventory matching the search, as `visibility` may see it."""
     try:
         groups = await fetch_all_group_inventory()
     except GroupInventoryUnavailable as exc:
@@ -282,28 +259,23 @@ async def search_group_inventory(request: GroupSearchRequest) -> GroupInventoryR
         departure_date=request.departure_date,
         adults=request.adults,
     )
-    return GroupInventoryResponse(data=_public_group_inventory(matches))
+    return inventory_view(matches, visibility)
 
 
-def _public_group_inventory(groups: list[GroupInventory]) -> list[PublicGroupInventory]:
-    """Remove supplier-routing metadata from the public inventory response."""
-    return [
-        PublicGroupInventory(
-            id=str(uuid5(NAMESPACE_URL, f"travelian:group-ticketing:{group.vendor}:{group.id}")),
-            sector=group.sector,
-            airline=group.airline,
-            airline_logo=group.airline_logo,
-            tickets=[
-                PublicGroupTicket(id=group_ticket_id(ticket), **ticket.model_dump(exclude={"vendor"}))
-                for ticket in group.tickets
-            ],
-        )
-        for group in groups
-    ]
+@router.get("/inventory", response_model=GroupInventoryView, response_model_exclude_none=True)
+async def fetch_group_inventory(viewer: Viewer) -> GroupInventoryView:
+    """Fetch and combine all group inventory from configured suppliers."""
+    return await inventory_for(viewer.visibility)
 
 
-@router.get("/tickets/{ticket_id}", response_model=PublicGroupTicket)
-async def fetch_group_ticket(ticket_id: UUID) -> PublicGroupTicket:
+@router.post("/search", response_model=GroupInventoryView, response_model_exclude_none=True)
+async def search_group_inventory(request: GroupSearchRequest, viewer: Viewer) -> GroupInventoryView:
+    """Search combined one-way inventory; adult count defaults to one."""
+    return await search_for(request, viewer.visibility)
+
+
+@router.get("/tickets/{ticket_id}", response_model=GroupTicketView, response_model_exclude_none=True)
+async def fetch_group_ticket(ticket_id: UUID, viewer: Viewer) -> GroupTicketView:
     """Select one record from refreshed inventory; no invented supplier endpoint."""
     try:
         groups = await fetch_all_group_inventory()
@@ -317,11 +289,10 @@ async def fetch_group_ticket(ticket_id: UUID) -> PublicGroupTicket:
         raise HTTPException(status_code=404, detail="Ticket is not available in current inventory")
     if len(matches) != 1:
         raise HTTPException(status_code=409, detail="Ticket selection is ambiguous; refresh inventory")
-    ticket = matches[0]
-    return PublicGroupTicket(id=group_ticket_id(ticket), **ticket.model_dump(exclude={"vendor"}))
+    return ticket_view(matches[0], viewer.visibility)
 
 
-@router.post("/check-availability", response_model=GroupAvailabilityResponse)
+@router.post("/check-availability", response_model=GroupAvailabilityResponse, dependencies=[Depends(require_search_viewer)])
 async def check_group_availability(request: GroupAvailabilityRequest) -> GroupAvailabilityResponse:
     if not _credentials_configured():
         issues, results = _not_configured_outcome()

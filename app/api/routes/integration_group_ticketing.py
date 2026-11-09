@@ -4,12 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.routes.group_ticketing import (
-    GroupInventoryResponse,
-    GroupSearchRequest,
-    fetch_group_inventory,
-    search_group_inventory,
-)
+from app.api.routes.group_ticketing import GroupSearchRequest, inventory_for, search_for
+from app.core.field_visibility import NONE
+from app.services.group_ticketing_view import GroupInventoryView
 from app.core.authentication import AuthenticatedMachine
 from app.core.config import settings
 from app.core.integration_security import authorize_machine, require_machine
@@ -28,11 +25,12 @@ router = APIRouter(
 )
 
 
-@router.get("/inventory", response_model=GroupInventoryResponse)
+# Agency machines: the agency view (no supplier, cost or raw supplier fields; D23).
+@router.get("/inventory", response_model=GroupInventoryView, response_model_exclude_none=True)
 async def inventory():
-    return await fetch_group_inventory()
+    return await inventory_for(NONE)
 
 
-@router.post("/search", response_model=GroupInventoryResponse)
+@router.post("/search", response_model=GroupInventoryView, response_model_exclude_none=True)
 async def search(body: GroupSearchRequest):
-    return await search_group_inventory(body)
+    return await search_for(body, NONE)

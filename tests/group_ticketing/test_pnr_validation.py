@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes.group_ticketing import router
 from app.core.booking_security import require_booking_authorization
+from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient
 
 
@@ -46,6 +47,7 @@ def gateway():
     app = FastAPI()
     # Isolate PNR mapping tests; production booking access remains disabled.
     app.dependency_overrides[require_booking_authorization] = lambda: None
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
     app.include_router(router, prefix="/v1")
     with (
         patch(

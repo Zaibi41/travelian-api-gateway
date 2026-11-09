@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from app.api.routes.group_ticketing import router
+from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.core.config import settings
 
 
@@ -25,6 +26,7 @@ from app.core.config import settings
 def test_booking_routes_fail_closed_without_supplier_calls(endpoint, headers):
     app = FastAPI()
     app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
 
     async def request():
         async with httpx.AsyncClient(
@@ -60,6 +62,7 @@ def test_booking_routes_fail_closed_without_supplier_calls(endpoint, headers):
 def test_read_only_routes_remain_available_and_get_details_is_absent():
     app = FastAPI()
     app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
     supplier_client = AsyncMock()
     supplier_client.check_availability.return_value = False
 

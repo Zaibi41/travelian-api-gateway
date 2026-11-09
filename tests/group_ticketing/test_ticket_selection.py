@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 
 from app.api.routes.group_ticketing import router
+from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.services.group_ticketing import GroupInventoryUnavailable, group_ticket_id
 from app.vendors.group_ticketing.dhillu_sahi.groups import normalize_groups
 
@@ -36,6 +37,7 @@ def inventory():
 def request(path, groups=None, error=None):
     app = FastAPI()
     app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
 
     async def run():
         async with httpx.AsyncClient(

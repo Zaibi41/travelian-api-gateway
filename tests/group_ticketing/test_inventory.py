@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 
 from app.api.routes.group_ticketing import router
+from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.core.config import settings
 
 REAL_ASYNC_CLIENT = httpx.AsyncClient
@@ -25,6 +26,7 @@ def exercise(
     expected = sum(configured)
     app = FastAPI()
     app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
 
     async def run():
         ready = asyncio.Event()
@@ -179,22 +181,21 @@ def test_combines_both_adapters_without_search_filtering():
     assert len({group["id"] for group in groups}) == 2
     assert all(str(UUID(group["id"])) == group["id"] for group in groups)
     assert all(UUID(group["id"]).version == 5 for group in groups)
-    assert all(
-        set(group) == {"id", "sector", "airline", "airline_logo", "tickets"}
-        for group in groups
-    )
+    # Supplier logo URLs never leave the gateway; groups carry a gateway logo path.
+    assert all(set(group) <= {"id", "sector", "airline", "logo_url", "tickets"} for group in groups)
     tickets = [ticket for group in groups for ticket in group["tickets"]]
     assert {ticket["pnr"] for ticket in tickets} == {"MOCK-001", "MOCK/002"}
-    assert all("vendor" not in ticket for ticket in tickets)
+    assert all("vendor" not in ticket and "airline_logo" not in ticket for ticket in tickets)
     assert {ticket["ticket_type"] for ticket in tickets} == {"One Way", "Two Way"}
     first = next(ticket for ticket in tickets if ticket["pnr"] == "MOCK-001")
     assert first["remaining"] == 3
     assert first["meal"] == 5
-    assert first["price"] == "100"
+    assert "price" not in first  # super admin: supplier_cost instead (D23)
+    assert first["supplier_cost"] == {"amount_minor": 10_000, "currency": "PKR"}
     assert first["subparts"] == [{"synthetic_leg": "outbound"}]
     second = next(ticket for ticket in tickets if ticket["pnr"] == "MOCK/002")
-    assert second["remaining"] is None
-    assert second["currency"] is None
+    assert "remaining" not in second  # unknown: omitted
+    assert "currency" not in second
     assert len(second["subparts"]) == 2
     assert (
         calls.count("/tickets") == calls.count("/api/pnr-respect-to-mysector-user") == 1

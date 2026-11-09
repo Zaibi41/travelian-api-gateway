@@ -27,8 +27,8 @@ def test_machine_search_is_scoped_before_supplier_transport(monkeypatch, permiss
     monkeypatch.setattr(routes, "authorize_machine", authorization)
     inventory = AsyncMock(return_value={"data": []})
     search = AsyncMock(return_value={"data": []})
-    monkeypatch.setattr(routes, "fetch_group_inventory", inventory)
-    monkeypatch.setattr(routes, "search_group_inventory", search)
+    monkeypatch.setattr(routes, "inventory_for", inventory)
+    monkeypatch.setattr(routes, "search_for", search)
     with TestClient(app) as client:
         response = client.get("/v1/integrations/group-ticketing/inventory")
         result = client.post(
@@ -43,3 +43,6 @@ def test_machine_search_is_scoped_before_supplier_transport(monkeypatch, permiss
     assert response.status_code == result.status_code == (200 if permission else 403)
     assert inventory.call_count == search.call_count == (1 if permission else 0)
     authorization.assert_called_with(machine, "test-api/search")
+    if permission:  # agency machines get the agency view (D23)
+        from app.core.field_visibility import NONE
+        assert inventory.call_args.args == (NONE,) and search.call_args.args[1] == NONE
