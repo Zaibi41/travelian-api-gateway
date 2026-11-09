@@ -65,3 +65,15 @@ def live_fare_info(final_total=13330):
                         "N9": {"TITLE": "STAMP TAX - N9 (TAX)", "VALUE": 50}, "PK": {"VALUE": 1500}}},
         **({"FINAL_TOTAL": final_total} if final_total is not None else {}),
     }
+
+
+def live_fare_info_with(kind, final_total):
+    """Sanitized live fare_info for 1 adult plus 1 infant or child (amounts as returned in UAT, 9 Nov 2026)."""
+    adult = live_fare_info(None)["ADT"]
+    if kind == "INF":
+        other = {"BASE": {"FARE": {"VALUE": 1053}, "YR": {"VALUE": 316}, "YQ": {"VALUE": 316}},
+                 "TFC": {code: {"VALUE": "-"} for code in ("YI", "XZ", "SP", "N9", "PK")}, "TAX": []}
+    else:
+        other = {"BASE": {"FARE": {"VALUE": 7896}, "YR": {"VALUE": 316}, "YQ": {"VALUE": 316}},
+                 "TFC": {"YI": {"VALUE": 20}, "XZ": {"VALUE": 100}, "SP": {"VALUE": 500}, "N9": {"VALUE": 50}, "PK": {"VALUE": 1500}}, "TAX": []}
+    return {"ADT": {**adult, "TAX": []}, kind: other, **({"FINAL_TOTAL": final_total} if final_total is not None else {})}

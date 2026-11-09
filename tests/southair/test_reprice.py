@@ -13,7 +13,7 @@ from app.core.field_visibility import ALL, NONE, BackOfficeUser, FieldVisibility
 from app.services import live_flights
 from app.vendors.flights.southair.client import SouthairError
 
-from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_uat_search_data, search_data
+from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_fare_info_with, live_uat_search_data, search_data
 
 STAFF = BackOfficeUser("u2", "staff", NONE)
 ADMIN = BackOfficeUser("u1", "super_admin", ALL)
@@ -134,9 +134,9 @@ def test_booking_enabled_follows_the_flag_set_here_not_the_env(enabled):
 LIVE_BODY = {"origin": "LHE", "destination": "KHI", "departure_date": "2026-11-19", "adults": 1}
 
 
-def live_reprice(fare_info=None, fare_info_error=None, adults=1, fare="EB"):
+def live_reprice(fare_info=None, fare_info_error=None, adults=1, fare="EB", children=0, infants=0):
     client = fake_client(live_uat_search_data(), live_uat_search_data(), fare_info=fare_info, fare_info_error=fare_info_error)
-    test, patcher, result = searched(ADMIN, client, {**LIVE_BODY, "adults": adults})
+    test, patcher, result = searched(ADMIN, client, {**LIVE_BODY, "adults": adults, "children": children, "infants": infants})
     fare_id = next(f["id"] for f in result["journeys"][0]["flights"][0]["fares"] if f["name"] == fare)
     response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [fare_id]})
     patcher.stop()
@@ -207,3 +207,25 @@ def test_optional_cap_on_price_increases(limit, status):
     assert response.status_code == status  # increase: Rs 1,020 - Rs 934 = Rs 86 (8,600 paisa)
     if status == 409:
         assert "more than the allowed change" in response.json()["detail"] and live_flights._quotes == {}
+
+
+@pytest.mark.parametrize("kind,final,each", [("INF", 15015, 171_900), ("CHD", 24028, 1_091_200)])
+def test_live_shape_child_or_infant_priced_from_components_that_match_final_total(kind, final, each):
+    response, _ = live_reprice(fare_info=live_fare_info_with(kind, final), **({"infants": 1} if kind == "INF" else {"children": 1}))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Infant 1,053 + 316 + 316 = 1,685 x 1.02 = 1,718.70 -> Rs 1,719; child 10,698 x 1.02 = 10,911.96 -> Rs 10,912
+    prices = {p["type"]: p["selling_each"]["amount_minor"] for p in body["passengers"]}
+    assert prices["ADT"] == 1_359_700 and prices[kind] == each
+    assert body["supplier_total"]["amount_minor"] == final * 100
+
+
+@pytest.mark.parametrize("fare_info", [
+    live_fare_info_with("INF", 15016),        # components don't add up to FINAL_TOTAL
+    live_fare_info_with("INF", None),         # no FINAL_TOTAL
+    {**live_fare_info_with("INF", 15015), "INF": {"BASE": {"FARE": {"VALUE": "n/a"}}, "TAX": []}},
+    {**live_fare_info_with("INF", 15015), "INF": {"BASE": {"FARE": {"VALUE": 1685}}, "TAX": [{"X": 1}]}},  # unseen TAX shape
+])
+def test_live_shape_infant_without_a_verified_breakdown_is_refused(fare_info):
+    response, _ = live_reprice(fare_info=fare_info, infants=1)
+    assert response.status_code == 422 and live_flights._quotes == {}

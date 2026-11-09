@@ -259,3 +259,36 @@ def fare_info_final_total(data: dict[str, Any] | None) -> Amount | None:
     the search's ACC. None when absent or unparseable: the total is then unverified.
     """
     return parse_amount(data.get("FINAL_TOTAL")) if isinstance(data, dict) else None
+
+
+def fare_info_component_totals(data: dict[str, Any] | None) -> dict[str, Amount] | None:
+    """Per passenger type totals summed from fare_info components (BASE.*.VALUE + TFC.*.VALUE).
+
+    Live UAT sends components per type but only one FINAL_TOTAL. A component "-" is zero (e.g. an
+    infant pays no taxes); any other unreadable value, or a non-empty TAX section (shape not seen),
+    gives None. Callers must check the result against FINAL_TOTAL before using it.
+    """
+    if not isinstance(data, dict):
+        return None
+    totals: dict[str, Amount] = {}
+    for kind in ("ADT", "CHD", "INF"):
+        section = data.get(kind)
+        if section is None:
+            continue
+        if not isinstance(section, dict) or section.get("TAX") not in (None, [], {}):
+            return None
+        total = Decimal(0)
+        for group in ("BASE", "TFC"):
+            parts = section.get(group) or {}
+            if not isinstance(parts, dict):
+                return None
+            for part in parts.values():
+                raw = part.get("VALUE") if isinstance(part, dict) else part
+                if isinstance(raw, str) and raw.strip() == "-":
+                    continue
+                amount = parse_amount(raw)
+                if amount is None:
+                    return None
+                total += amount.value
+        totals[kind] = Amount(total, None)
+    return totals or None

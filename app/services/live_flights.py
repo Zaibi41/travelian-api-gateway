@@ -239,8 +239,9 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
     """Repeat the search, find the same flights and fares, and price them.
 
     Returns (nld, fresh refs, currency, [(pax type, count, supplier cost each in minor units)]).
-    Mixed passengers need explicit per-type totals from fare_info; adults alone can use
-    the search's adult TOTAL. Anything else is refused rather than guessed.
+    Mixed passengers need per-type totals from fare_info: explicit TOTALs, or the per-type sums of
+    the components when they add up exactly to FINAL_TOTAL. Adults alone use the search's adult
+    total verified against FINAL_TOTAL. Anything else is refused rather than guessed.
     """
     data = await client.search(
         origin=request.origin, destination=request.destination, departure=request.departure_date,
@@ -267,6 +268,13 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
         logger.info("Fare info before booking unavailable", extra={"error_code": error.error_code})
     per_type = normalize.fare_info_totals(fare_info) if isinstance(fare_info, dict) else None
     final = normalize.fare_info_final_total(fare_info)
+    if not (per_type and all(kind in per_type for kind, number in counts if number)) and (request.children or request.infants):
+        # Live UAT: no per-type TOTAL. Per-type sums of the components, used only when they add up
+        # exactly to the supplier's FINAL_TOTAL for this passenger mix; otherwise refused below.
+        components = normalize.fare_info_component_totals(fare_info)
+        if (components and final is not None and all(kind in components for kind, number in counts if number)
+                and sum(to_minor(components[kind].value) * number for kind, number in counts if number) == to_minor(final.value)):
+            per_type = {kind: normalize.Amount(components[kind].value, final.currency) for kind in components}
     if per_type and all(kind in per_type for kind, number in counts if number):
         currencies = {fare_currency(per_type[kind], fallback) for kind, number in counts if number}
         priced = [(kind, number, to_minor(per_type[kind].value)) for kind, number in counts if number]
