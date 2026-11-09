@@ -23,7 +23,7 @@ Viewer = Annotated[BackOfficeUser, Depends(require_search_viewer)]
 
 @router.post("/flights/search", response_model=FlightSearchView, response_model_exclude_none=True)
 async def search_flights(request: FlightSearchRequest, viewer: Viewer) -> FlightSearchView:
-    """Search Southair. Fare IDs stay valid for 15 minutes, for the user who searched."""
+    """Search the flight provider. Fare IDs stay valid for 15 minutes, for the user who searched."""
     return await live_flights.search(request, viewer)
 
 
@@ -45,7 +45,7 @@ async def reprice_flights(request: RepriceRequest, viewer: Viewer) -> RepriceVie
                422: {"description": "Passengers don't match."}, 502: {"description": "Supplier failed; nothing saved."}},
 )
 async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, Depends(require_back_office)]) -> HoldView:
-    """Hold only (no ticketing, no payment), behind SOUTHAIR_BOOKING_ENABLED. Saved as UAT test data."""
+    """Hold only (no ticketing, no payment), when booking is turned on. Saved as UAT test data."""
     try:
         return await flight_holds.hold(request, viewer)
     except flight_holds.HoldError as error:

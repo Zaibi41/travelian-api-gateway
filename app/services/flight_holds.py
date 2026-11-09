@@ -76,7 +76,7 @@ def _time_limit(value: object) -> datetime | None:
 
 async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None) -> HoldView:
     if not settings.southair_booking_enabled:
-        raise HoldError(409, "Booking is turned off on this gateway (SOUTHAIR_BOOKING_ENABLED).")
+        raise HoldError(409, "Booking is turned off. Nothing was booked.")
     if viewer.role not in BACK_OFFICE_ROLES:
         raise HoldError(403, "Only back-office users can place holds.")
     quote = get_quote(request.quote_id, viewer.user_id)
@@ -102,7 +102,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each)
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
     if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor:
-        raise HoldError(409, f"The price changed to {currency} {selling_total / 100:,.0f}. Revalidate and confirm the new total. Nothing was booked.")
+        raise HoldError(409, f"The price changed to {live_flights.money_text(selling_total, currency)}. Revalidate and confirm the new total. Nothing was booked.")
 
     # 2. Booking (hold). Never retried.
     try:

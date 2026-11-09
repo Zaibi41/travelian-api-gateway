@@ -87,6 +87,7 @@ def test_flag_off_refuses_before_any_supplier_call():
     with patch.object(settings, "southair_booking_enabled", False), pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(), client)
     assert error.value.status == 409 and client.search.await_count == 0 and client.booking.await_count == 0
+    assert error.value.message == "Booking is turned off. Nothing was booked."  # no env var or supplier name
 
 
 def test_price_change_refuses_without_booking():
@@ -95,6 +96,7 @@ def test_price_change_refuses_without_booking():
     with pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(), client)
     assert error.value.status == 409 and "price changed" in error.value.message and client.booking.await_count == 0
+    assert "Rs 510" in error.value.message and "PKR" not in error.value.message
 
 
 @pytest.mark.parametrize("case,status", [("agency", 403), ("expired", 404), ("wrong_passengers", 422), ("bad_age", 422)])
@@ -165,3 +167,8 @@ def test_live_shape_no_verified_total_before_booking_creates_no_hold(before):
     with pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(total=1_359_700), client, saved=save)
     assert error.value.status == 502 and client.booking.await_count == 0 and save.call_count == 0
+
+
+@pytest.mark.parametrize("minor,currency,text", [(1_399_700, "PKR", "Rs 13,997"), (51_000, "pkr", "Rs 510"), (45_770, "PKR", "Rs 457.70"), (40_000, "SAR", "SAR 400")])
+def test_money_text_uses_rs_for_pkr(minor, currency, text):
+    assert live_flights.money_text(minor, currency) == text

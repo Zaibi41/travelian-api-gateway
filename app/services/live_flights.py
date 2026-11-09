@@ -74,6 +74,13 @@ def get_session(search_id: str, user_id: str) -> SearchSession | None:
     return session
 
 
+def money_text(amount_minor: int, currency: str) -> str:
+    """User-facing amount: "Rs 13,997" for PKR (AGENTS.md), otherwise the currency code."""
+    label = "Rs" if currency.upper() == "PKR" else currency.upper()
+    whole, paisa = divmod(amount_minor, 100)
+    return f"{label} {whole:,}" + (f".{paisa:02d}" if paisa else "")
+
+
 def to_minor(amount: Decimal) -> int:
     return int((amount * 100).quantize(Decimal("1"), ROUND_HALF_UP))
 

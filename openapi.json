@@ -6803,7 +6803,7 @@
     },
     "/v1/live-ticketing/flights/bookings": {
       "post": {
-        "description": "Hold only (no ticketing, no payment), behind SOUTHAIR_BOOKING_ENABLED. Saved as UAT test data.",
+        "description": "Hold only (no ticketing, no payment), when booking is turned on. Saved as UAT test data.",
         "operationId": "hold_flight_v1_live_ticketing_flights_bookings_post",
         "requestBody": {
           "content": {
@@ -6913,7 +6913,7 @@
     },
     "/v1/live-ticketing/flights/search": {
       "post": {
-        "description": "Search Southair. Fare IDs stay valid for 15 minutes, for the user who searched.",
+        "description": "Search the flight provider. Fare IDs stay valid for 15 minutes, for the user who searched.",
         "operationId": "search_flights_v1_live_ticketing_flights_search_post",
         "requestBody": {
           "content": {
