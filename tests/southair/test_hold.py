@@ -14,15 +14,17 @@ from app.schemas.live_flights import HoldRequest
 from app.services import flight_holds, live_flights
 from app.vendors.flights.southair.client import SouthairError
 
-from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_uat_search_data, search_data
+from tests.southair.fixtures import BOOKED_LIVE, HASH_EB, HASH_LIVE, NLD, live_fare_info, live_pnr_info, live_uat_search_data, pnr_info, search_data
 
 STAFF = BackOfficeUser("u2", "staff", NONE)
 TICKET_REF = "TICKET-REF-eyJpdiSECRET"
 BOOKED = {"booking_status": 1, "pnrn": "63B55C", "time_limit": "2026-11-20 13:18 UTC", "pax_count": 1, "ticket_ref": TICKET_REF}
 
 
-def fake_client(search=None, booking=None, booking_error=None, fare_info=None):
+def fake_client(search=None, booking=None, booking_error=None, fare_info=None, pnr=None):
     client = MagicMock()
+    # The supplier's record of the new PNR (UAT shape); by default its total matches the guide fare.
+    client.pnr_info = AsyncMock(return_value=pnr if pnr is not None else pnr_info(total=457.70, tickets=(None,)))
     client.search = AsyncMock(return_value=search or search_data())
     client.booking = AsyncMock(return_value=booking or BOOKED, side_effect=booking_error)
     client.fare_info = AsyncMock(return_value=fare_info if fare_info is not None else {"ADT": {"TOTAL": "457.70"}})
@@ -77,11 +79,12 @@ def test_hold_reprices_books_reads_fare_info_and_saves_uat_test_data():
     kwargs = client.booking.await_args.kwargs
     assert kwargs["nld"] == NLD and kwargs["acceptances"] == [HASH_EB] and kwargs["remarks"] == "Travelian UAT test booking"
     assert kwargs["passengers"][0]["passport_no"] == "AB1234567"
-    assert client.fare_info.await_count == 2  # once in the reprice, once after booking
+    assert client.fare_info.await_count == 1  # the reprice; after booking the PNR record verifies the total
+    assert client.pnr_info.await_args.args == ("63B55C",)
     saved = save.call_args.kwargs
     assert saved["supplier_ref"] == TICKET_REF and saved["pnr"] == "63B55C" and saved["provider"] == "southair"
     assert saved["selling_total_minor"] == 46_700 and saved["supplier_total_minor"] == 45_770
-    assert saved["audit"]["fare_info"] == "matches" and "first_name" not in str(saved["audit"])
+    assert saved["audit"]["fare_info"] == "matches" and saved["audit"]["total_source"] == "pnr_info" and "first_name" not in str(saved["audit"])
 
 
 def test_flag_off_refuses_before_any_supplier_call():
@@ -116,7 +119,7 @@ def test_refusals(case, status):
 
 def test_infants_are_linked_to_adults():
     make_quote(adults=1, infants=1, selling=46_700 + 5_100)
-    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}})
+    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}}, pnr=pnr_info(total=507.70))
     run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
     infant = client.booking.await_args.kwargs["passengers"][1]
     assert infant["type"] == "INF" and infant["infant_link_id"] == "1"  # adults are numbered from 1 (UAT)
@@ -137,6 +140,7 @@ def test_supplier_failure_saves_nothing(failure):
 def test_unverified_total_after_booking_saves_the_hold_but_never_confirms_it(after, status):
     make_quote()
     client = fake_client()
+    client.pnr_info = AsyncMock(side_effect=SouthairError("pnr_lookup_failed"))  # no PNR record: fall back to fare_info
     client.fare_info = AsyncMock(side_effect=[{"ADT": {"TOTAL": "457.70"}}, after])
     save = MagicMock(return_value="TRV-ABC123")
     with pytest.raises(flight_holds.HoldError) as error:
@@ -152,9 +156,9 @@ def make_live_quote():
     live_flights._store_quote(live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 1_333_000, 1_359_700, [], live_flights._now() + 600))
 
 
-def test_live_shape_hold_uses_final_total_before_and_after_booking():
+def test_live_shape_hold_uses_final_total_before_booking_and_the_pnr_record_after():
     make_live_quote()
-    client = fake_client(search=live_uat_search_data(), fare_info=live_fare_info(13330))
+    client = fake_client(search=live_uat_search_data(), fare_info=live_fare_info(13330), pnr=live_pnr_info(total=13330, pnr="63B55C"))
     view, save = run(hold_request(total=1_359_700), client)
     assert view.pnr == "63B55C" and view.selling_total.amount_minor == 1_359_700
     assert client.booking.await_args.kwargs["acceptances"] == [HASH_LIVE["EB"]]
@@ -214,7 +218,7 @@ def test_holds_need_no_identity_storage_settings():
 
 def test_hold_saves_the_customer_and_travelers_with_infant_link():
     make_quote(adults=1, infants=1, selling=46_700 + 5_100)
-    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}})
+    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}}, pnr=pnr_info(total=507.70))
     _, save = run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
     kwargs = save.call_args.kwargs
     assert (kwargs["customer"].first_name, kwargs["customer"].email) == ("Test", "ops@example.invalid")
@@ -360,3 +364,70 @@ def test_codes_from_the_hold_flow():
     with pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(), client, saved=MagicMock())
     assert error.value.code == "not_confirmed_hold"
+
+
+# ---- After booking: the PNR record verifies the total (live UAT 9 Nov 2026, PNR 5A5282, 1 adult) ----
+
+def live_5a5282_quote():
+    """The hold's quote: 1 adult, supplier Rs 14,390, selling Rs 28,780 (100% markup in that environment)."""
+    request = FlightSearchRequest(origin="LHE", destination="KHI", departure_date="2026-11-19", adults=1)
+    ref = live_flights.FareRef("outbound", "LHEKHI", "Z8266@2026-11-19T00:25", "EB", "OLD-HASH", None)
+    live_flights._store_quote(live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 1_439_000, 2_878_000, [], live_flights._now() + 600))
+
+
+def live_5a5282_client(pnr=None, pnr_error=None, after_booking_fare_info=SouthairError("fare_info_failed")):
+    search = live_uat_search_data()
+    search["result"]["LHE-KHI"]["flights"]["6af1bc80e37bf"]["AVB"]["CABIN"]["EB"]["ACC"] = 14390
+    client = fake_client(search=search, booking=BOOKED_LIVE)
+    client.pnr_info = AsyncMock(return_value=pnr if pnr is not None else live_pnr_info(), side_effect=pnr_error)
+    client.fare_info = AsyncMock(side_effect=[live_fare_info(14390), after_booking_fare_info])
+    return client
+
+
+def test_this_hold_verifies_from_the_pnr_record_when_fare_info_fails_after_booking():
+    live_5a5282_quote()
+    client = live_5a5282_client()
+    with patch.object(settings, "flight_markup_percent", Decimal("100")):
+        view, save = run(hold_request(total=2_878_000), client)
+    assert view.pnr == "5A5282" and view.selling_total.amount_minor == 2_878_000
+    assert view.time_limit == datetime(2026, 11, 10, 18, 14, 9, tzinfo=timezone.utc)
+    audit, saved = save.call_args.kwargs["audit"], save.call_args.kwargs
+    assert audit["fare_info"] == "matches" and audit["total_source"] == "pnr_info" and "fare_info_error" not in audit
+    assert saved["supplier_total_minor"] == 1_439_000
+    assert saved["supplier_response"]["pnr_info"] == {"status": "BK", "total_minor": 1_439_000, "currency": "PKR"}
+    assert client.fare_info.await_count == 1  # not needed after booking
+
+
+@pytest.mark.parametrize("pnr,after,status,source", [
+    (live_pnr_info(total=14500), None, "differs", "pnr_info"),                               # a real mismatch
+    (live_pnr_info(total=None), SouthairError("fare_info_failed"), "failed", None),           # no total anywhere
+    (live_pnr_info(total=None), {"ADT": {"BASE": {"FARE": {"VALUE": 1}}}}, "no_total", None),  # fare_info without a total
+    (live_pnr_info(status="XX"), SouthairError("fare_info_failed"), "failed", None),         # not booked: its total isn't used
+    (live_pnr_info(currency="USD"), SouthairError("fare_info_failed"), "failed", None),      # another currency isn't compared
+    (live_pnr_info(total=None), live_fare_info(14390), "matches", "fare_info"),               # fallback verifies
+])
+def test_unverified_or_mismatched_totals_are_never_confirmed(pnr, after, status, source):
+    live_5a5282_quote()
+    client = live_5a5282_client(pnr=pnr, after_booking_fare_info=after)
+    save = MagicMock(return_value="TRV-PJM32J")
+    with patch.object(settings, "flight_markup_percent", Decimal("100")):
+        if status == "matches":
+            view, _ = run(hold_request(total=2_878_000), client, saved=save)
+            assert view.pnr == "5A5282"
+        else:
+            with pytest.raises(flight_holds.HoldError) as error:
+                run(hold_request(total=2_878_000), client, saved=save)
+            assert error.value.code == "total_unverified" and error.value.extra == {"pnr": "5A5282", "booking_id": "TRV-PJM32J"}
+    audit = save.call_args.kwargs["audit"]
+    assert audit["fare_info"] == status and audit.get("total_source") == source
+
+
+def test_pnr_lookup_failing_falls_back_and_records_the_error_codes_only():
+    live_5a5282_quote()
+    client = live_5a5282_client(pnr_error=SouthairError("pnr lookup_failed"))
+    save = MagicMock(return_value="TRV-PJM32J")
+    with patch.object(settings, "flight_markup_percent", Decimal("100")), pytest.raises(flight_holds.HoldError):
+        run(hold_request(total=2_878_000), client, saved=save)
+    audit = save.call_args.kwargs["audit"]
+    assert audit["fare_info"] == "failed" and audit["pnr_info_error"] == "pnr lookup_failed" and audit["fare_info_error"] == "fare_info_failed"
+    assert "Test" not in str(audit) and "AB1234567" not in str(audit)

@@ -22,7 +22,8 @@ from app.db.supplier_bookings import _event
 #: Audit detail keys that may be shown (never names, documents, dates of birth or contact details).
 AUDIT_DETAIL_KEYS = ("label", "pnr", "time_limit", "fare_info", "pax_count", "travelers", "traveler_position", "fields", "reason",
                      "amount_minor", "currency", "method", "received_into", "payer_reference", "payment_status",
-                     "note", "previous_status", "reason_code", "supplier_answer", "supplier_error", "pnr_status", "tickets", "outcome")
+                     "note", "previous_status", "reason_code", "supplier_answer", "supplier_error", "pnr_status", "tickets", "outcome",
+                     "total_source", "pnr_info_error", "fare_info_error")
 
 
 @dataclass(frozen=True)

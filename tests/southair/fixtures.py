@@ -94,3 +94,18 @@ def pnr_info(pnr="63B55C", status="BK", tickets=(None, None), paid=0, total=457.
 
 #: Ticketing answer as documented in the supplier guide (data.booking_status "OK", pnrn, invoice_no).
 TICKETING_OK = {"booking_status": "OK", "pnrn": "63B55C", "invoice_no": "INV-UAT-1"}
+
+
+#: The booking reply as returned live in UAT (9 Nov 2026, PNR 5A5282): no total in it.
+BOOKED_LIVE = {"booking_status": 1, "pnrn": "5A5282", "pax_count": 1, "time_limit": "2026-11-10 18:14:09 UTC", "ticket_ref": "TICKET-REF-SECRET"}
+
+
+def live_pnr_info(total=14390, status="BK", currency="PKR", pnr="5A5282"):
+    """Sanitized pnr_info for that hold (1 adult, EB LHE-KHI): amounts and status as returned, no personal data."""
+    data = pnr_info(pnr=pnr, status=status, tickets=(None,), total=total)
+    data["res"].update({"fare": 12220, "taxes": 2170, "es_amount": 0, "discount": 0, "booked_currency": currency, "farebasis": "EBU6M"})
+    data["names"][0]["price"] = [{"price_type": "FARE", "sub_type": sub, "amount": amount} for sub, amount in (("FARE", 11528), ("YR", 346), ("YQ", 346))] + [
+        {"price_type": "TFC", "sub_type": sub, "amount": amount} for sub, amount in (("FEE", 20), ("TAX", 100), ("FEE", 500), ("TAX", 50), ("TAX", 1500))]
+    if total is None:
+        del data["res"]["total_amount"]
+    return data

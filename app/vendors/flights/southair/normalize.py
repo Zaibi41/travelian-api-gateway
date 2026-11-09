@@ -303,6 +303,7 @@ class PnrState:
     tickets: list[tuple[str, str | None]]  # (passenger type, ticket number or None) in supplier order
     total: Amount | None
     can_ticketing: bool
+    currency: str | None = None  # res.booked_currency
 
 
 def _empty(value: Any) -> bool:
@@ -318,7 +319,7 @@ def pnr_state(data: dict[str, Any] | None, pnr: str | None = None) -> PnrState:
     unclear:    anything else (some tickets, money paid without tickets, another status, wrong PNR).
     """
     if not isinstance(data, dict):
-        return PnrState("unclear", None, [], None, False)
+        return PnrState("unclear", None, [], None, False, None)
     res = data.get("res") if isinstance(data.get("res"), dict) else {}
     names = [n for n in data.get("names") or [] if isinstance(n, dict)]
     tickets = [(str(n.get("name_type") or ""), None if _empty(n.get("tkt_no")) else str(n.get("tkt_no")).strip()[:32]) for n in names]
@@ -334,7 +335,8 @@ def pnr_state(data: dict[str, Any] | None, pnr: str | None = None) -> PnrState:
         kind = "not_issued"
     else:
         kind = "unclear"
-    return PnrState(kind, status, tickets, total, data.get("can_ticketing") is True)
+    currency = (_text(res.get("booked_currency"), 3) or "").upper() or None
+    return PnrState(kind, status, tickets, total, data.get("can_ticketing") is True, currency)
 
 
 def cash_amount(amount: Amount) -> str:
