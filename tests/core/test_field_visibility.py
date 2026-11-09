@@ -82,3 +82,14 @@ def test_agency_and_customer_are_refused_before_any_data(monkeypatch, role):
     with pytest.raises(HTTPException) as error:
         fv._back_office_user(object())
     assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("role,granted,expected", [
+    ("super_admin", set(), {fv.RECORD_PAYMENTS}),
+    ("staff", set(), set()),
+    ("staff", {fv.RECORD_PAYMENTS, fv.SEE_COST_AND_MARGIN}, {fv.RECORD_PAYMENTS}),
+    ("agency_owner", {fv.RECORD_PAYMENTS}, set()),
+    ("customer", {fv.RECORD_PAYMENTS}, set()),
+])
+def test_action_permissions(role, granted, expected):
+    assert fv.resolve_actions(role, granted) == expected

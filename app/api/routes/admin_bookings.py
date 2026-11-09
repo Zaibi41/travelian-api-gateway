@@ -14,6 +14,7 @@ reveal_identity permission and a reason, and every reveal is logged (spec 3.2).
 from typing import Annotated
 
 import logging
+from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Path, Query, Response
 from fastapi.concurrency import run_in_threadpool
@@ -22,9 +23,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core import pii
 from app.core.config import settings
-from app.db import booking_people
+from app.core.field_visibility import RECORD_PAYMENTS
+from app.db import booking_payments, booking_people
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product, RevealRequest, RevealResponse,
+    BookingDetail, BookingList, BookingPayment, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product,
+    RecordPaymentRequest, RecordPaymentResponse, RevealRequest, RevealResponse,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -87,7 +90,38 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     except (SQLAlchemyError, HTTPException):
         logger.warning("Booking people read failed")
         people = None  # the tabs stay "not available" rather than failing the whole page
-    return service.build_detail(booking, viewer.visibility, people, today=_now().date())
+    return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS))
+
+
+@router.post(
+    "/{booking_id}/payments", response_model=RecordPaymentResponse, response_model_exclude_none=True, status_code=201,
+    responses={403: {"description": "Needs the record_payments permission."}, 404: {"description": "No such booking."},
+               409: {"description": "Closed booking, more than the amount due, or the reference is already recorded."},
+               422: {"description": "Invalid payment or wrong currency."}},
+)
+async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged."""
+    if not viewer.can(RECORD_PAYMENTS):
+        raise HTTPException(403, "Recording payments requires the record payments permission.")
+    if request.received_at.tzinfo is None:
+        raise HTTPException(422, "received_at needs a time zone.")
+    if request.received_at > _now() + timedelta(minutes=5):
+        raise HTTPException(422, "The payment can't be received in the future.")
+    if request.amount.amount_minor <= 0:
+        raise HTTPException(422, "The amount must be more than zero.")
+    try:
+        payment, status = await run_in_threadpool(
+            booking_payments.record, booking_id, amount_minor=request.amount.amount_minor, currency=request.amount.currency,
+            method=request.method, received_into=request.received_into.strip(), payer_reference=request.reference.strip(),
+            received_at=request.received_at, actor_user_id=viewer.user_id,
+        )
+    except booking_payments.PaymentRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return RecordPaymentResponse(payment=BookingPayment(
+        id=payment.id, amount=service._money(payment.amount_minor, payment.currency), method=payment.method,
+        received_into=payment.received_into, reference=payment.reference, received_at=payment.received_at,
+        recorded_by_user_id=payment.recorded_by_user_id, recorded_by_role=payment.recorded_by_role, recorded_at=payment.recorded_at,
+    ), payment_status=status)
 
 
 @router.post(

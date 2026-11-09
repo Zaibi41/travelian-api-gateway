@@ -18,7 +18,8 @@ from app.schemas.admin_dashboard import FilterOption
 
 Product = Literal["flight", "group", "hotel", "umrah"]
 BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired"]
-PaymentStatus = Literal["paid", "unpaid"]
+PaymentStatus = Literal["paid", "unpaid", "part_paid"]
+PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 IssuanceStatus = Literal["not_issued", "issued", "unknown"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines"]
 DateType = Literal["created"]  # travel date is not stored yet
@@ -136,6 +137,33 @@ class BookingAuditEntry(BaseModel):
     details: dict[str, Any] = Field(description="Whitelisted, no personal data.")
 
 
+class BookingPayment(BaseModel):
+    """A customer payment (Payments tab)."""
+
+    id: str
+    amount: BookingMoney
+    method: PaymentMethod
+    received_into: str = Field(description="The Travelian account the money was received into.")
+    reference: str = Field(description="The payer's transaction reference.")
+    received_at: datetime
+    recorded_by_user_id: str | None = None
+    recorded_by_role: str | None = None
+    recorded_at: datetime
+
+
+class RecordPaymentRequest(BaseModel):
+    amount: BookingMoney
+    method: PaymentMethod
+    received_into: str = Field(min_length=2, max_length=120)
+    reference: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*$")
+    received_at: datetime = Field(description="When the money was received. Not in the future.")
+
+
+class RecordPaymentResponse(BaseModel):
+    payment: BookingPayment
+    payment_status: PaymentStatus
+
+
 class RevealRequest(BaseModel):
     reason: str = Field(min_length=5, max_length=500, description="Why the full values are needed. Logged with the reveal.")
 
@@ -166,6 +194,10 @@ class BookingDetail(BaseModel):
     passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
     can_reveal_identity: bool = Field(False, description="Whether this viewer may call the reveal endpoint (the endpoint still checks).")
+    payments: list[BookingPayment] | None = Field(None, description="The Payments tab. Omitted when no payment is recorded.")
+    amount_paid: BookingMoney | None = Field(None, description="Sum of recorded payments.")
+    amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
+    can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )

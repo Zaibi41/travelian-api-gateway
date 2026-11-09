@@ -8,18 +8,19 @@ transaction, so there is no reveal without its log entry. Values are never logge
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
 
 from app.core import pii
-from app.db import agencies
+from app.db import agencies, booking_payments
 from app.db.supplier_bookings import _event, identity_context
 
 #: Audit detail keys that may be shown (never names, documents, dates of birth or contact details).
-AUDIT_DETAIL_KEYS = ("label", "pnr", "time_limit", "fare_info", "pax_count", "travelers", "traveler_position", "fields", "reason")
+AUDIT_DETAIL_KEYS = ("label", "pnr", "time_limit", "fare_info", "pax_count", "travelers", "traveler_position", "fields", "reason",
+                     "amount_minor", "currency", "method", "received_into", "payer_reference", "payment_status")
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class People:
     customer: Customer | None
     travelers: list[Traveler]
     events: list[AuditEvent]
+    payments: list[booking_payments.Payment] = field(default_factory=list)
 
 
 def _booking_id(connection, reference: str) -> str | None:
@@ -82,6 +84,7 @@ def read(reference: str) -> People | None:
                  " FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
             {"b": booking_id},
         ).mappings().all()
+        payments = booking_payments.list_for(connection, booking_id)
         events = connection.execute(
             text("SELECT e.action, e.actor_user_id, e.created_at, e.details, r.name AS actor_role FROM booking_events e"
                  " LEFT JOIN users u ON u.id = e.actor_user_id LEFT JOIN roles r ON r.id = u.role_id"
@@ -93,6 +96,7 @@ def read(reference: str) -> People | None:
         travelers=[Traveler(**t) for t in travelers],
         events=[AuditEvent(e["action"], e["actor_user_id"], e["created_at"],
                            {k: v for k, v in (e["details"] or {}).items() if k in AUDIT_DETAIL_KEYS}, e["actor_role"]) for e in events],
+        payments=payments,
     )
 
 

@@ -20,7 +20,7 @@ from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, is_expiring_hold, is_pending_issuance, period_range,
 )
 from app.schemas.admin_bookings import (
-    BookingAuditEntry, BookingCustomer, BookingDetail, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
+    BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
     BookingListItem, BookingMoney, BookingPassenger, BookingStatuses, FilterOption, SupplierPayment,
 )
 
@@ -52,7 +52,7 @@ def is_sample(booking: BookingRow) -> bool:
 
 
 def payment_status(booking: BookingRow) -> str:
-    return "paid" if booking.payment_status == "paid" else "unpaid"
+    return booking.payment_status if booking.payment_status in ("paid", "part_paid") else "unpaid"
 
 
 def issuance_status(booking: BookingRow) -> str:
@@ -125,7 +125,7 @@ def card_rules(now: datetime, window_hours: int):
         "confirmed": lambda b: b.status == "confirmed",
         "on_hold": lambda b: _open_hold(b, now),
         "cancelled": lambda b: b.status in CLOSED,  # cancelled or expired
-        "unpaid": lambda b: payment_status(b) == "unpaid" and b.status not in CLOSED,
+        "unpaid": lambda b: payment_status(b) != "paid" and b.status not in CLOSED,  # part-paid still owes money
         "expiring_soon": lambda b: (
             b.status in OPEN_HOLD and b.hold_expires_at is not None and now < b.hold_expires_at <= now + window
         ),
@@ -194,7 +194,8 @@ def find_booking(bookings: Iterable[BookingRow], booking_id: str) -> BookingRow 
     return next((b for b in bookings if b.booking_id == booking_id and b.product in BOOKING_PRODUCTS), None)
 
 
-def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None, today=None) -> BookingDetail:
+def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None, today=None,
+                 can_record_payments: bool = False) -> BookingDetail:
     billable = _money(booking.total_minor, booking.currency)
     fare = BookingFare(billable_price=billable)
     missing = list(SECTIONS_NOT_AVAILABLE)
@@ -202,13 +203,27 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         missing.remove("passengers")
     if people and people.events:
         missing.remove("audit")
+    if people and people.payments:
+        missing.remove("payments")
     detail = BookingDetail(
         sample=is_sample(booking), sample_label=data_label(booking),
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
         customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
         fare=fare, sections_not_available=missing, can_reveal_identity=visibility.reveal_identity,
+        can_record_payments=can_record_payments,
     )
+    paid = sum(p.amount_minor for p in people.payments) if people else 0
+    if people is not None:
+        detail.amount_paid = _money(paid, booking.currency)
+        detail.amount_due = _money(max((booking.total_minor or 0) - paid, 0), booking.currency)
+    if people and people.payments:
+        detail.payments = [
+            BookingPayment(id=p.id, amount=_money(p.amount_minor, p.currency), method=p.method, received_into=p.received_into,
+                           reference=p.reference, received_at=p.received_at, recorded_by_user_id=p.recorded_by_user_id,
+                           recorded_by_role=p.recorded_by_role, recorded_at=p.recorded_at)
+            for p in people.payments
+        ]
     if people and people.customer:
         c = people.customer
         detail.customer = BookingCustomer(first_name=c.first_name, last_name=c.last_name, phone=f"+{c.phone_code} {c.phone}", email=c.email)

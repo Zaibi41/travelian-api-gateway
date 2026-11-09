@@ -28,7 +28,10 @@ from app.core.authentication import AuthenticatedUser, require_authenticated_use
 SEE_SUPPLIER_NAMES = "see_supplier_names"
 SEE_COST_AND_MARGIN = "see_cost_and_margin"
 REVEAL_IDENTITY = "reveal_identity"
-PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, REVEAL_IDENTITY)
+#: Action permissions (what a user may do, not see): super_admin always; staff when granted.
+RECORD_PAYMENTS = "record_payments"
+ACTIONS = (RECORD_PAYMENTS,)
+PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, REVEAL_IDENTITY, *ACTIONS)
 
 FULL_ACCESS_ROLES = {"super_admin"}
 GRANTABLE_ROLES = {"staff"}
@@ -72,11 +75,24 @@ def granted_permissions(connection, user_id: str, role_id: int) -> set[str]:
     return {row[0] for row in rows}
 
 
+def resolve_actions(role: str, granted: set[str] | frozenset[str]) -> frozenset[str]:
+    """Pure rule for action permissions: super_admin all, staff what is granted, others none."""
+    if role in FULL_ACCESS_ROLES:
+        return frozenset(ACTIONS)
+    if role in GRANTABLE_ROLES:
+        return frozenset(ACTIONS) & frozenset(granted)
+    return frozenset()
+
+
 @dataclass(frozen=True)
 class BackOfficeUser:
     user_id: str
     role: str
     visibility: FieldVisibility
+    actions: frozenset[str] = frozenset()
+
+    def can(self, action: str) -> bool:
+        return action in self.actions
 
 
 def _back_office_user(identity, allowed: set[str] = BACK_OFFICE_ROLES, denied: str = "Back-office access denied.") -> BackOfficeUser:
@@ -88,7 +104,8 @@ def _back_office_user(identity, allowed: set[str] = BACK_OFFICE_ROLES, denied: s
         if profile.role not in allowed:
             raise HTTPException(403, denied)
         granted = granted_permissions(connection, profile.id, profile.role_id)
-    return BackOfficeUser(user_id=profile.id, role=profile.role, visibility=resolve_visibility(profile.role, granted))
+    return BackOfficeUser(user_id=profile.id, role=profile.role, visibility=resolve_visibility(profile.role, granted),
+                          actions=resolve_actions(profile.role, granted))
 
 
 async def require_back_office(

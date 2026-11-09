@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import admin_bookings as routes
 from app.api.routes import admin_dashboard as dashboard_routes
-from app.core.field_visibility import ALL, NONE, BackOfficeUser, FieldVisibility, require_back_office
+from app.core.field_visibility import ALL, NONE, BackOfficeUser, FieldVisibility, require_back_office, resolve_actions
 from app.db import booking_people
 from app.db import bookings as booking_store
 from app.db.bookings import BookingRow, BookingsUnavailable
@@ -17,7 +17,7 @@ from app.db.bookings import BookingRow, BookingsUnavailable
 PKT = ZoneInfo("Asia/Karachi")
 NOW = datetime(2026, 11, 5, 12, 0, tzinfo=PKT)
 
-SUPER_ADMIN = BackOfficeUser("u-1", "super_admin", ALL)
+SUPER_ADMIN = BackOfficeUser("u-1", "super_admin", ALL, resolve_actions("super_admin", set()))
 STAFF = BackOfficeUser("u-2", "staff", NONE)
 STAFF_NAMES = BackOfficeUser("u-3", "staff", FieldVisibility(supplier_names=True, cost_and_margin=False))
 STAFF_COST = BackOfficeUser("u-4", "staff", FieldVisibility(supplier_names=False, cost_and_margin=True))
@@ -279,3 +279,48 @@ def test_reveal_needs_a_reason_and_reports_missing_traveler_or_key(monkeypatch):
 def test_agency_and_customer_roles_cannot_reach_the_reveal(monkeypatch):
     response = client(monkeypatch, viewer=None).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
     assert response.status_code == 403
+
+
+PAYER = BackOfficeUser("u-6", "staff", NONE, frozenset({"record_payments"}))
+PAYMENT_BODY = {"amount": {"amount_minor": 20_000, "currency": "PKR"}, "method": "jazzcash", "received_into": "JazzCash business wallet",
+                "reference": "JC-778", "received_at": "2026-11-05T06:30:00+00:00"}
+
+
+@pytest.mark.parametrize("viewer,status", [(STAFF, 403), (STAFF_COST, 403), (REVEALER, 403), (PAYER, 201), (SUPER_ADMIN, 201)])
+def test_recording_a_payment_needs_the_permission(monkeypatch, viewer, status):
+    from app.db import booking_payments
+    calls = []
+    def record(reference, **kwargs):
+        calls.append((reference, kwargs))
+        return booking_payments.Payment("p1", kwargs["amount_minor"], "PKR", kwargs["method"], kwargs["received_into"], kwargs["payer_reference"],
+                                        kwargs["received_at"], viewer.user_id, viewer.role, NOW), "part_paid"
+    monkeypatch.setattr(booking_payments, "record", record)
+    response = client(monkeypatch, viewer=viewer).post("/v1/admin/bookings/TRV-2/payments", json=PAYMENT_BODY)
+    assert response.status_code == status
+    if status == 201:
+        assert response.json()["payment_status"] == "part_paid" and response.json()["payment"]["method"] == "jazzcash"
+        assert calls[0][0] == "TRV-2" and calls[0][1]["actor_user_id"] == viewer.user_id
+    else:
+        assert calls == []
+
+
+@pytest.mark.parametrize("change,status", [
+    ({"method": "cash"}, 422), ({"amount": {"amount_minor": 0, "currency": "PKR"}}, 422), ({"reference": ""}, 422),
+    ({"received_at": "2026-11-05T06:30:00"}, 422), ({"received_at": "2026-11-06T06:30:00+00:00"}, 422),  # no zone; future
+])
+def test_payment_validation(monkeypatch, change, status):
+    assert client(monkeypatch, viewer=PAYER).post("/v1/admin/bookings/TRV-2/payments", json={**PAYMENT_BODY, **change}).status_code == status
+
+
+def test_detail_says_whether_the_viewer_may_record_payments(monkeypatch):
+    assert client(monkeypatch, viewer=STAFF).get("/v1/admin/bookings/TRV-2").json()["can_record_payments"] is False
+    assert client(monkeypatch, viewer=PAYER).get("/v1/admin/bookings/TRV-2").json()["can_record_payments"] is True
+
+
+def test_part_paid_counts_as_unpaid_on_the_card_and_filters_as_part_paid(monkeypatch):
+    rows = [booking(1, payment_status="part_paid", status="held", ticket_status="not_issued"), booking(2)]
+    body = client(monkeypatch, rows=rows).get("/v1/admin/bookings").json()
+    assert body["cards"]["unpaid"] == 1
+    assert [i["statuses"]["payment"] for i in body["items"]] == ["part_paid", "paid"]
+    filtered = client(monkeypatch, rows=rows).get("/v1/admin/bookings", params={"payment_status": "part_paid"}).json()
+    assert [i["booking_id"] for i in filtered["items"]] == ["TRV-1"]

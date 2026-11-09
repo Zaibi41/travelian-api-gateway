@@ -455,6 +455,28 @@
           "amount": {
             "$ref": "#/components/schemas/BookingMoney"
           },
+          "amount_due": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total less recorded payments."
+          },
+          "amount_paid": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of recorded payments."
+          },
           "audit": {
             "anyOf": [
               {
@@ -473,6 +495,12 @@
           "booking_id": {
             "title": "Booking Id",
             "type": "string"
+          },
+          "can_record_payments": {
+            "default": false,
+            "description": "Whether this viewer may record a payment (the endpoint still checks).",
+            "title": "Can Record Payments",
+            "type": "boolean"
           },
           "can_reveal_identity": {
             "default": false,
@@ -543,6 +571,21 @@
             ],
             "description": "The Passengers tab. Omitted when no travelers were saved.",
             "title": "Passengers"
+          },
+          "payments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BookingPayment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Payments tab. Omitted when no payment is recorded.",
+            "title": "Payments"
           },
           "pnr": {
             "anyOf": [
@@ -1146,6 +1189,80 @@
         "title": "BookingMoney",
         "type": "object"
       },
+      "BookingPayment": {
+        "description": "A customer payment (Payments tab).",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "received_into": {
+            "description": "The Travelian account the money was received into.",
+            "title": "Received Into",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Role"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By User Id"
+          },
+          "reference": {
+            "description": "The payer's transaction reference.",
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "method",
+          "received_into",
+          "reference",
+          "received_at",
+          "recorded_at"
+        ],
+        "title": "BookingPayment",
+        "type": "object"
+      },
       "BookingRecord": {
         "additionalProperties": true,
         "properties": {
@@ -1434,7 +1551,8 @@
           "payment": {
             "enum": [
               "paid",
-              "unpaid"
+              "unpaid",
+              "part_paid"
             ],
             "title": "Payment",
             "type": "string"
@@ -3423,6 +3541,72 @@
         "title": "ProviderStatus",
         "type": "object"
       },
+      "RecordPaymentRequest": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "received_at": {
+            "description": "When the money was received. Not in the future.",
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "received_into": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Received Into",
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ./_-]*$",
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "method",
+          "received_into",
+          "reference",
+          "received_at"
+        ],
+        "title": "RecordPaymentRequest",
+        "type": "object"
+      },
+      "RecordPaymentResponse": {
+        "properties": {
+          "payment": {
+            "$ref": "#/components/schemas/BookingPayment"
+          },
+          "payment_status": {
+            "enum": [
+              "paid",
+              "unpaid",
+              "part_paid"
+            ],
+            "title": "Payment Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment",
+          "payment_status"
+        ],
+        "title": "RecordPaymentResponse",
+        "type": "object"
+      },
       "RefreshRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5306,7 +5490,8 @@
                 {
                   "enum": [
                     "paid",
-                    "unpaid"
+                    "unpaid",
+                    "part_paid"
                   ],
                   "type": "string"
                 },
@@ -5516,6 +5701,70 @@
           }
         ],
         "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/payments": {
+      "post": {
+        "description": "Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged.",
+        "operationId": "record_payment_v1_admin_bookings__booking_id__payments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordPaymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the record_payments permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Closed booking, more than the amount due, or the reference is already recorded."
+          },
+          "422": {
+            "description": "Invalid payment or wrong currency."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Payment",
         "tags": [
           "admin bookings"
         ]
