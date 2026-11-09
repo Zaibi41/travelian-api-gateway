@@ -323,3 +323,42 @@ def test_infant_adult_choice_is_checked(passengers, message):
 def test_only_infants_travel_with_an_adult():
     with pytest.raises(ValueError, match="only an infant"):
         hold_request(passengers=[{**ADULT, "travels_with": 0}])
+
+
+def test_hold_errors_carry_a_code_and_the_hold_facts_over_http(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api.routes.live_ticketing import router
+    from app.core.field_visibility import require_back_office
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_back_office] = lambda: STAFF
+    body = hold_request().model_dump(mode="json")
+    for error, expected in (
+        (flight_holds.HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off"), {"code": "booking_off"}),
+        (flight_holds.HoldError(502, "The hold was created ... couldn't be verified.", code="total_unverified", pnr="63B55C", booking_id="TRV-ABC123"),
+         {"code": "total_unverified", "pnr": "63B55C", "booking_id": "TRV-ABC123"}),
+        (flight_holds.HoldError(500, "... couldn't be saved. Record this PNR.", code="not_saved", pnr="63B55C"), {"code": "not_saved", "pnr": "63B55C"}),
+    ):
+        async def hold(request, viewer, error=error):
+            raise error
+        monkeypatch.setattr(flight_holds, "hold", hold)
+        response = TestClient(app).post("/v1/live-ticketing/flights/bookings", json=body)
+        assert response.status_code == error.status and response.json() == {"detail": error.message, **expected}
+
+
+def test_codes_from_the_hold_flow():
+    make_quote()
+    with patch.object(settings, "southair_booking_enabled", False), pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), fake_client())
+    assert error.value.code == "booking_off"
+    make_quote()
+    client = fake_client(search=search_data(total="500.00"), fare_info={"ADT": {"TOTAL": "500.00"}})
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), client)
+    assert error.value.code == "price_changed"
+    make_quote()
+    client = fake_client(booking={"booking_status": 0})
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), client, saved=MagicMock())
+    assert error.value.code == "not_confirmed_hold"

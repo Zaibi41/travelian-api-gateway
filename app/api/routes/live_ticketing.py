@@ -51,4 +51,5 @@ async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, De
     try:
         return await flight_holds.hold(request, viewer)
     except flight_holds.HoldError as error:
-        raise HTTPException(error.status, error.message) from None
+        # detail: the sentence to show; code: a stable reason; pnr / booking_id when a hold exists.
+        return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)

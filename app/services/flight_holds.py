@@ -26,10 +26,15 @@ REMARKS = "Travelian UAT test booking"
 
 
 class HoldError(Exception):
-    def __init__(self, status: int, message: str):
+    """code: stable reason for clients; extra: facts the page needs (pnr, booking_id) when a hold
+    exists at the supplier although the call failed. message: the sentence to show."""
+
+    def __init__(self, status: int, message: str, code: str = "invalid_passengers", **extra: str):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code
+        self.extra = extra
 
 
 def _age_on(birth: date, on: date) -> int:
@@ -148,24 +153,25 @@ def _time_limit(value: object) -> datetime | None:
 
 async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None) -> HoldView:
     if not settings.southair_booking_enabled:
-        raise HoldError(409, "Booking is turned off. Nothing was booked.")
+        raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
     if viewer.role not in BACK_OFFICE_ROLES:
-        raise HoldError(403, "Only back-office users can place holds.")
+        raise HoldError(403, "Only back-office users can place holds.", code="not_allowed")
     if not pii.configured():
         logger.error("Hold refused: traveler encryption keys are not configured")
-        raise HoldError(503, "Traveler details can't be stored securely right now. Nothing was booked.")
+        raise HoldError(503, "Traveler details can't be stored securely right now. Nothing was booked.", code="storage_unavailable")
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
-        raise HoldError(404, "The revalidated fare has expired. Revalidate again.")
+        raise HoldError(404, "The revalidated fare has expired. Revalidate again.", code="quote_expired")
     if quote.price_changed and not request.accept_price_change:
         raise HoldError(409, f"The price changed to {live_flights.money_text(quote.selling_total_minor, quote.currency)}. "
-                             "Accept the new total to continue. Nothing was booked.")
+                             "Accept the new total to continue. Nothing was booked.", code="price_not_accepted")
     if request.confirmed_total.currency != quote.currency or request.confirmed_total.amount_minor != quote.selling_total_minor:
-        raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.")
+        raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.",
+                        code="confirm_total")
     counts = {"ADT": quote.request.adults, "CHD": quote.request.children, "INF": quote.request.infants}
     given = {kind: sum(p.type == kind for p in request.passengers) for kind in counts}
     if given != counts:
-        raise HoldError(422, "The passengers must match the search (adults, children, infants).")
+        raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
     passengers = _supplier_passengers(request, quote.request.departure_date)
     warnings = passport_warnings(request, quote.request)
 
@@ -174,16 +180,16 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     try:
         nld, fresh, currency, priced = await price_selection(quote.request, quote.refs, client)
     except RepriceError as error:
-        raise HoldError(error.status, error.message) from None
+        raise HoldError(error.status, error.message, code=error.code) from None
     except SouthairError:
-        raise HoldError(502, "The flight supplier couldn't reprice this fare. Nothing was booked.") from None
+        raise HoldError(502, "The flight supplier couldn't reprice this fare. Nothing was booked.", code="not_confirmed") from None
     selling_each = [(kind, number, cost, sell(cost)) for kind, number, cost in priced]
     if any(selling is None for *_, selling in selling_each):
-        raise HoldError(409, "No selling price is configured for flights. Nothing was booked.")
+        raise HoldError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each)
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
     if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor:
-        raise HoldError(409, f"The price changed to {live_flights.money_text(selling_total, currency)}. Revalidate and confirm the new total. Nothing was booked.")
+        raise HoldError(409, f"The price changed to {live_flights.money_text(selling_total, currency)}. Revalidate and confirm the new total. Nothing was booked.", code="price_changed")
 
     # 2. Booking (hold). Never retried.
     try:
@@ -194,11 +200,11 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         )
     except SouthairError as error:
         logger.warning("Southair booking failed", extra={"error_code": error.error_code})
-        raise HoldError(502, "The supplier didn't confirm the hold. Check the supplier before trying again.") from None
+        raise HoldError(502, "The supplier didn't confirm the hold. Check the supplier before trying again.", code="not_confirmed_hold") from None
     pnr, ticket_ref = str(booking.get("pnrn") or "").strip().upper(), booking.get("ticket_ref")
     if str(booking.get("booking_status")) != "1" or not pnr.isalnum() or not isinstance(ticket_ref, str) or not ticket_ref:
         logger.warning("Southair booking not confirmed", extra={"booking_status": booking.get("booking_status")})
-        raise HoldError(502, "The supplier didn't confirm the hold. Check the supplier before trying again.")
+        raise HoldError(502, "The supplier didn't confirm the hold. Check the supplier before trying again.", code="not_confirmed_hold")
     try:
         pax_count = int(booking.get("pax_count"))
     except (TypeError, ValueError):
@@ -233,12 +239,12 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         )
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
-        raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.") from None
+        raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
     if fare_info_status != "matches":
         # The hold exists at the supplier and is saved, but its total isn't verified: never
         # report it as confirmed. Staff must check the total with the supplier first.
         logger.warning("Southair hold total not verified", extra={"pnr": pnr, "fare_info": fare_info_status})
         raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
-                             "Check the total with the supplier before taking any payment.")
+                             "Check the total with the supplier before taking any payment.", code="total_unverified", pnr=pnr, booking_id=reference)
     return HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings)
