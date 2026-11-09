@@ -21,7 +21,14 @@ def test_offline_migration_can_be_reviewed_without_credentials():
 
 
 def test_database_password_is_hidden_and_special_characters_are_preserved():
-    settings = DatabaseSettings(_env_file=None, db_password="test@:/%password")
+    settings = DatabaseSettings(
+        _env_file=None,
+        db_host="127.0.0.1",
+        db_port=5432,
+        db_name="synthetic",
+        db_user="synthetic",
+        db_password="test@:/%password",
+    )
     assert "test@:/%password" not in repr(settings)
     assert "test@:/%password" not in str(settings.url())
     assert settings.url().password == "test@:/%password"

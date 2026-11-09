@@ -10,7 +10,7 @@ From the gateway repository, install dependencies:
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Defaults target `127.0.0.1:5432`, database `travelian`, user `travelian_local`. If yours differ, edit `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USER` privately in your ignored `.env`. These settings are separate from supplier credentials. Leave `DB_PASSWORD` absent or empty to use the hidden terminal prompt; do not put passwords in shell commands or chat. Optional stored passwords use the ignored `.env` and must remain private.
+Database host, port, name and user are required configuration, with no hardcoded application fallback. Copy the local examples from `.env.example` and set `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USER` privately in your ignored `.env`. These settings are separate from supplier credentials. Leave `DB_PASSWORD` absent or empty to use the hidden terminal prompt; do not put passwords in shell commands or chat. Optional stored passwords use the ignored `.env` and must remain private.
 
 Review generated SQL without connecting:
 

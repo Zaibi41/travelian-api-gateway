@@ -458,7 +458,10 @@
           "sample_label": {
             "anyOf": [
               {
-                "const": "Sample data",
+                "enum": [
+                  "Sample data",
+                  "UAT test data"
+                ],
                 "type": "string"
               },
               {
@@ -916,6 +919,22 @@
             "description": "Agency name when known. Customer names are not stored yet.",
             "title": "Customer Or Agency"
           },
+          "data_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Sample data",
+                  "UAT test data"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label for test rows.",
+            "title": "Data Label"
+          },
           "expires_at": {
             "anyOf": [
               {
@@ -962,7 +981,7 @@
             "title": "Provider"
           },
           "sample": {
-            "description": "True for rows from a one-time import (test data).",
+            "description": "True for test rows (one-time import or supplier UAT).",
             "title": "Sample",
             "type": "boolean"
           },
@@ -1399,7 +1418,8 @@
           "issuance": {
             "enum": [
               "not_issued",
-              "issued"
+              "issued",
+              "unknown"
             ],
             "title": "Issuance",
             "type": "string"
@@ -2795,6 +2815,213 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HoldContact": {
+        "properties": {
+          "email": {
+            "maxLength": 50,
+            "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "phone": {
+            "pattern": "^\\d{5,10}$",
+            "title": "Phone",
+            "type": "string"
+          },
+          "phone_code": {
+            "pattern": "^[1-9]\\d{0,3}$",
+            "title": "Phone Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "phone_code",
+          "phone"
+        ],
+        "title": "HoldContact",
+        "type": "object"
+      },
+      "HoldPassenger": {
+        "properties": {
+          "date_of_birth": {
+            "format": "date",
+            "title": "Date Of Birth",
+            "type": "string"
+          },
+          "document_country": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Country"
+          },
+          "document_expiry": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]{1,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "first_name": {
+            "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+            "title": "First Name",
+            "type": "string"
+          },
+          "id_type": {
+            "enum": [
+              "PSPT",
+              "NATI"
+            ],
+            "title": "Id Type",
+            "type": "string"
+          },
+          "last_name": {
+            "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "nationality": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nationality"
+          },
+          "title": {
+            "enum": [
+              "MR",
+              "MRS",
+              "MISS",
+              "MASTER"
+            ],
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "first_name",
+          "last_name",
+          "date_of_birth",
+          "id_type"
+        ],
+        "title": "HoldPassenger",
+        "type": "object"
+      },
+      "HoldRequest": {
+        "properties": {
+          "confirmed_total": {
+            "$ref": "#/components/schemas/FlightMoney",
+            "description": "The total the user confirmed. The hold is refused if the supplier's total differs."
+          },
+          "contact": {
+            "$ref": "#/components/schemas/HoldContact"
+          },
+          "passengers": {
+            "items": {
+              "$ref": "#/components/schemas/HoldPassenger"
+            },
+            "maxItems": 9,
+            "minItems": 1,
+            "title": "Passengers",
+            "type": "array"
+          },
+          "quote_id": {
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Quote Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quote_id",
+          "confirmed_total",
+          "contact",
+          "passengers"
+        ],
+        "title": "HoldRequest",
+        "type": "object"
+      },
+      "HoldView": {
+        "properties": {
+          "booking_id": {
+            "description": "Travelian reference, e.g. TRV-AB12CD.",
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "label": {
+            "const": "UAT test data",
+            "default": "UAT test data",
+            "title": "Label",
+            "type": "string"
+          },
+          "pnr": {
+            "title": "Pnr",
+            "type": "string"
+          },
+          "selling_total": {
+            "$ref": "#/components/schemas/FlightMoney"
+          },
+          "time_limit": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The hold expires then unless ticketed. There is no cancel call.",
+            "title": "Time Limit"
+          }
+        },
+        "required": [
+          "booking_id",
+          "pnr",
+          "selling_total"
+        ],
+        "title": "HoldView",
         "type": "object"
       },
       "HotelSearchRequest": {
@@ -4710,7 +4937,8 @@
                 {
                   "enum": [
                     "not_issued",
-                    "issued"
+                    "issued",
+                    "unknown"
                   ],
                   "type": "string"
                 },
@@ -6546,6 +6774,61 @@
         "summary": "Search",
         "tags": [
           "agency integrations"
+        ]
+      }
+    },
+    "/v1/live-ticketing/flights/bookings": {
+      "post": {
+        "description": "Hold only (no ticketing, no payment), behind SOUTHAIR_BOOKING_ENABLED. Saved as UAT test data.",
+        "operationId": "hold_flight_v1_live_ticketing_flights_bookings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "404": {
+            "description": "Quote expired."
+          },
+          "409": {
+            "description": "Booking turned off, price changed, or no selling price."
+          },
+          "422": {
+            "description": "Passengers don't match."
+          },
+          "502": {
+            "description": "Supplier failed; nothing saved."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hold Flight",
+        "tags": [
+          "live ticketing"
         ]
       }
     },

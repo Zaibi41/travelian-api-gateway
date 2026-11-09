@@ -181,7 +181,14 @@ def test_missing_configuration_and_database_outage(monkeypatch):
     monkeypatch.setattr(
         store,
         "DatabaseSettings",
-        lambda: DatabaseSettings(_env_file=None, db_password=None),
+        lambda: DatabaseSettings(
+            _env_file=None,
+            db_host="127.0.0.1",
+            db_port=5432,
+            db_name="synthetic",
+            db_user="synthetic",
+            db_password=None,
+        ),
     )
     with pytest.raises(HTTPException) as error:
         store.get_application(user())

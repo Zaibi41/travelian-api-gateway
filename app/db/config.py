@@ -1,17 +1,19 @@
 """Separate migration configuration, without requiring a database for inventory."""
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
 
 class DatabaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
 
-    db_host: str = "127.0.0.1"
-    db_port: int = 5432
-    db_name: str = "travelian"
-    db_user: str = "travelian_local"
+    db_host: str = Field(min_length=1)
+    db_port: int = Field(ge=1, le=65535)
+    db_name: str = Field(min_length=1)
+    db_user: str = Field(min_length=1)
     db_password: SecretStr | None = None
 
     def url(self, password: str | None = None) -> URL:

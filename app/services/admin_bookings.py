@@ -54,7 +54,15 @@ def payment_status(booking: BookingRow) -> str:
 
 
 def issuance_status(booking: BookingRow) -> str:
+    if booking.ticket_status == "unknown":
+        return "unknown"
     return "issued" if booking.ticket_status == "issued" or booking.status == "ticket_issued" else "not_issued"
+
+
+def data_label(booking: BookingRow) -> str | None:
+    if booking.import_source is None:
+        return None
+    return "UAT test data" if booking.import_source == "southair_uat" else "Sample data"
 
 
 def _money(amount: int | None, currency: str | None) -> BookingMoney:
@@ -162,7 +170,7 @@ def build_list(
         item = BookingListItem(
             booking_id=b.booking_id, pnr=b.pnr, product=b.product, customer_or_agency=b.agency_name,
             statuses=_statuses(b), amount=_money(b.total_minor, b.currency),
-            created_at=b.created_at, expires_at=b.hold_expires_at, sample=is_sample(b),
+            created_at=b.created_at, expires_at=b.hold_expires_at, sample=is_sample(b), data_label=data_label(b),
         )
         if visibility.supplier_names and b.provider:
             item.provider = b.provider
@@ -183,7 +191,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility) -> BookingDet
     billable = _money(booking.total_minor, booking.currency)
     fare = BookingFare(billable_price=billable)
     detail = BookingDetail(
-        sample=is_sample(booking), sample_label="Sample data" if is_sample(booking) else None,
+        sample=is_sample(booking), sample_label=data_label(booking),
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
         customer_or_agency=booking.agency_name, statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,

@@ -14,7 +14,14 @@ def test_missing_runtime_password_fails_closed_without_connecting():
     with (
         patch(
             "app.db.agency_assignments.DatabaseSettings",
-            return_value=DatabaseSettings(_env_file=None, db_password=None),
+            return_value=DatabaseSettings(
+                _env_file=None,
+                db_host="127.0.0.1",
+                db_port=5432,
+                db_name="synthetic",
+                db_user="synthetic",
+                db_password=None,
+            ),
         ),
         patch("app.db.agency_assignments.create_engine") as create,
         pytest.raises(HTTPException) as error,

@@ -5,7 +5,7 @@ leave the gateway. `supplier` and `supplier_cost` are only set for viewers with 
 matching permission; routes serialize with response_model_exclude_none.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -81,3 +81,40 @@ class RepriceView(BaseModel):
     price_changed: bool = Field(description="True when the adult price differs from the search result.")
     booking_enabled: bool = Field(description="Whether this gateway may place a hold for this user.")
     supplier_total: FlightMoney | None = Field(None, description="Only with the cost and margin permission.")
+
+
+_NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"
+
+
+class HoldPassenger(BaseModel):
+    type: Literal["ADT", "CHD", "INF"]
+    title: Literal["MR", "MRS", "MISS", "MASTER"]
+    first_name: str = Field(pattern=_NAME)
+    last_name: str = Field(pattern=_NAME)
+    date_of_birth: date
+    id_type: Literal["PSPT", "NATI"]
+    document_number: str | None = Field(None, pattern=r"^[A-Za-z0-9]{1,15}$")
+    document_country: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+    document_expiry: date | None = None
+    nationality: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+
+
+class HoldContact(BaseModel):
+    email: str = Field(max_length=50, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    phone_code: str = Field(pattern=r"^[1-9]\d{0,3}$")
+    phone: str = Field(pattern=r"^\d{5,10}$")
+
+
+class HoldRequest(BaseModel):
+    quote_id: str = Field(min_length=8, max_length=64)
+    confirmed_total: FlightMoney = Field(description="The total the user confirmed. The hold is refused if the supplier's total differs.")
+    contact: HoldContact
+    passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
+
+
+class HoldView(BaseModel):
+    booking_id: str = Field(description="Travelian reference, e.g. TRV-AB12CD.")
+    pnr: str
+    time_limit: datetime | None = Field(None, description="The hold expires then unless ticketed. There is no cancel call.")
+    selling_total: FlightMoney
+    label: Literal["UAT test data"] = "UAT test data"

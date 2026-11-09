@@ -19,10 +19,12 @@ from app.schemas.admin_dashboard import FilterOption
 Product = Literal["flight", "group", "hotel", "umrah"]
 BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired"]
 PaymentStatus = Literal["paid", "unpaid"]
-IssuanceStatus = Literal["not_issued", "issued"]
+IssuanceStatus = Literal["not_issued", "issued", "unknown"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
+
+DataLabel = Literal["Sample data", "UAT test data"]
 
 SOURCE = "gateway_bookings"
 SAMPLE_LABEL = "Sample data"
@@ -63,7 +65,8 @@ class BookingListItem(BaseModel):
     amount: BookingMoney
     created_at: datetime | None = None
     expires_at: datetime | None = None
-    sample: bool = Field(description="True for rows from a one-time import (test data).")
+    sample: bool = Field(description="True for test rows (one-time import or supplier UAT).")
+    data_label: DataLabel | None = Field(None, description="Label for test rows.")
 
 
 class BookingListFilterOptions(BaseModel):
@@ -99,7 +102,7 @@ class SupplierPayment(BaseModel):
 class BookingDetail(BaseModel):
     source: Literal["gateway_bookings"] = SOURCE
     sample: bool
-    sample_label: Literal["Sample data"] | None = None
+    sample_label: DataLabel | None = None
     booking_id: str
     pnr: str | None = None
     product: Product

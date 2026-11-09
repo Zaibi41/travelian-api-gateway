@@ -8,10 +8,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.field_visibility import BackOfficeUser, require_search_viewer
+from app.core.field_visibility import BackOfficeUser, require_back_office, require_search_viewer
 from app.schemas.flights import FlightSearchRequest
-from app.schemas.live_flights import FlightSearchView, RepriceRequest, RepriceView
-from app.services import live_flights
+from app.schemas.live_flights import FlightSearchView, HoldRequest, HoldView, RepriceRequest, RepriceView
+from app.services import flight_holds, live_flights
 
 router = APIRouter(
     prefix="/live-ticketing",
@@ -36,4 +36,17 @@ async def reprice_flights(request: RepriceRequest, viewer: Viewer) -> RepriceVie
     try:
         return await live_flights.reprice(request.search_id, request.fare_ids, viewer)
     except live_flights.RepriceError as error:
+        raise HTTPException(error.status, error.message) from None
+
+
+@router.post(
+    "/flights/bookings", response_model=HoldView, status_code=201,
+    responses={409: {"description": "Booking turned off, price changed, or no selling price."}, 404: {"description": "Quote expired."},
+               422: {"description": "Passengers don't match."}, 502: {"description": "Supplier failed; nothing saved."}},
+)
+async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, Depends(require_back_office)]) -> HoldView:
+    """Hold only (no ticketing, no payment), behind SOUTHAIR_BOOKING_ENABLED. Saved as UAT test data."""
+    try:
+        return await flight_holds.hold(request, viewer)
+    except flight_holds.HoldError as error:
         raise HTTPException(error.status, error.message) from None

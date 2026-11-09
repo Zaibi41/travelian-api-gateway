@@ -3,6 +3,7 @@
 from functools import lru_cache
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import Connection, create_engine, pool, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -51,7 +52,7 @@ def require_active_assignment(principal: AgencyAuthorization) -> AgencyAuthoriza
     try:
         with assignment_engine().connect() as connection:
             return check_active_assignment(connection, principal)
-    except SQLAlchemyError:
+    except (SQLAlchemyError, ValidationError):
         # Do not return/log SQL, connection details, identity or driver exceptions.
         raise HTTPException(
             status_code=503, detail="Agency verification unavailable."
