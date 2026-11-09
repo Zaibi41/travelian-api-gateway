@@ -57,7 +57,7 @@ class FlightSearchView(BaseModel):
     search_id: str = Field(description="Opaque. Fare IDs from this search expire with it.")
     expires_at: datetime
     status: Literal["complete", "unavailable"]
-    notice: str | None = Field(None, description='D24: "Some results may be missing" when a provider fails, no provider names.')
+    notice: str | None = Field(None, description='D24: "Some results may be missing" only when a provider fails and other results are returned; never with status "unavailable". No provider names.')
     journeys: list[JourneyView]
     providers: list[ProviderStatus] | None = Field(None, description="Only with the supplier names permission.")
 

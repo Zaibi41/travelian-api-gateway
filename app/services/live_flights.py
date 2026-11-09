@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 SEARCH_TTL_SECONDS = 15 * 60
 MAX_SESSIONS = 500
+#: D24, for partial results once a second provider is added; never sent with no results.
 MISSING_NOTICE = "Some results may be missing."
 
 
@@ -164,7 +165,8 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
 
 
 def _unavailable(session: SearchSession, expires_at: datetime, providers: list[ProviderStatus], viewer: BackOfficeUser) -> FlightSearchView:
-    view = FlightSearchView(search_id=session.id, expires_at=expires_at, status="unavailable", notice=MISSING_NOTICE, journeys=[])
+    # No results at all: not "some results may be missing" (D24 is for partial results).
+    view = FlightSearchView(search_id=session.id, expires_at=expires_at, status="unavailable", journeys=[])
     if viewer.visibility.supplier_names:
         view.providers = providers
     return view

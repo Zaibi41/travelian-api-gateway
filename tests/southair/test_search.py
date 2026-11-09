@@ -112,10 +112,11 @@ def test_round_trip_has_two_journeys():
 
 
 @pytest.mark.parametrize("error", [SouthairError("timeout", "x"), SouthairNotConfigured()])
-def test_provider_failure_shows_a_general_notice_without_names(error):
+def test_provider_failure_is_unavailable_without_names_or_missing_notice(error):
     staff = call(VIEWERS["staff"], client=fake_client(error=error)).json()
-    assert staff["status"] == "unavailable" and staff["notice"] == "Some results may be missing." and staff["journeys"] == []
-    assert "southair" not in json.dumps(staff).lower()
+    assert staff["status"] == "unavailable" and staff["journeys"] == []
+    assert "notice" not in staff  # nothing came back, so not "some results may be missing"
+    assert "southair" not in json.dumps(staff).lower() and "not_configured" not in json.dumps(staff)
     admin = call(VIEWERS["super_admin"], client=fake_client(error=error)).json()
     assert admin["providers"][0]["name"] == "southair"
 

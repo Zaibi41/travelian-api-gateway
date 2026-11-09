@@ -1870,7 +1870,7 @@
                 "type": "null"
               }
             ],
-            "description": "D24: \"Some results may be missing\" when a provider fails, no provider names.",
+            "description": "D24: \"Some results may be missing\" only when a provider fails and other results are returned; never with status \"unavailable\". No provider names.",
             "title": "Notice"
           },
           "providers": {
