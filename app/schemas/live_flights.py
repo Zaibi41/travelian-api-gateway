@@ -60,3 +60,24 @@ class FlightSearchView(BaseModel):
     notice: str | None = Field(None, description='D24: "Some results may be missing" when a provider fails, no provider names.')
     journeys: list[JourneyView]
     providers: list[ProviderStatus] | None = Field(None, description="Only with the supplier names permission.")
+
+
+class RepriceRequest(BaseModel):
+    search_id: str = Field(min_length=8, max_length=64)
+    fare_ids: list[str] = Field(min_length=1, max_length=2, description="Outbound fare, then the return fare for a round trip.")
+
+
+class PassengerPrice(BaseModel):
+    type: Literal["ADT", "CHD", "INF"]
+    count: int
+    selling_each: FlightMoney
+
+
+class RepriceView(BaseModel):
+    quote_id: str = Field(description="Opaque. Valid for 10 minutes, for the user who repriced.")
+    expires_at: datetime
+    selling_total: FlightMoney = Field(description="The total the user must confirm before a hold.")
+    passengers: list[PassengerPrice]
+    price_changed: bool = Field(description="True when the adult price differs from the search result.")
+    booking_enabled: bool = Field(description="Whether this gateway may place a hold for this user.")
+    supplier_total: FlightMoney | None = Field(None, description="Only with the cost and margin permission.")

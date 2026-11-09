@@ -3074,6 +3074,33 @@
         "title": "NeedsAction",
         "type": "object"
       },
+      "PassengerPrice": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "selling_each": {
+            "$ref": "#/components/schemas/FlightMoney"
+          },
+          "type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count",
+          "selling_each"
+        ],
+        "title": "PassengerPrice",
+        "type": "object"
+      },
       "PasswordResetMessage": {
         "properties": {
           "message": {
@@ -3150,6 +3177,88 @@
           "issued"
         ],
         "title": "ReportBucket",
+        "type": "object"
+      },
+      "RepriceRequest": {
+        "properties": {
+          "fare_ids": {
+            "description": "Outbound fare, then the return fare for a round trip.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Fare Ids",
+            "type": "array"
+          },
+          "search_id": {
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "fare_ids"
+        ],
+        "title": "RepriceRequest",
+        "type": "object"
+      },
+      "RepriceView": {
+        "properties": {
+          "booking_enabled": {
+            "description": "Whether this gateway may place a hold for this user.",
+            "title": "Booking Enabled",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "passengers": {
+            "items": {
+              "$ref": "#/components/schemas/PassengerPrice"
+            },
+            "title": "Passengers",
+            "type": "array"
+          },
+          "price_changed": {
+            "description": "True when the adult price differs from the search result.",
+            "title": "Price Changed",
+            "type": "boolean"
+          },
+          "quote_id": {
+            "description": "Opaque. Valid for 10 minutes, for the user who repriced.",
+            "title": "Quote Id",
+            "type": "string"
+          },
+          "selling_total": {
+            "$ref": "#/components/schemas/FlightMoney",
+            "description": "The total the user must confirm before a hold."
+          },
+          "supplier_total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          }
+        },
+        "required": [
+          "quote_id",
+          "expires_at",
+          "selling_total",
+          "passengers",
+          "price_changed",
+          "booking_enabled"
+        ],
+        "title": "RepriceView",
         "type": "object"
       },
       "ResetPasswordRequest": {
@@ -6437,6 +6546,61 @@
         "summary": "Search",
         "tags": [
           "agency integrations"
+        ]
+      }
+    },
+    "/v1/live-ticketing/flights/reprice": {
+      "post": {
+        "description": "Repeat the search for the selected fares and return the total to confirm (valid 10 minutes).",
+        "operationId": "reprice_flights_v1_live_ticketing_flights_reprice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepriceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepriceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "404": {
+            "description": "Search expired."
+          },
+          "409": {
+            "description": "Fare gone or no selling price."
+          },
+          "422": {
+            "description": "Selection or passenger mix can't be priced."
+          },
+          "502": {
+            "description": "Supplier failed."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reprice Flights",
+        "tags": [
+          "live ticketing"
         ]
       }
     },
