@@ -21,7 +21,6 @@ from app.services.group_ticketing import (
 from app.schemas.flights import VendorIssue, VendorResult
 from app.services.vendor_fanout import gather_vendor_calls
 from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient, DhilluSahiAuthError
-from app.schemas.group_ticketing import GroupInventory
 
 # Sign-in required (internal or agency role; customers get 403). What each caller
 # receives is decided in app.services.group_ticketing_view (D23).
@@ -108,10 +107,10 @@ class GroupAvailabilityResponse(BaseModel):
     request_id: str
     status: Literal["complete", "unavailable"]
     available: bool | None
-    vendors_queried: list[str]
-    vendors_succeeded: list[str]
-    vendors_failed: list[VendorIssue]
-    vendor_results: list[VendorResult]
+    vendors_queried: list[str] | None = None
+    vendors_succeeded: list[str] | None = None
+    vendors_failed: list[VendorIssue] | None = None
+    vendor_results: list[VendorResult] | None = None
 
 
 class GroupBookingRequest(BaseModel):
@@ -292,14 +291,13 @@ async def fetch_group_ticket(ticket_id: UUID, viewer: Viewer) -> GroupTicketView
     return ticket_view(matches[0], viewer.visibility)
 
 
-@router.post("/check-availability", response_model=GroupAvailabilityResponse, dependencies=[Depends(require_search_viewer)])
-async def check_group_availability(request: GroupAvailabilityRequest) -> GroupAvailabilityResponse:
+@router.post("/check-availability", response_model=GroupAvailabilityResponse, response_model_exclude_unset=True)
+async def check_group_availability(request: GroupAvailabilityRequest, viewer: Viewer) -> GroupAvailabilityResponse:
     if not _credentials_configured():
         issues, results = _not_configured_outcome()
         return GroupAvailabilityResponse(
             request_id=str(uuid4()), status="unavailable", available=None,
-            vendors_queried=[VENDOR_NAME], vendors_succeeded=[],
-            vendors_failed=issues, vendor_results=results,
+            **_availability_metadata(viewer, [], issues, results),
         )
     values, issues, results = await gather_vendor_calls(
         [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(request))],
@@ -308,9 +306,16 @@ async def check_group_availability(request: GroupAvailabilityRequest) -> GroupAv
     succeeded = [result.vendor for result in results if result.status == "success"]
     return GroupAvailabilityResponse(
         request_id=str(uuid4()), status="complete" if succeeded else "unavailable",
-        available=values.get(VENDOR_NAME), vendors_queried=[VENDOR_NAME],
-        vendors_succeeded=succeeded, vendors_failed=issues, vendor_results=results,
+        available=values.get(VENDOR_NAME),
+        **_availability_metadata(viewer, succeeded, issues, results),
     )
+
+
+def _availability_metadata(viewer: BackOfficeUser, succeeded, issues, results) -> dict:
+    if not viewer.visibility.supplier_names:
+        return {}
+    return {"vendors_queried": [VENDOR_NAME], "vendors_succeeded": succeeded,
+            "vendors_failed": issues, "vendor_results": results}
 
 
 @router.post(

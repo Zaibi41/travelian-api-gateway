@@ -2,7 +2,8 @@
 
 Everyone allowed to search: departure, route, airline, seats, baggage, meal, a
 gateway-served logo and the selling price (supplier price + configured markup).
-Only with "see supplier names": supplier, supplier PNR and raw supplier segments.
+Only with "see supplier names": supplier and supplier PNR.
+Raw supplier segments require both permissions because they may contain costs.
 Only with "see cost and margin": supplier cost. Agency roles never get either.
 """
 
@@ -44,7 +45,7 @@ class GroupTicketView(BaseModel):
     selling_price: GroupMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the price is unknown.")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     pnr: str | None = Field(None, description="Supplier PNR. Only with the supplier names permission.")
-    subparts: list[dict[str, Any]] | None = Field(None, description="Raw supplier segments. Only with the supplier names permission.")
+    subparts: list[dict[str, Any]] | None = Field(None, description="Raw supplier segments. Requires both supplier names and cost and margin permissions.")
     supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
 
 
@@ -101,7 +102,9 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         baggage=ticket.baggage, meal=ticket.meal, ticket_type=ticket.ticket_type, selling_price=selling_price(cost),
     )
     if visibility.supplier_names:
-        view.supplier, view.pnr, view.subparts = ticket.vendor, ticket.pnr, ticket.subparts
+        view.supplier, view.pnr = ticket.vendor, ticket.pnr
+    if visibility.supplier_names and visibility.cost_and_margin:
+        view.subparts = ticket.subparts
     if visibility.cost_and_margin:
         view.supplier_cost = cost
     return view

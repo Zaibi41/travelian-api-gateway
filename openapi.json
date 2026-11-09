@@ -2137,42 +2137,66 @@
             "type": "string"
           },
           "vendor_results": {
-            "items": {
-              "$ref": "#/components/schemas/VendorResult"
-            },
-            "title": "Vendor Results",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VendorResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Results"
           },
           "vendors_failed": {
-            "items": {
-              "$ref": "#/components/schemas/VendorIssue"
-            },
-            "title": "Vendors Failed",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VendorIssue"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendors Failed"
           },
           "vendors_queried": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Queried",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendors Queried"
           },
           "vendors_succeeded": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Succeeded",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendors Succeeded"
           }
         },
         "required": [
           "request_id",
           "status",
-          "available",
-          "vendors_queried",
-          "vendors_succeeded",
-          "vendors_failed",
-          "vendor_results"
+          "available"
         ],
         "title": "GroupAvailabilityResponse",
         "type": "object"
@@ -2698,7 +2722,7 @@
                 "type": "null"
               }
             ],
-            "description": "Raw supplier segments. Only with the supplier names permission.",
+            "description": "Raw supplier segments. Requires both supplier names and cost and margin permissions.",
             "title": "Subparts"
           },
           "supplier": {

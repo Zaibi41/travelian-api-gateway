@@ -7,7 +7,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -30,7 +29,7 @@ def groups():
         "tickets": [{
             "pnr": "SUPPNR1", "date": "2026-12-01", "price": "95000", "updated_at": "2026-05-08T05:39:41Z",
             "remaining": 9, "baggage": "20 KG",
-            "subpart": [{"departure_time": "09:45", "ticket_airline_id": 7, "flight_number": "SY 101"}],
+            "subpart": [{"departure_time": "09:45", "ticket_airline_id": 7, "flight_number": "SY 101", "supplier_price": "95000"}],
         }],
     }])
 
@@ -88,7 +87,7 @@ def test_super_admin_gets_supplier_cost_and_raw_fields():
 
 def test_grants_are_independent():
     names = ticket_of(call(VIEWERS["staff_names"]))
-    assert "supplier" in names and "subparts" in names and "supplier_cost" not in names
+    assert "supplier" in names and "subparts" not in names and "supplier_cost" not in names
     cost = ticket_of(call(VIEWERS["staff_cost"]))
     assert "supplier_cost" in cost and "supplier" not in cost and "pnr" not in cost
 
@@ -219,3 +218,53 @@ def test_logo_fetch_refuses_unsafe_responses(stream, public):
 
 def test_private_addresses_are_not_public():
     assert supplier_logos._public_host("localhost") is False
+
+
+@pytest.mark.parametrize("role", ["staff", "staff_cost", "agency_owner"])
+@pytest.mark.parametrize("outcome", ["success", "failure", "unconfigured"])
+def test_availability_omits_supplier_metadata(role, outcome):
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_search_viewer] = lambda: VIEWERS[role]
+    supplier = AsyncMock(return_value=True)
+    if outcome == "failure":
+        supplier.side_effect = RuntimeError("synthetic upstream failure")
+    with (
+        patch("app.api.routes.group_ticketing._credentials_configured", return_value=outcome != "unconfigured"),
+        patch("app.api.routes.group_ticketing._check_dhillu_sahi_availability", supplier),
+    ):
+        response = TestClient(app).post("/v1/group-ticketing/check-availability", json={
+            "pnr": "SUPPNR1", "adult": 1, "child": 0, "price": 95000,
+        })
+    assert response.status_code == 200
+    assert set(response.json()) <= {"request_id", "status", "available"}
+    for leak in ("dhillu", "supplier", "vendor", "95000", "SUPPNR1"):
+        assert leak not in response.text
+    assert response.json()["status"] == ("complete" if outcome == "success" else "unavailable")
+
+
+@pytest.mark.parametrize("path,body", [
+    ("/inventory", None),
+    ("/search", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}),
+    ("/tickets/11111111-1111-4111-8111-111111111111", None),
+    ("/check-availability", {"pnr": "X", "adult": 1, "child": 0, "price": 1}),
+    ("/flight-quotes", {}),
+])
+def test_customer_http_responses_never_include_supplier_data(monkeypatch, path, body):
+    from app.core.authentication import require_authenticated_user
+
+    @contextmanager
+    def transaction():
+        yield object()
+
+    monkeypatch.setattr("app.db.agencies.transaction", transaction)
+    monkeypatch.setattr("app.db.users.ensure_user", lambda *_: SimpleNamespace(id="u", role="customer", role_id=1))
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_authenticated_user] = lambda: object()
+    with patch("app.api.routes.group_ticketing.fetch_all_group_inventory", new=AsyncMock()) as upstream:
+        client = TestClient(app)
+        response = client.get("/v1/group-ticketing" + path) if body is None else client.post("/v1/group-ticketing" + path, json=body)
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Search access denied."}
+    upstream.assert_not_called()
