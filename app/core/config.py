@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # With both at 0 no selling price is returned and nothing can be confirmed or held.
     flight_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)
     flight_markup_fixed_minor: int = Field(0, ge=0)
+    # Cap on a revalidated price change (selling total, minor units, increase only). Unset: no
+    # cap; a changed price only needs the user's explicit acceptance (spec confirmation #18).
+    flight_price_change_limit_minor: int | None = Field(None, ge=0)
     # Group Ticketing selling price = supplier price + percent + fixed amount (D23).
     # With both at 0 no selling price is returned, so the supplier price is never
     # passed off as a selling price.

@@ -2974,6 +2974,12 @@
       },
       "HoldRequest": {
         "properties": {
+          "accept_price_change": {
+            "default": false,
+            "description": "Required (true) when the quote's price changed since the search.",
+            "title": "Accept Price Change",
+            "type": "boolean"
+          },
           "confirmed_total": {
             "$ref": "#/components/schemas/FlightMoney",
             "description": "The total the user confirmed. The hold is refused if the supplier's total differs."
@@ -3468,6 +3474,21 @@
             "title": "Expires At",
             "type": "string"
           },
+          "new_total": {
+            "$ref": "#/components/schemas/FlightMoney",
+            "description": "The verified selling total now (same as selling_total)."
+          },
+          "old_total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling total at the search prices. Omitted when the search had no price for every passenger type."
+          },
           "passengers": {
             "items": {
               "$ref": "#/components/schemas/PassengerPrice"
@@ -3476,7 +3497,7 @@
             "type": "array"
           },
           "price_changed": {
-            "description": "True when the adult price differs from the search result.",
+            "description": "True when the revalidated total differs from the search result. A hold then needs accept_price_change.",
             "title": "Price Changed",
             "type": "boolean"
           },
@@ -3507,6 +3528,7 @@
           "selling_total",
           "passengers",
           "price_changed",
+          "new_total",
           "booking_enabled"
         ],
         "title": "RepriceView",

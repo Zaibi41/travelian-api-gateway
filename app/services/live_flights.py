@@ -204,6 +204,8 @@ class Quote:
     selling_total_minor: int
     passengers: list[tuple[str, int, int, int]]  # (type, count, supplier_each_minor, selling_each_minor)
     expires_at: float
+    price_changed: bool = False
+    old_total_minor: int | None = None  # selling total at the search prices, when known
 
 
 def get_quote(quote_id: str, user_id: str) -> Quote | None:
@@ -298,6 +300,30 @@ def verified_total_minor(fare_info: dict | None, counts: dict[str, int]) -> int 
     return to_minor(final.value) if final else None
 
 
+def search_selling_total(request: FlightSearchRequest, wanted: list[FareRef]) -> int | None:
+    """Selling total at the search prices: adults only, from the search's per-adult totals.
+
+    Children and infants had no search price, so the old total is unknown for them (None).
+    """
+    if request.children or request.infants or not all(ref.adult_total for ref in wanted):
+        return None
+    each = sell(sum(to_minor(ref.adult_total.value) for ref in wanted))  # type: ignore[union-attr]
+    return each * request.adults if each is not None else None
+
+
+def price_change_allowed(old_total: int | None, new_total: int) -> bool:
+    """The config point for a cap on price changes (FLIGHT_PRICE_CHANGE_LIMIT_MINOR). No cap: always allowed.
+
+    With a cap, an increase above it is refused; an unknown old total can't be checked and is refused.
+    """
+    limit = settings.flight_price_change_limit_minor
+    if limit is None:
+        return True
+    if old_total is None:
+        return False
+    return new_total - old_total <= limit
+
+
 def can_book(viewer: BackOfficeUser) -> bool:
     from app.core.field_visibility import BACK_OFFICE_ROLES
 
@@ -325,19 +351,26 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         passengers.append((kind, number, cost_each, selling_each))
     supplier_total = sum(number * cost for _, number, cost, _ in passengers)
     selling_total = sum(number * selling for _, number, _, selling in passengers)
+    old_adult = sum(to_minor(r.adult_total.value) for r in wanted if r.adult_total)
+    new_adult = sum(to_minor(r.adult_total.value) for r in fresh if r.adult_total)
+    old_total = search_selling_total(session.request, wanted)
+    price_changed = old_adult != new_adult or (old_total is not None and old_total != selling_total)
+    if price_changed and not price_change_allowed(old_total, selling_total):
+        raise RepriceError(409, f"The price changed from {money_text(old_total or 0, currency)} to {money_text(selling_total, currency)}, "
+                                "more than the allowed change. Search again.")
     quote = Quote(
         id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=session.request, nld=nld, refs=fresh, currency=currency,
         supplier_total_minor=supplier_total, selling_total_minor=selling_total, passengers=passengers,
-        expires_at=_now() + QUOTE_TTL_SECONDS,
+        expires_at=_now() + QUOTE_TTL_SECONDS, price_changed=price_changed, old_total_minor=old_total,
     )
     _store_quote(quote)
-    old_adult = sum(to_minor(r.adult_total.value) for r in wanted if r.adult_total)
-    new_adult = sum(to_minor(r.adult_total.value) for r in fresh if r.adult_total)
     view = RepriceView(
         quote_id=quote.id, expires_at=datetime.fromtimestamp(quote.expires_at, timezone.utc),
         selling_total=FlightMoney(amount_minor=selling_total, currency=currency),
+        new_total=FlightMoney(amount_minor=selling_total, currency=currency),
+        old_total=FlightMoney(amount_minor=old_total, currency=currency) if old_total is not None else None,
         passengers=[PassengerPrice(type=kind, count=number, selling_each=FlightMoney(amount_minor=selling, currency=currency)) for kind, number, _, selling in passengers],
-        price_changed=old_adult != new_adult, booking_enabled=can_book(viewer),
+        price_changed=price_changed, booking_enabled=can_book(viewer),
     )
     if viewer.visibility.cost_and_margin:
         view.supplier_total = FlightMoney(amount_minor=supplier_total, currency=currency)

@@ -30,10 +30,11 @@ def fake_client(search=None, booking=None, booking_error=None, fare_info=None):
     return client
 
 
-def make_quote(adults=1, infants=0):
+def make_quote(adults=1, infants=0, selling=46_700, price_changed=False):
     request = FlightSearchRequest(origin="KHI", destination="MUX", departure_date="2026-11-27", adults=adults, infants=infants)
     ref = live_flights.FareRef("outbound", "KHIMUX", "MM112@2026-11-27T23:00", "EB", "OLD-HASH", None)
-    quote = live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 45_770, 46_700, [], live_flights._now() + 600)
+    quote = live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 45_770, selling, [], live_flights._now() + 600,
+                               price_changed=price_changed, old_total_minor=40_000 if price_changed else None)
     live_flights._store_quote(quote)
     return quote
 
@@ -42,10 +43,10 @@ ADULT = {"type": "ADT", "title": "MR", "first_name": "Test", "last_name": "Passe
 INFANT = {"type": "INF", "title": "MISS", "first_name": "Baby", "last_name": "Passenger", "date_of_birth": "2026-01-01", "id_type": "PSPT"}
 
 
-def hold_request(total=46_700, passengers=None):
+def hold_request(total=46_700, passengers=None, accept=False):
     return HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": total, "currency": "PKR"},
                        contact={"email": "ops@example.invalid", "phone_code": "92", "phone": "3001234567"},
-                       passengers=passengers or [ADULT])
+                       passengers=passengers or [ADULT], accept_price_change=accept)
 
 
 @pytest.fixture(autouse=True)
@@ -112,7 +113,7 @@ def test_refusals(case, status):
 
 
 def test_infants_are_linked_to_adults():
-    make_quote(adults=1, infants=1)
+    make_quote(adults=1, infants=1, selling=46_700 + 5_100)
     client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}})
     run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
     infant = client.booking.await_args.kwargs["passengers"][1]
@@ -172,3 +173,30 @@ def test_live_shape_no_verified_total_before_booking_creates_no_hold(before):
 @pytest.mark.parametrize("minor,currency,text", [(1_399_700, "PKR", "Rs 13,997"), (51_000, "pkr", "Rs 510"), (45_770, "PKR", "Rs 457.70"), (40_000, "SAR", "SAR 400")])
 def test_money_text_uses_rs_for_pkr(minor, currency, text):
     assert live_flights.money_text(minor, currency) == text
+
+
+def test_changed_price_needs_explicit_acceptance_before_any_supplier_call():
+    make_quote(price_changed=True)
+    client = fake_client()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), client)
+    assert error.value.status == 409 and "Accept the new total" in error.value.message and "Rs 467" in error.value.message
+    assert client.search.await_count == 0 and client.booking.await_count == 0
+    view, _ = run(hold_request(accept=True), client)
+    assert view.pnr == "63B55C" and client.booking.await_count == 1
+
+
+def test_accepted_price_that_moves_again_is_refused():
+    make_quote(price_changed=True)
+    client = fake_client(search=search_data(total="500.00"), fare_info={"ADT": {"TOTAL": "500.00"}})
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(accept=True), client)
+    assert error.value.status == 409 and "Rs 510" in error.value.message and client.booking.await_count == 0
+
+
+def test_confirmed_total_must_be_the_quotes_total():
+    make_quote()
+    client = fake_client()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(total=40_000), client)
+    assert error.value.status == 409 and "Rs 467" in error.value.message and client.search.await_count == 0

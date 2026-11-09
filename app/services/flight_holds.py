@@ -82,6 +82,11 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
         raise HoldError(404, "The revalidated fare has expired. Revalidate again.")
+    if quote.price_changed and not request.accept_price_change:
+        raise HoldError(409, f"The price changed to {live_flights.money_text(quote.selling_total_minor, quote.currency)}. "
+                             "Accept the new total to continue. Nothing was booked.")
+    if request.confirmed_total.currency != quote.currency or request.confirmed_total.amount_minor != quote.selling_total_minor:
+        raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.")
     counts = {"ADT": quote.request.adults, "CHD": quote.request.children, "INF": quote.request.infants}
     given = {kind: sum(p.type == kind for p in request.passengers) for kind in counts}
     if given != counts:

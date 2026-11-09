@@ -173,3 +173,37 @@ def test_live_shape_without_a_verified_total_is_refused(case):
 def test_live_shape_total_mismatch_is_refused():
     response, _ = live_reprice(fare_info=live_fare_info(14000))
     assert response.status_code == 409 and live_flights._quotes == {}
+
+
+def test_reprice_returns_old_and_new_totals_and_stores_the_change_on_the_quote():
+    client = fake_client(search_data(), search_data(total="500.00"), fare_info={"FINAL_TOTAL": "1000.00"})
+    test, patcher, result = searched(STAFF, client)
+    body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
+    patcher.stop()
+    # 2 adults: search 457.70 -> 467 each (2%); now 500.00 -> 510 each
+    assert body["price_changed"] is True
+    assert body["old_total"] == {"amount_minor": 93_400, "currency": "PKR"}
+    assert body["new_total"] == body["selling_total"] == {"amount_minor": 102_000, "currency": "PKR"}
+    quote = live_flights.get_quote(body["quote_id"], "u2")
+    assert quote.price_changed is True and quote.old_total_minor == 93_400 and quote.selling_total_minor == 102_000
+
+
+def test_unchanged_price_is_not_flagged():
+    client = fake_client(search_data(), search_data(), fare_info={"FINAL_TOTAL": "915.40"})
+    test, patcher, result = searched(STAFF, client)
+    body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
+    patcher.stop()
+    assert body["price_changed"] is False and body["old_total"] == body["new_total"]
+    assert live_flights.get_quote(body["quote_id"], "u2").price_changed is False
+
+
+@pytest.mark.parametrize("limit,status", [(None, 200), (10_000, 200), (8_600, 200), (8_599, 409)])
+def test_optional_cap_on_price_increases(limit, status):
+    client = fake_client(search_data(), search_data(total="500.00"), fare_info={"FINAL_TOTAL": "1000.00"})
+    test, patcher, result = searched(STAFF, client)
+    with patch.object(settings, "flight_price_change_limit_minor", limit):
+        response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]})
+    patcher.stop()
+    assert response.status_code == status  # increase: Rs 1,020 - Rs 934 = Rs 86 (8,600 paisa)
+    if status == 409:
+        assert "more than the allowed change" in response.json()["detail"] and live_flights._quotes == {}

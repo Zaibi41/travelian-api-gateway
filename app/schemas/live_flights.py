@@ -78,7 +78,9 @@ class RepriceView(BaseModel):
     expires_at: datetime
     selling_total: FlightMoney = Field(description="The total the user must confirm before a hold.")
     passengers: list[PassengerPrice]
-    price_changed: bool = Field(description="True when the adult price differs from the search result.")
+    price_changed: bool = Field(description="True when the revalidated total differs from the search result. A hold then needs accept_price_change.")
+    old_total: FlightMoney | None = Field(None, description="Selling total at the search prices. Omitted when the search had no price for every passenger type.")
+    new_total: FlightMoney = Field(description="The verified selling total now (same as selling_total).")
     booking_enabled: bool = Field(description="Whether this gateway may place a hold for this user.")
     supplier_total: FlightMoney | None = Field(None, description="Only with the cost and margin permission.")
 
@@ -110,6 +112,7 @@ class HoldRequest(BaseModel):
     confirmed_total: FlightMoney = Field(description="The total the user confirmed. The hold is refused if the supplier's total differs.")
     contact: HoldContact
     passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
+    accept_price_change: bool = Field(False, description="Required (true) when the quote's price changed since the search.")
 
 
 class HoldView(BaseModel):
