@@ -120,7 +120,7 @@ def test_infants_are_linked_to_adults():
     client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}})
     run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
     infant = client.booking.await_args.kwargs["passengers"][1]
-    assert infant["type"] == "INF" and infant["infant_link_id"] == "0"
+    assert infant["type"] == "INF" and infant["infant_link_id"] == "1"  # adults are numbered from 1 (UAT)
 
 
 @pytest.mark.parametrize("failure", ["error", "not_confirmed"])
@@ -295,3 +295,9 @@ def test_month_arithmetic_handles_month_ends():
     assert flight_holds._add_months(date(2026, 8, 31), 6) == date(2027, 2, 28)
     assert flight_holds._add_months(date(2027, 8, 31), 6) == date(2028, 2, 29)
     assert flight_holds._add_months(date(2026, 11, 27), 6) == date(2027, 5, 27)
+
+
+def test_each_infant_is_linked_to_its_adult_numbered_from_one():
+    request = hold_request(passengers=[ADULT, {**ADULT, "first_name": "Second"}, INFANT, {**INFANT, "first_name": "Other"}])
+    rows = flight_holds._supplier_passengers(request, datetime(2026, 11, 27).date())
+    assert [r.get("infant_link_id") for r in rows] == [None, None, "1", "2"]

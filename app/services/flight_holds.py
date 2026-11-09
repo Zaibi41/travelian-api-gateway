@@ -87,7 +87,9 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
         if passenger.type == "ADT":
             adults += 1
         if passenger.type == "INF":
-            row["infant_link_id"] = str(infants)  # infant n travels with adult n
+            # Infant n travels with adult n, numbered from 1 (UAT, 9 Nov 2026: "0" is refused with
+            # "The adult selected for Infant 1 does not exist in this booking"; "1" is accepted).
+            row["infant_link_id"] = str(infants + 1)
             infants += 1
         result.append(row)
     if infants > adults:
