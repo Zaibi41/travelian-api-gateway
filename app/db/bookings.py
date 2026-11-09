@@ -34,13 +34,16 @@ class BookingRow:
     supplier_cost_minor: int | None
     #: Set on rows loaded by a one-time import (e.g. "legacy_test_csv"); None for real bookings.
     import_source: str | None = None
+    agency_id: str | None = None
+    agency_name: str | None = None
+    updated_at: datetime | None = None
 
 
 _SELECT = text(
-    """SELECT reference, pnr, product, provider_id, booking_status, payment_status,
-           issuance_status, created_at, hold_expires_at, currency, total_minor,
-           supplier_cost_minor, import_source
-       FROM bookings"""
+    """SELECT b.reference, b.pnr, b.product, b.provider_id, b.booking_status, b.payment_status,
+           b.issuance_status, b.created_at, b.hold_expires_at, b.currency, b.total_minor,
+           b.supplier_cost_minor, b.import_source, b.agency_id, a.name AS agency_name, b.updated_at
+       FROM bookings b LEFT JOIN agencies a ON a.id = b.agency_id"""
 )
 
 
@@ -67,7 +70,8 @@ def list_dashboard_bookings() -> list[BookingRow]:
             status=row["booking_status"], payment_status=row["payment_status"], ticket_status=row["issuance_status"],
             created_at=row["created_at"], hold_expires_at=row["hold_expires_at"], currency=row["currency"],
             total_minor=row["total_minor"], supplier_cost_minor=row["supplier_cost_minor"],
-            import_source=row["import_source"],
+            import_source=row["import_source"], agency_id=row["agency_id"],
+            agency_name=row["agency_name"], updated_at=row["updated_at"],
         )
         for row in rows
     ]

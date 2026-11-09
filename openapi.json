@@ -371,6 +371,163 @@
         "title": "AttentionQueue",
         "type": "object"
       },
+      "BookingDetail": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "customer_or_agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Or Agency"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "fare": {
+            "$ref": "#/components/schemas/BookingFare"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "product": {
+            "enum": [
+              "flight",
+              "group",
+              "hotel",
+              "umrah"
+            ],
+            "title": "Product",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted without the supplier names permission.",
+            "title": "Provider"
+          },
+          "sample": {
+            "title": "Sample",
+            "type": "boolean"
+          },
+          "sample_label": {
+            "anyOf": [
+              {
+                "const": "Sample data",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Label"
+          },
+          "sections_not_available": {
+            "description": "Tabs whose data the gateway doesn't record yet; the page shows them as not available.",
+            "items": {
+              "enum": [
+                "itinerary",
+                "passengers",
+                "payments",
+                "tickets",
+                "servicing",
+                "audit"
+              ],
+              "type": "string"
+            },
+            "title": "Sections Not Available",
+            "type": "array"
+          },
+          "source": {
+            "const": "gateway_bookings",
+            "default": "gateway_bookings",
+            "title": "Source",
+            "type": "string"
+          },
+          "statuses": {
+            "$ref": "#/components/schemas/BookingStatuses"
+          },
+          "supplier_payment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplierPayment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted without the cost and margin permission."
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "sample",
+          "booking_id",
+          "product",
+          "statuses",
+          "amount",
+          "fare",
+          "sections_not_available"
+        ],
+        "title": "BookingDetail",
+        "type": "object"
+      },
       "BookingDetailsData": {
         "properties": {
           "booking": {
@@ -477,6 +634,40 @@
         "title": "BookingDetailsResponse",
         "type": "object"
       },
+      "BookingFare": {
+        "properties": {
+          "billable_price": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted without the cost and margin permission, or when unknown."
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted without the cost and margin permission, or when unknown."
+          }
+        },
+        "required": [
+          "billable_price"
+        ],
+        "title": "BookingFare",
+        "type": "object"
+      },
       "BookingGroupDetails": {
         "additionalProperties": true,
         "properties": {
@@ -535,6 +726,279 @@
           }
         },
         "title": "BookingGroupDetails",
+        "type": "object"
+      },
+      "BookingList": {
+        "properties": {
+          "cards": {
+            "$ref": "#/components/schemas/BookingListCards"
+          },
+          "contains_sample_data": {
+            "title": "Contains Sample Data",
+            "type": "boolean"
+          },
+          "filter_options": {
+            "$ref": "#/components/schemas/BookingListFilterOptions"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BookingListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sample_label": {
+            "const": "Sample data",
+            "default": "Sample data",
+            "title": "Sample Label",
+            "type": "string"
+          },
+          "source": {
+            "const": "gateway_bookings",
+            "default": "gateway_bookings",
+            "title": "Source",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contains_sample_data",
+          "cards",
+          "filter_options",
+          "total",
+          "limit",
+          "offset",
+          "items"
+        ],
+        "title": "BookingList",
+        "type": "object"
+      },
+      "BookingListCards": {
+        "description": "Counts over the selected product tab. A card is omitted when its data doesn't exist yet.",
+        "properties": {
+          "all_bookings": {
+            "title": "All Bookings",
+            "type": "integer"
+          },
+          "awaiting_issuance": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only.",
+            "title": "Awaiting Issuance"
+          },
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "integer"
+          },
+          "expiring_soon": {
+            "title": "Expiring Soon",
+            "type": "integer"
+          },
+          "expiring_window_hours": {
+            "title": "Expiring Window Hours",
+            "type": "integer"
+          },
+          "hold_deadlines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only: open holds not yet expired.",
+            "title": "Hold Deadlines"
+          },
+          "on_hold": {
+            "title": "On Hold",
+            "type": "integer"
+          },
+          "unpaid": {
+            "title": "Unpaid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "all_bookings",
+          "confirmed",
+          "on_hold",
+          "cancelled",
+          "unpaid",
+          "expiring_soon",
+          "expiring_window_hours"
+        ],
+        "title": "BookingListCards",
+        "type": "object"
+      },
+      "BookingListFilterOptions": {
+        "properties": {
+          "agencies": {
+            "items": {
+              "$ref": "#/components/schemas/FilterOption"
+            },
+            "title": "Agencies",
+            "type": "array"
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FilterOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted without the supplier names permission.",
+            "title": "Providers"
+          }
+        },
+        "required": [
+          "agencies"
+        ],
+        "title": "BookingListFilterOptions",
+        "type": "object"
+      },
+      "BookingListItem": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "customer_or_agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Agency name when known. Customer names are not stored yet.",
+            "title": "Customer Or Agency"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "product": {
+            "enum": [
+              "flight",
+              "group",
+              "hotel",
+              "umrah"
+            ],
+            "title": "Product",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier/source. Omitted without the supplier names permission.",
+            "title": "Provider"
+          },
+          "sample": {
+            "description": "True for rows from a one-time import (test data).",
+            "title": "Sample",
+            "type": "boolean"
+          },
+          "statuses": {
+            "$ref": "#/components/schemas/BookingStatuses"
+          }
+        },
+        "required": [
+          "booking_id",
+          "product",
+          "statuses",
+          "amount",
+          "sample"
+        ],
+        "title": "BookingListItem",
+        "type": "object"
+      },
+      "BookingMoney": {
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (paisa for PKR).",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "currency"
+        ],
+        "title": "BookingMoney",
         "type": "object"
       },
       "BookingPassenger": {
@@ -915,6 +1379,46 @@
           "buckets"
         ],
         "title": "BookingReport",
+        "type": "object"
+      },
+      "BookingStatuses": {
+        "properties": {
+          "booking": {
+            "enum": [
+              "held",
+              "pending_payment",
+              "payment_received",
+              "confirmed",
+              "ticket_issued",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Booking",
+            "type": "string"
+          },
+          "issuance": {
+            "enum": [
+              "not_issued",
+              "issued"
+            ],
+            "title": "Issuance",
+            "type": "string"
+          },
+          "payment": {
+            "enum": [
+              "paid",
+              "unpaid"
+            ],
+            "title": "Payment",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking",
+          "payment",
+          "issuance"
+        ],
+        "title": "BookingStatuses",
         "type": "object"
       },
       "BusinessResults": {
@@ -2473,6 +2977,35 @@
         "title": "RoleRecord",
         "type": "object"
       },
+      "SupplierPayment": {
+        "description": "The Supplier payment tab. Only sent with the cost and margin permission.",
+        "properties": {
+          "amount_due": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hold_deadline": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Deadline"
+          }
+        },
+        "title": "SupplierPayment",
+        "type": "object"
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -3705,6 +4238,306 @@
         "summary": "Attention Queue",
         "tags": [
           "admin dashboard"
+        ]
+      }
+    },
+    "/v1/admin/bookings": {
+      "get": {
+        "operationId": "list_bookings_v1_admin_bookings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "product",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "flight",
+                    "group",
+                    "hotel",
+                    "umrah"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "today",
+                "yesterday",
+                "last-week",
+                "last-two-weeks",
+                "this-month",
+                "last-month",
+                "last-three-months",
+                "last-six-months",
+                "this-year",
+                "last-year"
+              ],
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_type",
+            "required": false,
+            "schema": {
+              "const": "created",
+              "default": "created",
+              "title": "Date Type",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Booking ID or PNR.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Booking ID or PNR.",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "booking_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "held",
+                    "pending_payment",
+                    "payment_received",
+                    "confirmed",
+                    "ticket_issued",
+                    "cancelled",
+                    "expired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Booking Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "payment_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "paid",
+                    "unpaid"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Payment Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "issuance_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "not_issued",
+                    "issued"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Issuance Status"
+            }
+          },
+          {
+            "description": "Requires the supplier names permission.",
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Requires the supplier names permission.",
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agency"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Bookings",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}": {
+      "get": {
+        "operationId": "booking_detail_v1_admin_bookings__booking_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
         ]
       }
     },
