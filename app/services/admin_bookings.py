@@ -40,6 +40,7 @@ class BookingListQuery:
     issuance_status: str | None = None
     provider: str | None = None  # lower-case; only when the viewer may see supplier names
     agency: str | None = None  # agency id
+    card: str | None = None  # a card's own rule, see CARD_RULES
     limit: int = 50
     offset: int = 0
 
@@ -102,24 +103,36 @@ def _open_hold(booking: BookingRow, now: datetime) -> bool:
     return booking.status in OPEN_HOLD and booking.hold_expires_at is not None and booking.hold_expires_at > now
 
 
-def build_cards(tab: list[BookingRow], product: str | None, now: datetime, window_hours: int) -> BookingListCards:
-    """Counts over the product tab; the list filters do not change them."""
+def card_rules(now: datetime, window_hours: int):
+    """Each card's rule. A card counts, and its filter lists, exactly these rows."""
     window = timedelta(hours=window_hours)
-    cards = BookingListCards(
-        all_bookings=len(tab),
-        confirmed=sum(b.status == "confirmed" for b in tab),
-        on_hold=sum(_open_hold(b, now) for b in tab),
-        cancelled=sum(b.status in CLOSED for b in tab),  # cancelled or expired
-        unpaid=sum(payment_status(b) == "unpaid" and b.status not in CLOSED for b in tab),
-        expiring_soon=sum(
+    return {
+        "confirmed": lambda b: b.status == "confirmed",
+        "on_hold": lambda b: _open_hold(b, now),
+        "cancelled": lambda b: b.status in CLOSED,  # cancelled or expired
+        "unpaid": lambda b: payment_status(b) == "unpaid" and b.status not in CLOSED,
+        "expiring_soon": lambda b: (
             b.status in OPEN_HOLD and b.hold_expires_at is not None and now < b.hold_expires_at <= now + window
-            for b in tab
         ),
-        expiring_window_hours=window_hours,
+        "awaiting_issuance": is_pending_issuance,
+        "hold_deadlines": lambda b: _open_hold(b, now),
+    }
+
+
+FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines"}
+
+
+def build_cards(rows: list[BookingRow], product: str | None, now: datetime, window_hours: int) -> BookingListCards:
+    """Counts over the rows in the current filters (spec 7: "total records in the filter")."""
+    rules = card_rules(now, window_hours)
+    count = lambda name: sum(rules[name](b) for b in rows)  # noqa: E731
+    cards = BookingListCards(
+        all_bookings=len(rows), confirmed=count("confirmed"), on_hold=count("on_hold"), cancelled=count("cancelled"),
+        unpaid=count("unpaid"), expiring_soon=count("expiring_soon"), expiring_window_hours=window_hours,
     )
     if product == "flight":
-        cards.awaiting_issuance = sum(is_pending_issuance(b) for b in tab)
-        cards.hold_deadlines = sum(_open_hold(b, now) for b in tab)
+        cards.awaiting_issuance = count("awaiting_issuance")
+        cards.hold_deadlines = count("hold_deadlines")
     return cards
 
 
@@ -132,7 +145,10 @@ def build_list(
 ) -> BookingList:
     bookings = list(bookings)
     tab = _in_tab(bookings, query.product)
-    rows = sorted(_filtered(tab, query, now), key=_sort_key)
+    # Cards follow every filter except the card itself, so picking a card doesn't zero the others.
+    in_filters = _filtered(tab, query, now)
+    card_rule = card_rules(now, window_hours).get(query.card) if query.card else None
+    rows = sorted([b for b in in_filters if card_rule is None or card_rule(b)], key=_sort_key)
     page = rows[query.offset:query.offset + query.limit]
 
     agencies = sorted({(b.agency_id, b.agency_name or b.agency_id) for b in tab if b.agency_id}, key=lambda a: a[1].lower())
@@ -154,7 +170,7 @@ def build_list(
 
     return BookingList(
         contains_sample_data=any(is_sample(b) for b in bookings),
-        cards=build_cards(tab, query.product, now, window_hours),
+        cards=build_cards(in_filters, query.product, now, window_hours),
         filter_options=options, total=len(rows), limit=query.limit, offset=query.offset, items=items,
     )
 

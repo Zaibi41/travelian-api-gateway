@@ -20,6 +20,7 @@ Product = Literal["flight", "group", "hotel", "umrah"]
 BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired"]
 PaymentStatus = Literal["paid", "unpaid"]
 IssuanceStatus = Literal["not_issued", "issued"]
+Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
 
@@ -39,7 +40,7 @@ class BookingStatuses(BaseModel):
 
 
 class BookingListCards(BaseModel):
-    """Counts over the selected product tab. A card is omitted when its data doesn't exist yet."""
+    """Counts over the rows in the current filters (all but `card`). A card is omitted when its data doesn't exist yet."""
 
     all_bookings: int
     confirmed: int

@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core.config import settings
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingStatus, DateType, IssuanceStatus, PaymentStatus, Product,
+    BookingDetail, BookingList, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -47,6 +47,7 @@ async def list_bookings(
     issuance_status: IssuanceStatus | None = None,
     provider: Annotated[str | None, Query(max_length=64, description="Requires the supplier names permission.")] = None,
     agency: Annotated[str | None, Query(max_length=36)] = None,
+    card: Annotated[Card | None, Query(description="List only the rows this card counts.")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
@@ -56,7 +57,7 @@ async def list_bookings(
     query = service.BookingListQuery(
         product=product, period=period, date_type=date_type, q=_clean(q), booking_status=booking_status,
         payment_status=payment_status, issuance_status=issuance_status, provider=provider,
-        agency=agency.strip() if agency and agency.strip() else None, limit=limit, offset=offset,
+        agency=agency.strip() if agency and agency.strip() else None, card=card, limit=limit, offset=offset,
     )
     bookings = await run_in_threadpool(_read_bookings)
     return service.build_list(bookings, query, _now(), settings.dashboard_expiring_hold_hours, viewer.visibility)

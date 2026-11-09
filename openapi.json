@@ -785,7 +785,7 @@
         "type": "object"
       },
       "BookingListCards": {
-        "description": "Counts over the selected product tab. A card is omitted when its data doesn't exist yet.",
+        "description": "Counts over the rows in the current filters (all but `card`). A card is omitted when its data doesn't exist yet.",
         "properties": {
           "all_bookings": {
             "title": "All Bookings",
@@ -4466,6 +4466,33 @@
                 }
               ],
               "title": "Agency"
+            }
+          },
+          {
+            "description": "List only the rows this card counts.",
+            "in": "query",
+            "name": "card",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "confirmed",
+                    "on_hold",
+                    "cancelled",
+                    "unpaid",
+                    "expiring_soon",
+                    "awaiting_issuance",
+                    "hold_deadlines"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "List only the rows this card counts.",
+              "title": "Card"
             }
           },
           {

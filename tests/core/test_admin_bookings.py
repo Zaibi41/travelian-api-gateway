@@ -93,16 +93,32 @@ def test_list_carries_source_sample_label_and_newest_first(monkeypatch):
     assert real["contains_sample_data"] is False
 
 
-def test_cards_follow_the_product_tab_not_the_filters(monkeypatch):
+def test_cards_follow_the_filters_and_a_card_filters_the_list(monkeypatch):
     api = client(monkeypatch)
     cards = api.get("/v1/admin/bookings").json()["cards"]
     assert cards == {
         "all_bookings": 8, "confirmed": 2, "on_hold": 2, "cancelled": 2, "unpaid": 3,
         "expiring_soon": 1, "expiring_window_hours": 2,
     }
-    assert api.get("/v1/admin/bookings", params={"booking_status": "held"}).json()["cards"] == cards
+    # Cards count the rows in the current filters (spec 7).
+    held = api.get("/v1/admin/bookings", params={"booking_status": "held"}).json()["cards"]
+    assert held["all_bookings"] == 3 and held["on_hold"] == 2 and held["cancelled"] == 0 and held["unpaid"] == 3
+    agency = api.get("/v1/admin/bookings", params={"agency": "ag-2"}).json()["cards"]
+    assert agency["all_bookings"] == 1 and agency["confirmed"] == 1
+    # A card lists exactly the rows it counts, and doesn't change the other cards.
+    ids = lambda card, **p: [i["booking_id"] for i in api.get("/v1/admin/bookings", params={"card": card, **p}).json()["items"]]
+    assert ids("on_hold") == ["TRV-2", "TRV-3"]  # TRV-9 has no deadline
+    assert ids("cancelled") == ["TRV-5", "TRV-8"]  # cancelled or expired
+    assert ids("unpaid") == ["TRV-2", "TRV-3", "TRV-9"]
+    assert ids("expiring_soon") == ["TRV-2"]
+    assert ids("confirmed") == ["TRV-4", "TRV-6"]
+    picked = api.get("/v1/admin/bookings", params={"card": "unpaid"}).json()
+    assert picked["cards"] == cards and picked["total"] == cards["unpaid"]
+    assert ids("unpaid", agency="ag-2") == []
+    assert api.get("/v1/admin/bookings", params={"card": "everything"}).status_code == 422
     flights = api.get("/v1/admin/bookings", params={"product": "flight"}).json()["cards"]
     assert flights["all_bookings"] == 7 and flights["awaiting_issuance"] == 1 and flights["hold_deadlines"] == 2
+    assert ids("awaiting_issuance", product="flight") == ["TRV-4"]
     hotels = api.get("/v1/admin/bookings", params={"product": "hotel"}).json()["cards"]
     assert hotels["all_bookings"] == 1 and "awaiting_issuance" not in hotels
 
