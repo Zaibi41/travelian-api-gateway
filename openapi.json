@@ -6455,7 +6455,7 @@
             "description": "Validation Error"
           },
           "503": {
-            "description": "Identity data can't be decrypted right now."
+            "description": "Booking data is not available."
           }
         },
         "security": [

@@ -21,7 +21,6 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
-from app.core import pii
 from app.core.config import settings
 from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
 from app.db import booking_payments, booking_people
@@ -132,8 +131,7 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
 
 @router.post(
     "/{booking_id}/travelers/{position}/reveal", response_model=RevealResponse, response_model_exclude_none=True,
-    responses={403: {"description": "Needs the reveal_identity permission."}, 404: {"description": "No such booking or traveler."},
-               503: {"description": "Identity data can't be decrypted right now."}},
+    responses={403: {"description": "Needs the reveal_identity permission."}, 404: {"description": "No such booking or traveler."}},
 )
 async def reveal_traveler_identity(
     viewer: Viewer, request: RevealRequest, response: Response,
@@ -147,9 +145,6 @@ async def reveal_traveler_identity(
         values = await run_in_threadpool(booking_people.reveal, booking_id, position, viewer.user_id, request.reason.strip())
     except booking_people.NotFound:
         raise HTTPException(404, "Traveler not found.") from None
-    except (pii.PiiNotConfigured, pii.PiiDecryptError):
-        logger.error("Identity reveal failed: key not available or value unreadable")
-        raise HTTPException(503, "Identity details can't be shown right now.") from None
     return RevealResponse(**values)
 
 

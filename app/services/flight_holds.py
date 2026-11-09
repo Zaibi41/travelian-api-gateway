@@ -13,7 +13,6 @@ from datetime import date, datetime, timezone
 
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, BackOfficeUser
-from app.core import pii
 from app.core.pakistan_airports import is_domestic
 from app.db import supplier_bookings
 from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
@@ -156,9 +155,6 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
     if viewer.role not in BACK_OFFICE_ROLES:
         raise HoldError(403, "Only back-office users can place holds.", code="not_allowed")
-    if not pii.configured():
-        logger.error("Hold refused: traveler encryption keys are not configured")
-        raise HoldError(503, "Traveler details can't be stored securely right now. Nothing was booked.", code="storage_unavailable")
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
         raise HoldError(404, "The revalidated fare has expired. Revalidate again.", code="quote_expired")

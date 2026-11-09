@@ -126,6 +126,6 @@ export TRAVELIAN_TEST_DATABASE_URL='postgresql+psycopg://travelian_local:<passwo
 unset TRAVELIAN_TEST_DATABASE_URL
 ```
 
-Expected on 9 November 2026: 632 passed, 53 skipped without a test database; 685 passed with one. Holds also need TRAVELIAN_PII_KEYS, TRAVELIAN_PII_ACTIVE_KEY and TRAVELIAN_PII_HASH_KEY (docs/pii-encryption.md); tests generate throwaway keys and never read the real `.env`.
+Expected on 9 November 2026: 659 passed, 81 skipped without a test database; 740 passed with one. Holds need no identity-storage settings (docs/pii-storage.md).
 
 Supplier tests use a mocked supplier and never call a real one.

@@ -14,7 +14,6 @@ from app.db.issuance import IssuanceRefused
 from app.services import issuance
 from app.vendors.flights.southair.client import SouthairError
 from tests.database.test_booking_people import ACTOR, save
-from tests.pii_keys import pii_test_keys
 from tests.southair.fixtures import TICKETING_OK, pnr_info
 
 APPROVER = BackOfficeUser(ACTOR, "super_admin", ALL, resolve_actions("super_admin", set()))
@@ -54,8 +53,7 @@ class FakeSouthair:
 def held(database):
     """A UAT hold (1 adult + 1 infant, total Rs 467, supplier Rs 457.70), fully paid, ticketing on."""
     connection, metadata, _ = database
-    with pii_test_keys():
-        reference = save(connection, metadata)
+    reference = save(connection, metadata)
     booking_payments.record(reference, amount_minor=46_700, currency="PKR", method="bank_transfer", received_into="Meezan Bank",
                             payer_reference="TXN-1", received_at=datetime(2026, 11, 9, tzinfo=timezone.utc), actor_user_id=ACTOR)
     with patch.object(settings, "southair_ticketing_enabled", True):
@@ -213,8 +211,7 @@ def test_ticketing_flag_off_and_permissions(held):
 
 def test_request_needs_full_payment(database):
     connection, metadata, _ = database
-    with pii_test_keys():
-        reference = save(connection, metadata)
+    reference = save(connection, metadata)
     with pytest.raises(IssuanceRefused) as error:
         asyncio.run(issuance.request(reference, STAFF))
     assert error.value.status == 409 and "Full payment" in error.value.message

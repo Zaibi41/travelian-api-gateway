@@ -10,7 +10,6 @@ from app.db import booking_payments, booking_people
 from app.db import bookings as store
 from app.services import admin_bookings
 from tests.database.test_booking_people import ACTOR, save
-from tests.pii_keys import pii_test_keys
 
 AT = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)
 
@@ -23,8 +22,7 @@ def record(reference, amount, ref="TXN-1", method="bank_transfer", currency="PKR
 @pytest.fixture
 def booking(database):
     connection, metadata, _ = database
-    with pii_test_keys():
-        reference = save(connection, metadata)  # total Rs 467
+    reference = save(connection, metadata)  # total Rs 467
     return connection, reference
 
 

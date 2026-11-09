@@ -219,7 +219,9 @@ def test_agency_and_customer_roles_are_refused_and_reads_fail_closed(monkeypatch
 
 PEOPLE = booking_people.People(
     customer=booking_people.Customer("Test", "Customer", "92", "3001234567", "ops@example.invalid"),
-    travelers=[booking_people.Traveler(0, "ADT", "MR", "Test", "Passenger", "1990-••-••", "PSPT", "••••••567", "PAK", "PAK", date(2027, 1, 15), None)],
+    travelers=[booking_people.Traveler(position=0, passenger_type="ADT", title="MR", first_name="Test", last_name="Passenger", id_type="PSPT",
+                                       document_country="PAK", nationality="PAK", document_expiry=date(2027, 1, 15), infant_of_position=None,
+                                       date_of_birth_masked="1990-••-••", document_number_masked="••••••567")],
     events=[booking_people.AuditEvent("hold_created", "u-1", NOW, {"label": "UAT test data", "pnr": "PNR2"}, "super_admin")],
 )
 REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(supplier_names=False, cost_and_margin=False, reveal_identity=True))
@@ -263,12 +265,11 @@ def test_reveal_needs_the_permission_and_is_not_cached(monkeypatch, viewer, stat
         assert calls == [] and "AB1234567" not in response.text
 
 
-def test_reveal_needs_a_reason_and_reports_missing_traveler_or_key(monkeypatch):
-    from app.core import pii
+def test_reveal_needs_a_reason_and_reports_a_missing_traveler(monkeypatch):
     api = client(monkeypatch, viewer=REVEALER)
     assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": ""}).status_code == 422
     assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={}).status_code == 422
-    for error, status in ((booking_people.NotFound(), 404), (pii.PiiNotConfigured(), 503), (pii.PiiDecryptError(), 503)):
+    for error, status in ((booking_people.NotFound(), 404),):
         def reveal(*args, error=error):
             raise error
         monkeypatch.setattr(booking_people, "reveal", reveal)

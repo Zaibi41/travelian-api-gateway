@@ -1,19 +1,20 @@
-"""A hold's customer and travelers (migration 0011): encrypted at rest, masked on read, logged reveal."""
+"""A hold's customer and travelers (migrations 0011, 0015): plain text in the sandbox phase,
+masked on every read, full values only through the logged reveal."""
 
 from datetime import date, datetime, timezone
 
+import logging
+
 import pytest
-from sqlalchemy import text
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from app.core import pii
-from app.core.field_visibility import NONE
+from app.core.field_visibility import ALL, NONE, FieldVisibility
 from app.db import booking_people
 from app.db import bookings as store
 from app.db import supplier_bookings
 from app.db.supplier_bookings import CustomerRecord, TravelerRecord
 from app.services import admin_bookings
-from tests.pii_keys import new_key, pii_test_keys
 
 ACTOR = "11111111-1111-4111-8111-111111111111"
 CUSTOMER = CustomerRecord(first_name="Test", last_name="Customer", phone_code="92", phone="3001234567", email="ops@example.invalid")
@@ -34,76 +35,64 @@ def save(connection, metadata, **overrides):
     return supplier_bookings.save_hold(**{**args, **overrides})
 
 
-def test_identity_is_encrypted_at_rest_with_masked_copy_hash_and_key_id(database):
+ROLES = {"staff": NONE, "staff with names": FieldVisibility(True, False), "staff with cost": FieldVisibility(False, True), "super admin": ALL}
+
+
+def test_stored_as_plain_text_without_encryption_columns(database):
     connection, metadata, _ = database
-    with pii_test_keys():
-        save(connection, metadata)
-    rows = connection.execute(text("SELECT * FROM booking_travelers ORDER BY position")).mappings().all()
-    dump = str([dict(r) for r in rows])
-    assert "AB1234567" not in dump and "1990-01-31" not in dump and "2025-06-01" not in dump
-    adult, infant = rows
-    assert adult["date_of_birth_masked"] == "1990-••-••" and adult["document_number_masked"] == "••••••567"
-    assert len(adult["document_number_hash"]) == 64 and adult["key_id"] == "k1"
-    assert infant["document_number_encrypted"] is None and infant["infant_of_position"] == 0
+    save(connection, metadata)
+    columns = {c["name"] for c in sa_inspect(connection).get_columns("booking_travelers")}
+    assert {"date_of_birth", "document_number"} <= columns
+    assert not columns & {"date_of_birth_encrypted", "date_of_birth_masked", "document_number_encrypted", "document_number_masked",
+                          "document_number_hash", "key_id"}
+    adult, infant = connection.execute(text("SELECT date_of_birth, document_number, infant_of_position FROM booking_travelers ORDER BY position")).all()
+    assert (adult.date_of_birth, adult.document_number) == (date(1990, 1, 31), "AB1234567")
+    assert (infant.document_number, infant.infant_of_position) == (None, 0)
     customer = connection.execute(text("SELECT first_name, last_name, phone_code, phone, email FROM booking_customers")).one()
     assert tuple(customer) == ("Test", "Customer", "92", "3001234567", "ops@example.invalid")
 
 
-def test_without_keys_nothing_is_written(database):
+@pytest.mark.parametrize("role", list(ROLES))
+def test_list_detail_passengers_and_audit_are_masked_for_every_role(database, role):
     connection, metadata, _ = database
-    with pytest.raises(pii.PiiNotConfigured):
-        save(connection, metadata)
-    assert connection.scalar(text("SELECT count(*) FROM bookings")) == 0
-
-
-def test_list_detail_passengers_and_audit_read_the_saved_people(database):
-    connection, metadata, _ = database
-    with pii_test_keys():
-        reference = save(connection, metadata)
+    reference = save(connection, metadata)
     row = admin_bookings.find_booking(store.list_dashboard_bookings(), reference)
     assert row.customer_name == "Test Customer"
-    item = admin_bookings.build_list([row], admin_bookings.BookingListQuery(), datetime.now(timezone.utc), 24, NONE).items[0]
+    item = admin_bookings.build_list([row], admin_bookings.BookingListQuery(), datetime.now(timezone.utc), 24, ROLES[role]).items[0]
     assert item.customer_or_agency == "Test Customer"
 
-    detail = admin_bookings.build_detail(row, NONE, booking_people.read(reference))
+    detail = admin_bookings.build_detail(row, ROLES[role], booking_people.read(reference), today=date(2026, 11, 9))
     body = detail.model_dump_json()
     assert "passengers" not in detail.sections_not_available and "audit" not in detail.sections_not_available
     assert [p.first_name for p in detail.passengers] == ["Test", "Baby"]
-    assert detail.passengers[0].document_number_masked == "••••••567" and detail.passengers[1].infant_of_position == 0
-    assert detail.customer.phone == "+92 3001234567"
-    assert "AB1234567" not in body and "1990-01-31" not in body and "2030-05-01" not in body
-    assert detail.passengers[0].document_expiry_masked == "2030-••-••" and detail.passengers[0].document_validity == "valid"
+    adult, infant = detail.passengers
+    assert (adult.document_number_masked, adult.date_of_birth_masked) == ("••••••567", "1990-••-••")
+    assert (adult.document_expiry_masked, adult.document_validity) == ("2030-••-••", "valid")
+    assert infant.document_number_masked is None and infant.infant_of_position == 0
+    for value in ("AB1234567", "1990-01-31", "2030-05-01", "2025-06-01"):
+        assert value not in body
     assert [(e.action, e.details.get("travelers")) for e in detail.audit] == [("hold_created", 2)]
     assert detail.audit[0].actor_user_id == ACTOR
 
 
-def test_reveal_returns_full_values_and_logs_who_which_and_why(database):
+def test_reveal_returns_full_values_and_logs_who_which_and_why_but_no_values(database, caplog):
     connection, metadata, _ = database
-    with pii_test_keys():
-        reference = save(connection, metadata)
-        values = booking_people.reveal(reference, 0, ACTOR, "Ticketing needs the passport number")
-        assert values == {"date_of_birth": "1990-01-31", "document_number": "AB1234567", "document_expiry": "2030-05-01"}
-        assert booking_people.reveal(reference, 1, ACTOR, "Infant date of birth for the airline") == {
-            "date_of_birth": "2025-06-01", "document_number": None, "document_expiry": None}
-        with pytest.raises(booking_people.NotFound):
-            booking_people.reveal(reference, 5, ACTOR, "missing traveler")
-        with pytest.raises(booking_people.NotFound):
-            booking_people.reveal("TRV-NOPE00", 0, ACTOR, "missing booking")
+    caplog.set_level(logging.DEBUG)
+    reference = save(connection, metadata)
+    values = booking_people.reveal(reference, 0, ACTOR, "Ticketing needs the passport number")
+    assert values == {"date_of_birth": "1990-01-31", "document_number": "AB1234567", "document_expiry": "2030-05-01"}
+    assert booking_people.reveal(reference, 1, ACTOR, "Infant date of birth for the airline") == {
+        "date_of_birth": "2025-06-01", "document_number": None, "document_expiry": None}
+    with pytest.raises(booking_people.NotFound):
+        booking_people.reveal(reference, 5, ACTOR, "missing traveler")
+    with pytest.raises(booking_people.NotFound):
+        booking_people.reveal("TRV-NOPE00", 0, ACTOR, "missing booking")
     events = connection.execute(text("SELECT action, actor_user_id, details FROM booking_events WHERE action='identity_revealed' ORDER BY created_at")).all()
     assert [(e.action, e.actor_user_id, e.details["traveler_position"], e.details["fields"]) for e in events] == [
         ("identity_revealed", ACTOR, 0, ["date_of_birth", "document_number", "document_expiry"]), ("identity_revealed", ACTOR, 1, ["date_of_birth"])]
-    assert all("AB1234567" not in str(e.details) and "1990" not in str(e.details) for e in events)
-
-
-def test_reveal_after_key_rotation_and_with_a_missing_key(database):
-    connection, metadata, _ = database
-    old = new_key()
-    with pii_test_keys({"k1": old}):
-        reference = save(connection, metadata)
-    with pii_test_keys({"k1": old, "k2": new_key()}, active="k2"):
-        assert booking_people.reveal(reference, 0, ACTOR, "after rotation")["document_number"] == "AB1234567"
-    with pii_test_keys({"k2": new_key()}, active="k2"), pytest.raises(pii.PiiDecryptError):
-        booking_people.reveal(reference, 0, ACTOR, "old key removed")
+    all_details = str(connection.execute(text("SELECT details FROM booking_events")).scalars().all())
+    for value in ("AB1234567", "1990-01-31", "2030-05-01", "2025-06-01"):
+        assert value not in all_details and value not in caplog.text
 
 
 def test_reveal_identity_is_a_grantable_permission(database):
