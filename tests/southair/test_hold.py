@@ -301,3 +301,25 @@ def test_each_infant_is_linked_to_its_adult_numbered_from_one():
     request = hold_request(passengers=[ADULT, {**ADULT, "first_name": "Second"}, INFANT, {**INFANT, "first_name": "Other"}])
     rows = flight_holds._supplier_passengers(request, datetime(2026, 11, 27).date())
     assert [r.get("infant_link_id") for r in rows] == [None, None, "1", "2"]
+
+
+def test_an_infant_can_travel_with_the_chosen_adult():
+    request = hold_request(passengers=[ADULT, {**ADULT, "first_name": "Second"}, {**INFANT, "travels_with": 1}])
+    rows = flight_holds._supplier_passengers(request, datetime(2026, 11, 27).date())
+    assert rows[2]["infant_link_id"] == "2"
+    assert flight_holds._travelers(request)[2].infant_of_position == 1
+
+
+@pytest.mark.parametrize("passengers,message", [
+    ([ADULT, {**INFANT, "travels_with": 1}], "isn't on this booking"),
+    ([ADULT, {**ADULT, "first_name": "Second"}, {**INFANT, "travels_with": 0}, {**INFANT, "first_name": "Other", "travels_with": 0}], "its own adult"),
+])
+def test_infant_adult_choice_is_checked(passengers, message):
+    with pytest.raises(flight_holds.HoldError) as error:
+        flight_holds._supplier_passengers(hold_request(passengers=passengers), datetime(2026, 11, 27).date())
+    assert error.value.status == 422 and message in error.value.message
+
+
+def test_only_infants_travel_with_an_adult():
+    with pytest.raises(ValueError, match="only an infant"):
+        hold_request(passengers=[{**ADULT, "travels_with": 0}])

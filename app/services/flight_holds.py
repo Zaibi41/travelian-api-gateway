@@ -65,9 +65,22 @@ def passport_warnings(request: HoldRequest, search) -> list[str]:
     return warnings
 
 
+def infant_adults(request: HoldRequest) -> list[int]:
+    """For each infant in order, the index (among adults) of the adult it travels with."""
+    adults = sum(p.type == "ADT" for p in request.passengers)
+    chosen = [p.travels_with if p.travels_with is not None else index
+              for index, p in enumerate(p for p in request.passengers if p.type == "INF")]
+    if any(choice >= adults for choice in chosen):
+        raise HoldError(422, "An infant is set to travel with an adult who isn't on this booking.")
+    if len(set(chosen)) != len(chosen):
+        raise HoldError(422, "Each infant needs its own adult.")
+    return chosen
+
+
 def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, str]]:
     adults = 0
     infants = 0
+    links = infant_adults(request)
     result = []
     for passenger in request.passengers:
         age = _age_on(passenger.date_of_birth, travel)
@@ -87,9 +100,9 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
         if passenger.type == "ADT":
             adults += 1
         if passenger.type == "INF":
-            # Infant n travels with adult n, numbered from 1 (UAT, 9 Nov 2026: "0" is refused with
-            # "The adult selected for Infant 1 does not exist in this booking"; "1" is accepted).
-            row["infant_link_id"] = str(infants + 1)
+            # The chosen adult (default: infant n with adult n), numbered from 1 (UAT, 9 Nov 2026:
+            # "0" is refused with "The adult selected for Infant 1 does not exist in this booking").
+            row["infant_link_id"] = str(links[infants] + 1)
             infants += 1
         result.append(row)
     if infants > adults:
@@ -106,12 +119,13 @@ def _customer(request: HoldRequest) -> supplier_bookings.CustomerRecord:
 def _travelers(request: HoldRequest) -> list[supplier_bookings.TravelerRecord]:
     """Travelers in request order; infant n travels with adult n (as sent to the supplier)."""
     adult_positions = [index for index, passenger in enumerate(request.passengers) if passenger.type == "ADT"]
+    links = infant_adults(request)
     infants = 0
     result = []
     for passenger in request.passengers:
         infant_of = None
         if passenger.type == "INF":
-            infant_of = adult_positions[infants] if infants < len(adult_positions) else None
+            infant_of = adult_positions[links[infants]]
             infants += 1
         result.append(supplier_bookings.TravelerRecord(
             passenger_type=passenger.type, title=passenger.title, first_name=passenger.first_name.strip(),

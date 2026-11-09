@@ -108,6 +108,7 @@ class HoldPassenger(BaseModel):
     document_country: str | None = Field(None, pattern=r"^[A-Z]{3}$")
     document_expiry: date | None = None
     nationality: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+    travels_with: int | None = Field(None, ge=0, le=8, description="Infants only: the adult it travels with, counted among adults from 0 (Adult 1 = 0). Default: infant n with adult n.")
 
     @model_validator(mode="after")
     def document_rules(self):
@@ -116,6 +117,8 @@ class HoldPassenger(BaseModel):
                                                   ("passport expiry", self.document_expiry)) if not value]
             if missing:
                 raise ValueError(f"{self.first_name}: {', '.join(missing)} required for a passport.")
+        if self.travels_with is not None and self.type != "INF":
+            raise ValueError(f"{self.first_name}: only an infant travels with an adult.")
         if self.id_type == "NATI" and self.nationality == "PAK" and not re.fullmatch(r"\d{13}", self.document_number or ""):
             raise ValueError(f"{self.first_name}: a Pakistani national ID (CNIC or B-form) is 13 digits.")
         return self

@@ -3098,6 +3098,20 @@
             "title": "Title",
             "type": "string"
           },
+          "travels_with": {
+            "anyOf": [
+              {
+                "maximum": 8.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Infants only: the adult it travels with, counted among adults from 0 (Adult 1 = 0). Default: infant n with adult n.",
+            "title": "Travels With"
+          },
           "type": {
             "enum": [
               "ADT",
