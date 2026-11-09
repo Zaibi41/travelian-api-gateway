@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     # Admin Dashboard (data: gateway `bookings` table).
     dashboard_expiring_hold_hours: int = 2
     dashboard_timezone: str = "Asia/Karachi"
+    # Southair (AEROST OTA API, flights). Credentials are read only here, on the server.
+    southair_base_url: str | None = None
+    southair_username: str | None = None
+    southair_password: SecretStr | None = None
+    southair_timeout_seconds: float = Field(20.0, gt=0, le=60)
+    # Hold (booking) and ticketing are separate switches, both off by default.
+    southair_booking_enabled: bool = False
+    southair_ticketing_enabled: bool = False
+    # Flight selling price = supplier fare + percent + fixed amount per passenger (D23).
+    # With both at 0 no selling price is returned and nothing can be confirmed or held.
+    flight_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)
+    flight_markup_fixed_minor: int = Field(0, ge=0)
     # Group Ticketing selling price = supplier price + percent + fixed amount (D23).
     # With both at 0 no selling price is returned, so the supplier price is never
     # passed off as a selling price.
