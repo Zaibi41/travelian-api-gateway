@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import admin_bookings as routes
 from app.api.routes import admin_dashboard as dashboard_routes
 from app.core.field_visibility import ALL, NONE, BackOfficeUser, FieldVisibility, require_back_office
+from app.db import booking_people
 from app.db import bookings as booking_store
 from app.db.bookings import BookingRow, BookingsUnavailable
 
@@ -49,7 +50,7 @@ ROWS = [
 ]
 
 
-def client(monkeypatch, rows=ROWS, viewer=SUPER_ADMIN):
+def client(monkeypatch, rows=ROWS, viewer=SUPER_ADMIN, people=None):
     app = FastAPI()
     app.include_router(routes.router, prefix="/v1")
     if viewer is None:
@@ -65,6 +66,7 @@ def client(monkeypatch, rows=ROWS, viewer=SUPER_ADMIN):
         return rows
 
     monkeypatch.setattr(booking_store, "list_dashboard_bookings", read)
+    monkeypatch.setattr(booking_people, "read", lambda reference: people.get(reference) if people else None)
     monkeypatch.setattr(dashboard_routes, "_now", lambda: NOW)
     monkeypatch.setattr(routes, "_now", lambda: NOW)
     return TestClient(app)
@@ -213,3 +215,61 @@ def test_grants_are_independent(monkeypatch):
 def test_agency_and_customer_roles_are_refused_and_reads_fail_closed(monkeypatch, path):
     assert client(monkeypatch, viewer=None).get(path).status_code == 403
     assert client(monkeypatch, rows=None).get(path).status_code == 503
+
+
+PEOPLE = booking_people.People(
+    customer=booking_people.Customer("Test", "Customer", "92", "3001234567", "ops@example.invalid"),
+    travelers=[booking_people.Traveler(0, "ADT", "MR", "Test", "Passenger", "1990-••-••", "PSPT", "••••••567", "PAK", "PAK", None, None)],
+    events=[booking_people.AuditEvent("hold_created", "u-1", NOW, {"label": "UAT test data", "pnr": "PNR2"})],
+)
+REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(supplier_names=False, cost_and_margin=False, reveal_identity=True))
+
+
+def test_detail_shows_customer_masked_passengers_and_audit_when_saved(monkeypatch):
+    body = client(monkeypatch, viewer=STAFF, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()
+    assert body["customer"] == {"first_name": "Test", "last_name": "Customer", "phone": "+92 3001234567", "email": "ops@example.invalid"}
+    assert body["passengers"][0]["document_number_masked"] == "••••••567" and body["passengers"][0]["date_of_birth_masked"] == "1990-••-••"
+    assert [e["action"] for e in body["audit"]] == ["hold_created"]
+    assert "passengers" not in body["sections_not_available"] and "audit" not in body["sections_not_available"]
+    other = client(monkeypatch, viewer=STAFF, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-1").json()
+    assert "passengers" in other["sections_not_available"] and "customer" not in other
+
+
+def test_list_shows_the_customer_when_there_is_no_agency(monkeypatch):
+    rows = [booking(1, agency_id=None, agency_name=None, customer_name="Test Customer"), booking(2)]
+    items = client(monkeypatch, rows=rows).get("/v1/admin/bookings").json()["items"]
+    assert {i["booking_id"]: i["customer_or_agency"] for i in items} == {"TRV-1": "Test Customer", "TRV-2": "Karachi Travels"}
+
+
+@pytest.mark.parametrize("viewer,status", [(STAFF, 403), (STAFF_NAMES, 403), (STAFF_COST, 403), (REVEALER, 200), (SUPER_ADMIN, 200)])
+def test_reveal_needs_the_permission_and_is_not_cached(monkeypatch, viewer, status):
+    calls = []
+    def reveal(reference, position, actor, reason):
+        calls.append((reference, position, actor, reason))
+        return {"date_of_birth": "1990-01-31", "document_number": "AB1234567"}
+    monkeypatch.setattr(booking_people, "reveal", reveal)
+    response = client(monkeypatch, viewer=viewer).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
+    assert response.status_code == status
+    if status == 200:
+        assert response.json() == {"date_of_birth": "1990-01-31", "document_number": "AB1234567"}
+        assert response.headers["cache-control"] == "no-store" and calls == [("TRV-2", 0, viewer.user_id, "Ticketing needs it")]
+    else:
+        assert calls == [] and "AB1234567" not in response.text
+
+
+def test_reveal_needs_a_reason_and_reports_missing_traveler_or_key(monkeypatch):
+    from app.core import pii
+    api = client(monkeypatch, viewer=REVEALER)
+    assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": ""}).status_code == 422
+    assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={}).status_code == 422
+    for error, status in ((booking_people.NotFound(), 404), (pii.PiiNotConfigured(), 503), (pii.PiiDecryptError(), 503)):
+        def reveal(*args, error=error):
+            raise error
+        monkeypatch.setattr(booking_people, "reveal", reveal)
+        response = api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
+        assert response.status_code == status
+
+
+def test_agency_and_customer_roles_cannot_reach_the_reveal(monkeypatch):
+    response = client(monkeypatch, viewer=None).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
+    assert response.status_code == 403

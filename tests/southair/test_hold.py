@@ -14,6 +14,7 @@ from app.schemas.live_flights import HoldRequest
 from app.services import flight_holds, live_flights
 from app.vendors.flights.southair.client import SouthairError
 
+from tests.pii_keys import pii_test_keys
 from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_uat_search_data, search_data
 
 STAFF = BackOfficeUser("u2", "staff", NONE)
@@ -45,7 +46,7 @@ INFANT = {"type": "INF", "title": "MISS", "first_name": "Baby", "last_name": "Pa
 
 def hold_request(total=46_700, passengers=None, accept=False):
     return HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": total, "currency": "PKR"},
-                       contact={"email": "ops@example.invalid", "phone_code": "92", "phone": "3001234567"},
+                       contact={"first_name": "Test", "last_name": "Customer", "email": "ops@example.invalid", "phone_code": "92", "phone": "3001234567"},
                        passengers=passengers or [ADULT], accept_price_change=accept)
 
 
@@ -54,7 +55,7 @@ def setup():
     live_flights._quotes.clear()
     live_flights._account_currency = None
     with patch.object(settings, "flight_markup_percent", Decimal("2")), patch.object(settings, "flight_markup_fixed_minor", 0), \
-         patch.object(settings, "southair_booking_enabled", True):
+         patch.object(settings, "southair_booking_enabled", True), pii_test_keys():
         yield
 
 
@@ -200,3 +201,24 @@ def test_confirmed_total_must_be_the_quotes_total():
     with pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(total=40_000), client)
     assert error.value.status == 409 and "Rs 467" in error.value.message and client.search.await_count == 0
+
+
+def test_no_encryption_keys_refuses_before_any_supplier_call():
+    make_quote()
+    client = fake_client()
+    with patch.object(settings, "pii_keys", None), pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), client)
+    assert error.value.status == 503 and "Nothing was booked" in error.value.message
+    assert client.search.await_count == 0 and client.booking.await_count == 0
+
+
+def test_hold_saves_the_customer_and_travelers_with_infant_link():
+    make_quote(adults=1, infants=1, selling=46_700 + 5_100)
+    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}})
+    _, save = run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
+    kwargs = save.call_args.kwargs
+    assert (kwargs["customer"].first_name, kwargs["customer"].email) == ("Test", "ops@example.invalid")
+    adult, infant = kwargs["travelers"]
+    assert (adult.passenger_type, adult.document_number, adult.infant_of_position) == ("ADT", "AB1234567", None)
+    assert (infant.passenger_type, infant.infant_of_position) == ("INF", 0)
+    assert "AB1234567" not in repr(kwargs["travelers"]) and "1990" not in str(kwargs["audit"])

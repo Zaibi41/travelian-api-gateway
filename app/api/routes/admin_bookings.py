@@ -7,17 +7,24 @@ from the response unless the caller holds the matching permission. Filtering by
 provider without the supplier names permission is refused (403).
 Every response carries `source`; rows from a one-time import are `sample`, and
 the list carries `sample_label` "Sample data".
+Passengers show date of birth and document number masked. The full values need the
+reveal_identity permission and a reason, and every reveal is logged (spec 3.2).
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query
+import logging
+
+from fastapi import APIRouter, HTTPException, Path, Query, Response
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
+from app.core import pii
 from app.core.config import settings
+from app.db import booking_people
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product,
+    BookingDetail, BookingList, BookingStatus, Card, DateType, IssuanceStatus, PaymentStatus, Product, RevealRequest, RevealResponse,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -30,6 +37,9 @@ router = APIRouter(
         503: {"description": "Booking data is not available."},
     },
 )
+
+logger = logging.getLogger(__name__)
+
 
 def _clean(value: str | None) -> str | None:
     return value.strip().lower() if value and value.strip() else None
@@ -72,4 +82,32 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     booking = service.find_booking(bookings, booking_id)
     if booking is None:
         raise HTTPException(404, "Booking not found.")
-    return service.build_detail(booking, viewer.visibility)
+    try:
+        people = await run_in_threadpool(booking_people.read, booking.booking_id)
+    except (SQLAlchemyError, HTTPException):
+        logger.warning("Booking people read failed")
+        people = None  # the tabs stay "not available" rather than failing the whole page
+    return service.build_detail(booking, viewer.visibility, people)
+
+
+@router.post(
+    "/{booking_id}/travelers/{position}/reveal", response_model=RevealResponse, response_model_exclude_none=True,
+    responses={403: {"description": "Needs the reveal_identity permission."}, 404: {"description": "No such booking or traveler."},
+               503: {"description": "Identity data can't be decrypted right now."}},
+)
+async def reveal_traveler_identity(
+    viewer: Viewer, request: RevealRequest, response: Response,
+    booking_id: Annotated[str, Path(max_length=64)], position: Annotated[int, Path(ge=0, le=8)],
+):
+    """Full date of birth and document number for one traveler. Logged with the reason (spec 3.2)."""
+    if not viewer.visibility.reveal_identity:
+        raise HTTPException(403, "Revealing identity details requires the reveal identity permission.")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        values = await run_in_threadpool(booking_people.reveal, booking_id, position, viewer.user_id, request.reason.strip())
+    except booking_people.NotFound:
+        raise HTTPException(404, "Traveler not found.") from None
+    except (pii.PiiNotConfigured, pii.PiiDecryptError):
+        logger.error("Identity reveal failed: key not available or value unreadable")
+        raise HTTPException(503, "Identity details can't be shown right now.") from None
+    return RevealResponse(**values)

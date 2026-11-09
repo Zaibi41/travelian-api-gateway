@@ -13,13 +13,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.core.field_visibility import FieldVisibility
+from app.db.booking_people import People
 from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, is_expiring_hold, is_pending_issuance, period_range,
 )
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingFare, BookingList, BookingListCards, BookingListFilterOptions, BookingListItem,
-    BookingMoney, BookingStatuses, FilterOption, SupplierPayment,
+    BookingAuditEntry, BookingCustomer, BookingDetail, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
+    BookingListItem, BookingMoney, BookingPassenger, BookingStatuses, FilterOption, SupplierPayment,
 )
 
 #: Bookings tabs. "group" has no rows in the bookings table yet, but the tab exists.
@@ -63,6 +64,11 @@ def data_label(booking: BookingRow) -> str | None:
     if booking.import_source is None:
         return None
     return "UAT test data" if booking.import_source == "southair_uat" else "Sample data"
+
+
+def customer_or_agency(booking: BookingRow) -> str | None:
+    """Agency name for agency bookings, otherwise the saved customer's name."""
+    return booking.agency_name or booking.customer_name
 
 
 def _money(amount: int | None, currency: str | None) -> BookingMoney:
@@ -168,7 +174,7 @@ def build_list(
     items = []
     for b in page:
         item = BookingListItem(
-            booking_id=b.booking_id, pnr=b.pnr, product=b.product, customer_or_agency=b.agency_name,
+            booking_id=b.booking_id, pnr=b.pnr, product=b.product, customer_or_agency=customer_or_agency(b),
             statuses=_statuses(b), amount=_money(b.total_minor, b.currency),
             created_at=b.created_at, expires_at=b.hold_expires_at, sample=is_sample(b), data_label=data_label(b),
         )
@@ -187,16 +193,36 @@ def find_booking(bookings: Iterable[BookingRow], booking_id: str) -> BookingRow 
     return next((b for b in bookings if b.booking_id == booking_id and b.product in BOOKING_PRODUCTS), None)
 
 
-def build_detail(booking: BookingRow, visibility: FieldVisibility) -> BookingDetail:
+def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None) -> BookingDetail:
     billable = _money(booking.total_minor, booking.currency)
     fare = BookingFare(billable_price=billable)
+    missing = list(SECTIONS_NOT_AVAILABLE)
+    if people and people.travelers:
+        missing.remove("passengers")
+    if people and people.events:
+        missing.remove("audit")
     detail = BookingDetail(
         sample=is_sample(booking), sample_label=data_label(booking),
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
-        customer_or_agency=booking.agency_name, statuses=_statuses(booking), amount=billable,
+        customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
-        fare=fare, sections_not_available=list(SECTIONS_NOT_AVAILABLE),
+        fare=fare, sections_not_available=missing,
     )
+    if people and people.customer:
+        c = people.customer
+        detail.customer = BookingCustomer(first_name=c.first_name, last_name=c.last_name, phone=f"+{c.phone_code} {c.phone}", email=c.email)
+    if people and people.travelers:
+        detail.passengers = [
+            BookingPassenger(
+                position=t.position, type=t.passenger_type, title=t.title, first_name=t.first_name, last_name=t.last_name,
+                date_of_birth_masked=t.date_of_birth_masked, id_type=t.id_type, document_number_masked=t.document_number_masked,
+                document_country=t.document_country, nationality=t.nationality, document_expiry=t.document_expiry,
+                infant_of_position=t.infant_of_position,
+            )
+            for t in people.travelers
+        ]
+    if people and people.events:
+        detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, at=e.created_at, details=e.details) for e in people.events]
     if visibility.supplier_names and booking.provider:
         detail.provider = booking.provider
     if visibility.cost_and_margin:

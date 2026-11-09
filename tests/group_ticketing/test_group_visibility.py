@@ -136,7 +136,7 @@ def test_customers_are_refused(monkeypatch, role, allowed):
     profile = SimpleNamespace(id="u", role=role, role_id=1)
     monkeypatch.setattr("app.db.agencies.transaction", transaction)
     monkeypatch.setattr("app.db.users.ensure_user", lambda connection, identity: profile)
-    monkeypatch.setattr(field_visibility, "granted_permissions", lambda *args: {"see_supplier_names", "see_cost_and_margin"})
+    monkeypatch.setattr(field_visibility, "granted_permissions", lambda *args: set(field_visibility.PERMISSIONS))
     if allowed:
         viewer = field_visibility._back_office_user(object(), field_visibility.SEARCH_ROLES, "denied")
         assert viewer.visibility == (ALL if role in ("super_admin", "staff") else NONE)  # agency: never, even with grant rows

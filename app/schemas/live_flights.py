@@ -102,6 +102,10 @@ class HoldPassenger(BaseModel):
 
 
 class HoldContact(BaseModel):
+    """The customer: who pays and is contacted (spec 8). Saved with the hold."""
+
+    first_name: str = Field(pattern=_NAME)
+    last_name: str = Field(pattern=_NAME)
     email: str = Field(max_length=50, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     phone_code: str = Field(pattern=r"^[1-9]\d{0,3}$")
     phone: str = Field(pattern=r"^\d{5,10}$")

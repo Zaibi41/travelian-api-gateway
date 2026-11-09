@@ -8,8 +8,8 @@ Money is integer minor units with its currency code (bookings can be in PKR or
 other currencies).
 """
 
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -59,7 +59,7 @@ class BookingListItem(BaseModel):
     booking_id: str
     pnr: str | None = None
     product: Product
-    customer_or_agency: str | None = Field(None, description="Agency name when known. Customer names are not stored yet.")
+    customer_or_agency: str | None = Field(None, description="Agency name for agency bookings, otherwise the customer's name when saved.")
     provider: str | None = Field(None, description="Supplier/source. Omitted without the supplier names permission.")
     statuses: BookingStatuses
     amount: BookingMoney
@@ -99,6 +99,49 @@ class SupplierPayment(BaseModel):
     hold_deadline: datetime | None = None
 
 
+class BookingCustomer(BaseModel):
+    """Who pays and is contacted (spec 8)."""
+
+    first_name: str
+    last_name: str
+    phone: str = Field(description="With country code, e.g. +92 3001234567.")
+    email: str
+
+
+class BookingPassenger(BaseModel):
+    """A traveler. Date of birth and document number are masked; the full values need a logged reveal."""
+
+    position: int = Field(description="Order in the booking; used by the reveal endpoint.")
+    type: Literal["ADT", "CHD", "INF"]
+    title: str
+    first_name: str
+    last_name: str
+    date_of_birth_masked: str = Field(description="Year only, e.g. 1990-••-••.")
+    id_type: Literal["PSPT", "NATI"]
+    document_number_masked: str | None = Field(None, description="Last 3 characters only.")
+    document_country: str | None = None
+    nationality: str | None = None
+    document_expiry: date | None = None
+    infant_of_position: int | None = Field(None, description="For an infant: the position of the adult it travels with.")
+    ticket_number: str | None = Field(None, description="Not recorded yet.")
+
+
+class BookingAuditEntry(BaseModel):
+    action: str
+    actor_user_id: str | None = None
+    at: datetime
+    details: dict[str, Any] = Field(description="Whitelisted, no personal data.")
+
+
+class RevealRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=500, description="Why the full values are needed. Logged with the reveal.")
+
+
+class RevealResponse(BaseModel):
+    date_of_birth: date
+    document_number: str | None = None
+
+
 class BookingDetail(BaseModel):
     source: Literal["gateway_bookings"] = SOURCE
     sample: bool
@@ -115,6 +158,9 @@ class BookingDetail(BaseModel):
     updated_at: datetime | None = None
     fare: BookingFare
     supplier_payment: SupplierPayment | None = Field(None, description="Omitted without the cost and margin permission.")
+    customer: BookingCustomer | None = Field(None, description="Omitted when no customer was saved.")
+    passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
+    audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )

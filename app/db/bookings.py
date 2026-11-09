@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BookingRow:
-    """Fields the dashboard needs. Never includes traveler or contact data."""
+    """Fields the dashboard needs. The customer's name only; never traveler identity or contact details."""
 
     booking_id: str
     pnr: str | None
@@ -37,13 +37,17 @@ class BookingRow:
     agency_id: str | None = None
     agency_name: str | None = None
     updated_at: datetime | None = None
+    #: The booking's customer (payer and contact), when one was saved (migration 0011).
+    customer_name: str | None = None
 
 
 _SELECT = text(
     """SELECT b.reference, b.pnr, b.product, b.provider_id, b.booking_status, b.payment_status,
            b.issuance_status, b.created_at, b.hold_expires_at, b.currency, b.total_minor,
-           b.supplier_cost_minor, b.import_source, b.agency_id, a.name AS agency_name, b.updated_at
-       FROM bookings b LEFT JOIN agencies a ON a.id = b.agency_id"""
+           b.supplier_cost_minor, b.import_source, b.agency_id, a.name AS agency_name, b.updated_at,
+           NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), '') AS customer_name
+       FROM bookings b LEFT JOIN agencies a ON a.id = b.agency_id
+       LEFT JOIN booking_customers c ON c.booking_id = b.id"""
 )
 
 
@@ -71,7 +75,7 @@ def list_dashboard_bookings() -> list[BookingRow]:
             created_at=row["created_at"], hold_expires_at=row["hold_expires_at"], currency=row["currency"],
             total_minor=row["total_minor"], supplier_cost_minor=row["supplier_cost_minor"],
             import_source=row["import_source"], agency_id=row["agency_id"],
-            agency_name=row["agency_name"], updated_at=row["updated_at"],
+            agency_name=row["agency_name"], updated_at=row["updated_at"], customer_name=row["customer_name"],
         )
         for row in rows
     ]

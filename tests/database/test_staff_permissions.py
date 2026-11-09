@@ -31,6 +31,8 @@ def test_staff_sees_nothing_until_granted_per_user_or_per_role(database):
     connection.execute(sa.text("INSERT INTO user_permissions (user_id, permission, reason) VALUES (:u, 'see_supplier_names', 'test')"), {"u": staff})
     assert visibility(connection, staff, 4, "staff") == fv.FieldVisibility(supplier_names=True, cost_and_margin=False)
     connection.execute(sa.text("INSERT INTO role_permissions (role_id, permission) VALUES (4, 'see_cost_and_margin')"))
+    assert visibility(connection, staff, 4, "staff") == fv.FieldVisibility(supplier_names=True, cost_and_margin=True)
+    connection.execute(sa.text("INSERT INTO user_permissions (user_id, permission, reason) VALUES (:u, 'reveal_identity', 'test')"), {"u": staff})
     assert visibility(connection, staff, 4, "staff") == fv.ALL
 
 

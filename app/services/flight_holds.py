@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, BackOfficeUser
+from app.core import pii
 from app.db import supplier_bookings
 from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
 from app.services import live_flights
@@ -64,6 +65,31 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
     return result
 
 
+def _customer(request: HoldRequest) -> supplier_bookings.CustomerRecord:
+    contact = request.contact
+    return supplier_bookings.CustomerRecord(first_name=contact.first_name.strip(), last_name=contact.last_name.strip(),
+                                            phone_code=contact.phone_code, phone=contact.phone, email=contact.email.strip())
+
+
+def _travelers(request: HoldRequest) -> list[supplier_bookings.TravelerRecord]:
+    """Travelers in request order; infant n travels with adult n (as sent to the supplier)."""
+    adult_positions = [index for index, passenger in enumerate(request.passengers) if passenger.type == "ADT"]
+    infants = 0
+    result = []
+    for passenger in request.passengers:
+        infant_of = None
+        if passenger.type == "INF":
+            infant_of = adult_positions[infants] if infants < len(adult_positions) else None
+            infants += 1
+        result.append(supplier_bookings.TravelerRecord(
+            passenger_type=passenger.type, title=passenger.title, first_name=passenger.first_name.strip(),
+            last_name=passenger.last_name.strip(), date_of_birth=passenger.date_of_birth, id_type=passenger.id_type,
+            document_number=passenger.document_number, document_country=passenger.document_country,
+            nationality=passenger.nationality, document_expiry=passenger.document_expiry, infant_of_position=infant_of,
+        ))
+    return result
+
+
 def _time_limit(value: object) -> datetime | None:
     text = str(value or "").replace("UTC", "").strip()
     for pattern in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
@@ -79,6 +105,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(409, "Booking is turned off. Nothing was booked.")
     if viewer.role not in BACK_OFFICE_ROLES:
         raise HoldError(403, "Only back-office users can place holds.")
+    if not pii.configured():
+        logger.error("Hold refused: traveler encryption keys are not configured")
+        raise HoldError(503, "Traveler details can't be stored securely right now. Nothing was booked.")
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
         raise HoldError(404, "The revalidated fare has expired. Revalidate again.")
@@ -151,7 +180,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
                                "fare_info": fare_info, "repriced_supplier_total_minor": supplier_total},
-            actor_user_id=viewer.user_id,
+            actor_user_id=viewer.user_id, customer=_customer(request), travelers=_travelers(request),
             audit={"provider": NAME, "pnr": pnr, "time_limit": booking.get("time_limit"), "selling_total_minor": selling_total,
                    "currency": currency, "pax_count": pax_count, "fare_info": fare_info_status},
         )

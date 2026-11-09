@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     southair_password: SecretStr | None = None
     southair_timeout_seconds: float = Field(20.0, gt=0, le=60)
     # Hold (booking) and ticketing are separate switches, both off by default.
+    # Traveler identity encryption (app/core/pii.py, docs/pii-encryption.md). Never commit or print.
+    pii_keys: SecretStr | None = Field(None, validation_alias="TRAVELIAN_PII_KEYS")
+    pii_active_key: str | None = Field(None, validation_alias="TRAVELIAN_PII_ACTIVE_KEY")
+    pii_hash_key: SecretStr | None = Field(None, validation_alias="TRAVELIAN_PII_HASH_KEY")
+
     southair_booking_enabled: bool = False
     southair_ticketing_enabled: bool = False
     # Flight selling price = supplier fare + percent + fixed amount per passenger (D23).

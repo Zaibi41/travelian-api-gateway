@@ -371,10 +371,92 @@
         "title": "AttentionQueue",
         "type": "object"
       },
+      "BookingAuditEntry": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "description": "Whitelisted, no personal data.",
+            "title": "Details",
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "at",
+          "details"
+        ],
+        "title": "BookingAuditEntry",
+        "type": "object"
+      },
+      "BookingCustomer": {
+        "description": "Who pays and is contacted (spec 8).",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "title": "Last Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "With country code, e.g. +92 3001234567.",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_name",
+          "last_name",
+          "phone",
+          "email"
+        ],
+        "title": "BookingCustomer",
+        "type": "object"
+      },
       "BookingDetail": {
         "properties": {
           "amount": {
             "$ref": "#/components/schemas/BookingMoney"
+          },
+          "audit": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BookingAuditEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Audit tab. Omitted when there are no events.",
+            "title": "Audit"
           },
           "booking_id": {
             "title": "Booking Id",
@@ -391,6 +473,17 @@
               }
             ],
             "title": "Created At"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingCustomer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted when no customer was saved."
           },
           "customer_or_agency": {
             "anyOf": [
@@ -417,6 +510,21 @@
           },
           "fare": {
             "$ref": "#/components/schemas/BookingFare"
+          },
+          "passengers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/app__schemas__admin_bookings__BookingPassenger"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Passengers tab. Omitted when no travelers were saved.",
+            "title": "Passengers"
           },
           "pnr": {
             "anyOf": [
@@ -916,7 +1024,7 @@
                 "type": "null"
               }
             ],
-            "description": "Agency name when known. Customer names are not stored yet.",
+            "description": "Agency name for agency bookings, otherwise the customer's name when saved.",
             "title": "Customer Or Agency"
           },
           "data_label": {
@@ -1020,125 +1128,6 @@
         "title": "BookingMoney",
         "type": "object"
       },
-      "BookingPassenger": {
-        "additionalProperties": true,
-        "properties": {
-          "dob": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dob"
-          },
-          "firstname": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Firstname"
-          },
-          "id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Id"
-          },
-          "lastname": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lastname"
-          },
-          "passport_expiry_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Passport Expiry Date"
-          },
-          "passport_img": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Passport Img"
-          },
-          "passport_no": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Passport No"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          },
-          "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Type"
-          },
-          "visa_copy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Visa Copy"
-          }
-        },
-        "title": "BookingPassenger",
-        "type": "object"
-      },
       "BookingRecord": {
         "additionalProperties": true,
         "properties": {
@@ -1181,7 +1170,7 @@
           },
           "booking_sub": {
             "items": {
-              "$ref": "#/components/schemas/BookingPassenger"
+              "$ref": "#/components/schemas/app__api__routes__group_ticketing__BookingPassenger"
             },
             "title": "Booking Sub",
             "type": "array"
@@ -2842,11 +2831,22 @@
         "type": "object"
       },
       "HoldContact": {
+        "description": "The customer: who pays and is contacted (spec 8). Saved with the hold.",
         "properties": {
           "email": {
             "maxLength": 50,
             "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
             "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+            "title": "Last Name",
             "type": "string"
           },
           "phone": {
@@ -2861,6 +2861,8 @@
           }
         },
         "required": [
+          "first_name",
+          "last_name",
           "email",
           "phone_code",
           "phone"
@@ -3568,6 +3570,47 @@
         "title": "ResetPasswordRequest",
         "type": "object"
       },
+      "RevealRequest": {
+        "properties": {
+          "reason": {
+            "description": "Why the full values are needed. Logged with the reveal.",
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RevealRequest",
+        "type": "object"
+      },
+      "RevealResponse": {
+        "properties": {
+          "date_of_birth": {
+            "format": "date",
+            "title": "Date Of Birth",
+            "type": "string"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          }
+        },
+        "required": [
+          "date_of_birth"
+        ],
+        "title": "RevealResponse",
+        "type": "object"
+      },
       "RoleRecord": {
         "properties": {
           "id": {
@@ -3951,6 +3994,250 @@
           "duration_ms"
         ],
         "title": "VendorResult",
+        "type": "object"
+      },
+      "app__api__routes__group_ticketing__BookingPassenger": {
+        "additionalProperties": true,
+        "properties": {
+          "dob": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dob"
+          },
+          "firstname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firstname"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "lastname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastname"
+          },
+          "passport_expiry_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passport Expiry Date"
+          },
+          "passport_img": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passport Img"
+          },
+          "passport_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passport No"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "visa_copy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visa Copy"
+          }
+        },
+        "title": "BookingPassenger",
+        "type": "object"
+      },
+      "app__schemas__admin_bookings__BookingPassenger": {
+        "description": "A traveler. Date of birth and document number are masked; the full values need a logged reveal.",
+        "properties": {
+          "date_of_birth_masked": {
+            "description": "Year only, e.g. 1990-\u2022\u2022-\u2022\u2022.",
+            "title": "Date Of Birth Masked",
+            "type": "string"
+          },
+          "document_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Country"
+          },
+          "document_expiry": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry"
+          },
+          "document_number_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last 3 characters only.",
+            "title": "Document Number Masked"
+          },
+          "first_name": {
+            "title": "First Name",
+            "type": "string"
+          },
+          "id_type": {
+            "enum": [
+              "PSPT",
+              "NATI"
+            ],
+            "title": "Id Type",
+            "type": "string"
+          },
+          "infant_of_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an infant: the position of the adult it travels with.",
+            "title": "Infant Of Position"
+          },
+          "last_name": {
+            "title": "Last Name",
+            "type": "string"
+          },
+          "nationality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nationality"
+          },
+          "position": {
+            "description": "Order in the booking; used by the reveal endpoint.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "ticket_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Not recorded yet.",
+            "title": "Ticket Number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "type",
+          "title",
+          "first_name",
+          "last_name",
+          "date_of_birth_masked",
+          "id_type"
+        ],
+        "title": "BookingPassenger",
         "type": "object"
       }
     },
@@ -5173,6 +5460,85 @@
           }
         ],
         "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/travelers/{position}/reveal": {
+      "post": {
+        "description": "Full date of birth and document number for one traveler. Logged with the reason (spec 3.2).",
+        "operationId": "reveal_traveler_identity_v1_admin_bookings__booking_id__travelers__position__reveal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "maximum": 8,
+              "minimum": 0,
+              "title": "Position",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the reveal_identity permission."
+          },
+          "404": {
+            "description": "No such booking or traveler."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Identity data can't be decrypted right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reveal Traveler Identity",
         "tags": [
           "admin bookings"
         ]
