@@ -87,7 +87,7 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     except (SQLAlchemyError, HTTPException):
         logger.warning("Booking people read failed")
         people = None  # the tabs stay "not available" rather than failing the whole page
-    return service.build_detail(booking, viewer.visibility, people)
+    return service.build_detail(booking, viewer.visibility, people, today=_now().date())
 
 
 @router.post(

@@ -1,7 +1,7 @@
 """A booking's customer, travelers (masked) and audit trail; the logged identity reveal.
 
 Reads never decrypt: they return the masked date of birth and document number stored with
-each traveler. reveal() decrypts one traveler's identity fields and writes an
+each traveler; the document expiry is returned masked too, with a validity status. reveal() decrypts one traveler's identity fields and writes an
 "identity_revealed" event (who, which traveler, which fields, reason) in the same
 transaction, so there is no reveal without its log entry. Values are never logged.
 """
@@ -98,12 +98,12 @@ class NotFound(Exception):
 
 
 def reveal(reference: str, position: int, actor_user_id: str, reason: str) -> dict[str, str | None]:
-    """Decrypt one traveler's date of birth and document number and log the reveal (one transaction)."""
+    """One traveler's full date of birth, document number and expiry, logged with the reason (one transaction)."""
     keys = pii.load_keys()
     with agencies.application_engine().begin() as connection:
         booking_id = _booking_id(connection, reference)
         row = connection.execute(
-            text("SELECT date_of_birth_encrypted, document_number_encrypted FROM booking_travelers"
+            text("SELECT date_of_birth_encrypted, document_number_encrypted, document_expiry FROM booking_travelers"
                  " WHERE booking_id = :b AND position = :p"),
             {"b": booking_id, "p": position},
         ).mappings().one_or_none() if booking_id else None
@@ -113,6 +113,7 @@ def reveal(reference: str, position: int, actor_user_id: str, reason: str) -> di
             "date_of_birth": pii.decrypt(row["date_of_birth_encrypted"], identity_context(booking_id, position, "date_of_birth"), keys),
             "document_number": pii.decrypt(row["document_number_encrypted"], identity_context(booking_id, position, "document_number"), keys)
             if row["document_number_encrypted"] else None,
+            "document_expiry": row["document_expiry"].isoformat() if row["document_expiry"] else None,
         }
         _event(connection, booking_id, actor_user_id, "identity_revealed",
                {"traveler_position": position, "fields": [k for k, v in values.items() if v is not None], "reason": reason})

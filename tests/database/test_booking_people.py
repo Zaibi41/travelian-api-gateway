@@ -71,7 +71,8 @@ def test_list_detail_passengers_and_audit_read_the_saved_people(database):
     assert [p.first_name for p in detail.passengers] == ["Test", "Baby"]
     assert detail.passengers[0].document_number_masked == "••••••567" and detail.passengers[1].infant_of_position == 0
     assert detail.customer.phone == "+92 3001234567"
-    assert "AB1234567" not in body and "1990-01-31" not in body
+    assert "AB1234567" not in body and "1990-01-31" not in body and "2030-05-01" not in body
+    assert detail.passengers[0].document_expiry_masked == "2030-••-••" and detail.passengers[0].document_validity == "valid"
     assert [(e.action, e.details.get("travelers")) for e in detail.audit] == [("hold_created", 2)]
 
 
@@ -80,15 +81,16 @@ def test_reveal_returns_full_values_and_logs_who_which_and_why(database):
     with pii_test_keys():
         reference = save(connection, metadata)
         values = booking_people.reveal(reference, 0, ACTOR, "Ticketing needs the passport number")
-        assert values == {"date_of_birth": "1990-01-31", "document_number": "AB1234567"}
-        assert booking_people.reveal(reference, 1, ACTOR, "Infant date of birth for the airline") == {"date_of_birth": "2025-06-01", "document_number": None}
+        assert values == {"date_of_birth": "1990-01-31", "document_number": "AB1234567", "document_expiry": "2030-05-01"}
+        assert booking_people.reveal(reference, 1, ACTOR, "Infant date of birth for the airline") == {
+            "date_of_birth": "2025-06-01", "document_number": None, "document_expiry": None}
         with pytest.raises(booking_people.NotFound):
             booking_people.reveal(reference, 5, ACTOR, "missing traveler")
         with pytest.raises(booking_people.NotFound):
             booking_people.reveal("TRV-NOPE00", 0, ACTOR, "missing booking")
     events = connection.execute(text("SELECT action, actor_user_id, details FROM booking_events WHERE action='identity_revealed' ORDER BY created_at")).all()
     assert [(e.action, e.actor_user_id, e.details["traveler_position"], e.details["fields"]) for e in events] == [
-        ("identity_revealed", ACTOR, 0, ["date_of_birth", "document_number"]), ("identity_revealed", ACTOR, 1, ["date_of_birth"])]
+        ("identity_revealed", ACTOR, 0, ["date_of_birth", "document_number", "document_expiry"]), ("identity_revealed", ACTOR, 1, ["date_of_birth"])]
     assert all("AB1234567" not in str(e.details) and "1990" not in str(e.details) for e in events)
 
 

@@ -3602,6 +3602,18 @@
             "title": "Date Of Birth",
             "type": "string"
           },
+          "document_expiry": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry"
+          },
           "document_number": {
             "anyOf": [
               {
@@ -4143,17 +4155,17 @@
             ],
             "title": "Document Country"
           },
-          "document_expiry": {
+          "document_expiry_masked": {
             "anyOf": [
               {
-                "format": "date",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Document Expiry"
+            "description": "Year only, e.g. 2031-\u2022\u2022-\u2022\u2022. The full date needs a logged reveal.",
+            "title": "Document Expiry Masked"
           },
           "document_number_masked": {
             "anyOf": [
@@ -4166,6 +4178,23 @@
             ],
             "description": "Last 3 characters only.",
             "title": "Document Number Masked"
+          },
+          "document_validity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "valid",
+                  "expiring",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the expiry date today: expired, expiring within 6 months, or valid. Omitted without an expiry.",
+            "title": "Document Validity"
           },
           "first_name": {
             "title": "First Name",

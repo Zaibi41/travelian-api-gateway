@@ -116,3 +116,25 @@ def mask_document(document_number: str) -> str:
 def mask_date_of_birth(iso_date: str) -> str:
     """"1990-01-01" -> "1990-••-••": the year only."""
     return f"{iso_date[:4]}-••-••"
+
+
+def mask_date(iso_date: str) -> str:
+    """Any date shown masked: the year only."""
+    return f"{iso_date[:4]}-••-••"
+
+
+def document_validity(expiry, today) -> str | None:
+    """expired (before today), expiring (within 6 months, the spec's Documents expiring rule) or valid."""
+    if expiry is None:
+        return None
+    if expiry < today:
+        return "expired"
+    month = today.month - 1 + 6
+    year, month = today.year + month // 12, month % 12 + 1
+    for last in (31, 30, 29, 28):
+        try:
+            limit = today.replace(year=year, month=month, day=min(today.day, last))
+            break
+        except ValueError:
+            continue
+    return "expiring" if expiry < limit else "valid"

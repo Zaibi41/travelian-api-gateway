@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from app.core import pii
 from app.core.field_visibility import FieldVisibility
 from app.db.booking_people import People
 from app.db.bookings import BookingRow
@@ -193,7 +194,7 @@ def find_booking(bookings: Iterable[BookingRow], booking_id: str) -> BookingRow 
     return next((b for b in bookings if b.booking_id == booking_id and b.product in BOOKING_PRODUCTS), None)
 
 
-def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None) -> BookingDetail:
+def build_detail(booking: BookingRow, visibility: FieldVisibility, people: People | None = None, today=None) -> BookingDetail:
     billable = _money(booking.total_minor, booking.currency)
     fare = BookingFare(billable_price=billable)
     missing = list(SECTIONS_NOT_AVAILABLE)
@@ -216,7 +217,9 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
             BookingPassenger(
                 position=t.position, type=t.passenger_type, title=t.title, first_name=t.first_name, last_name=t.last_name,
                 date_of_birth_masked=t.date_of_birth_masked, id_type=t.id_type, document_number_masked=t.document_number_masked,
-                document_country=t.document_country, nationality=t.nationality, document_expiry=t.document_expiry,
+                document_country=t.document_country, nationality=t.nationality,
+                document_expiry_masked=pii.mask_date(t.document_expiry.isoformat()) if t.document_expiry else None,
+                document_validity=pii.document_validity(t.document_expiry, today or datetime.now().date()),
                 infant_of_position=t.infant_of_position,
             )
             for t in people.travelers

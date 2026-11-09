@@ -79,3 +79,14 @@ def test_masks_and_keyed_hash():
         first = pii.document_hash("AB1234567")
     with pii_test_keys():
         assert pii.document_hash("AB1234567") != first  # keyed: a different hash key gives a different hash
+
+
+@pytest.mark.parametrize("expiry,status", [
+    (None, None), ("2026-11-08", "expired"), ("2026-11-09", "expiring"), ("2027-05-08", "expiring"),
+    ("2027-05-09", "valid"), ("2031-01-01", "valid"),
+])
+def test_document_validity_from_today(expiry, status):
+    from datetime import date
+    today = date(2026, 11, 9)
+    assert pii.document_validity(date.fromisoformat(expiry) if expiry else None, today) == status
+    assert pii.mask_date("2031-01-01") == "2031-••-••"

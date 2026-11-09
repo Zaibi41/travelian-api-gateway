@@ -7,7 +7,11 @@ encrypted it. Reads return a masked copy (birth year only; last 3 characters of 
 The full values come only from `POST /v1/admin/bookings/{id}/travelers/{position}/reveal`,
 which needs the `reveal_identity` permission and a reason, and is logged in `booking_events`.
 
-Names, title, passenger type, ID type, document country, nationality, document expiry and the
+The document expiry is stored in plain form (it drives the validity status) but is returned
+masked (year only) with a computed `document_validity` (valid, expiring within 6 months, expired);
+the full date comes only through the logged reveal.
+
+Names, title, passenger type, ID type, document country, nationality and the
 customer's contact details are not encrypted (they are needed for search, contact and the
 airline report); they are limited by role like the rest of the booking.
 

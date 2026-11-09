@@ -121,7 +121,9 @@ class BookingPassenger(BaseModel):
     document_number_masked: str | None = Field(None, description="Last 3 characters only.")
     document_country: str | None = None
     nationality: str | None = None
-    document_expiry: date | None = None
+    document_expiry_masked: str | None = Field(None, description="Year only, e.g. 2031-••-••. The full date needs a logged reveal.")
+    document_validity: Literal["valid", "expiring", "expired"] | None = Field(
+        None, description="From the expiry date today: expired, expiring within 6 months, or valid. Omitted without an expiry.")
     infant_of_position: int | None = Field(None, description="For an infant: the position of the adult it travels with.")
     ticket_number: str | None = Field(None, description="Not recorded yet.")
 
@@ -140,6 +142,7 @@ class RevealRequest(BaseModel):
 class RevealResponse(BaseModel):
     date_of_birth: date
     document_number: str | None = None
+    document_expiry: date | None = None
 
 
 class BookingDetail(BaseModel):
