@@ -250,3 +250,12 @@ def fare_info_totals(data: dict[str, Any]) -> dict[str, Amount] | None:
             return None
         totals[kind] = total
     return totals or None
+
+
+def fare_info_final_total(data: dict[str, Any] | None) -> Amount | None:
+    """fare_info's FINAL_TOTAL: the supplier's total for the whole selection and passenger mix.
+
+    Live UAT sends this (and per-type components without a TOTAL); for one adult it equals
+    the search's ACC. None when absent or unparseable: the total is then unverified.
+    """
+    return parse_amount(data.get("FINAL_TOTAL")) if isinstance(data, dict) else None

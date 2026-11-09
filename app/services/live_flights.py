@@ -251,22 +251,44 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
 
     fallback = await account_currency(client)
     counts = [("ADT", request.adults), ("CHD", request.children), ("INF", request.infants)]
-    per_type: dict[str, normalize.Amount] | None = None
+    fare_info: dict | None = None
     try:
-        per_type = normalize.fare_info_totals(await client.fare_info(nld=nld, selections=[(r.route_key, r.fare_hash) for r in fresh]))
+        fare_info = await client.fare_info(nld=nld, selections=[(r.route_key, r.fare_hash) for r in fresh])
     except SouthairError as error:
         logger.info("Fare info before booking unavailable", extra={"error_code": error.error_code})
+    per_type = normalize.fare_info_totals(fare_info) if isinstance(fare_info, dict) else None
+    final = normalize.fare_info_final_total(fare_info)
     if per_type and all(kind in per_type for kind, number in counts if number):
         currencies = {fare_currency(per_type[kind], fallback) for kind, number in counts if number}
         priced = [(kind, number, to_minor(per_type[kind].value)) for kind, number in counts if number]
     elif request.children == 0 and request.infants == 0 and all(r.adult_total for r in fresh):
-        currencies = {fare_currency(r.adult_total, fallback) for r in fresh}
-        priced = [("ADT", request.adults, sum(to_minor(r.adult_total.value) for r in fresh))]  # type: ignore[union-attr]
+        # Adults only: the search's per-adult totals, verified against fare_info's FINAL_TOTAL.
+        # No verified total, no price: never confirm (or hold) on an unverified total.
+        each = sum(to_minor(r.adult_total.value) for r in fresh)  # type: ignore[union-attr]
+        if final is None:
+            raise RepriceError(502, "The supplier didn't confirm the total for this fare, so it can't be confirmed. Try again.")
+        if to_minor(final.value) != each * request.adults:
+            raise RepriceError(409, "The supplier's total doesn't match this fare, so it can't be confirmed. Search again.")
+        currencies = {fare_currency(r.adult_total, fallback) for r in fresh} | {fare_currency(final, fallback)}
+        priced = [("ADT", request.adults, each)]
     else:
         raise RepriceError(422, "Child and infant fares can't be confirmed for this fare yet. Search for adults only.")
     if len(currencies) != 1 or None in currencies:
         raise RepriceError(502, "The supplier's fare currency is unclear. This fare can't be confirmed.")
     return nld, fresh, currencies.pop(), priced  # type: ignore[return-value]
+
+
+def verified_total_minor(fare_info: dict | None, counts: dict[str, int]) -> int | None:
+    """The supplier total fare_info confirms for this passenger mix, in minor units, or None.
+
+    Explicit per-type TOTALs (guide shape) when every booked type has one; otherwise
+    FINAL_TOTAL (live UAT). Never computed from fare components.
+    """
+    per_type = normalize.fare_info_totals(fare_info) if isinstance(fare_info, dict) else None
+    if per_type and all(kind in per_type for kind, number in counts.items() if number):
+        return sum(to_minor(per_type[kind].value) * number for kind, number in counts.items() if number)
+    final = normalize.fare_info_final_total(fare_info)
+    return to_minor(final.value) if final else None
 
 
 def can_book(viewer: BackOfficeUser) -> bool:

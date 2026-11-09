@@ -17,7 +17,6 @@ from app.db import supplier_bookings
 from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
 from app.services import live_flights
 from app.services.live_flights import RepriceError, get_quote, price_selection, sell
-from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairError, configured_client
 
 logger = logging.getLogger(__name__)
@@ -130,9 +129,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     stored_cost = supplier_total
     try:
         fare_info = await client.fare_info(nld=nld, selections=[(ref.route_key, ref.fare_hash) for ref in fresh])
-        totals = normalize.fare_info_totals(fare_info)
-        if totals and all(kind in totals for kind, number in counts.items() if number):
-            info_total = sum(live_flights.to_minor(totals[kind].value) * number for kind, number in counts.items() if number)
+        info_total = live_flights.verified_total_minor(fare_info, counts)
+        if info_total is not None:
             fare_info_status = "matches" if info_total == supplier_total else "differs"
             stored_cost = info_total
         else:
@@ -155,7 +153,11 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.") from None
-    if fare_info_status == "differs":
-        logger.warning("Southair fare_info total differs from the repriced total", extra={"pnr": pnr})
+    if fare_info_status != "matches":
+        # The hold exists at the supplier and is saved, but its total isn't verified: never
+        # report it as confirmed. Staff must check the total with the supplier first.
+        logger.warning("Southair hold total not verified", extra={"pnr": pnr, "fare_info": fare_info_status})
+        raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
+                             "Check the total with the supplier before taking any payment.")
     return HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency))

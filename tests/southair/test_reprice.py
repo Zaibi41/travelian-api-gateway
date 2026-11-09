@@ -13,7 +13,7 @@ from app.core.field_visibility import ALL, NONE, BackOfficeUser, FieldVisibility
 from app.services import live_flights
 from app.vendors.flights.southair.client import SouthairError
 
-from tests.southair.fixtures import HASH_EB, NLD, search_data
+from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_uat_search_data, search_data
 
 STAFF = BackOfficeUser("u2", "staff", NONE)
 ADMIN = BackOfficeUser("u1", "super_admin", ALL)
@@ -56,7 +56,7 @@ def guide_fare_id(result):
 
 
 def test_reprice_repeats_the_search_and_returns_a_total_to_confirm():
-    client = fake_client(search_data(), search_data(), fare_info_error=SouthairError("fare_info_failed"))
+    client = fake_client(search_data(), search_data(), fare_info={"FINAL_TOTAL": "915.40"})  # 2 x 457.70
     test, patcher, result = searched(STAFF, client)
     response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]})
     patcher.stop()
@@ -73,7 +73,7 @@ def test_reprice_repeats_the_search_and_returns_a_total_to_confirm():
 
 
 def test_price_change_is_flagged_and_cost_only_for_permitted_viewers():
-    client = fake_client(search_data(), search_data(total="500.00"))
+    client = fake_client(search_data(), search_data(total="500.00"), fare_info={"FINAL_TOTAL": "1000.00"})
     test, patcher, result = searched(ADMIN, client)
     body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
     patcher.stop()
@@ -99,7 +99,7 @@ def test_children_need_explicit_fare_info_totals():
 @pytest.mark.parametrize("case,status", [("gone", 409), ("expired", 404), ("wrong_count", 422), ("no_markup", 409), ("supplier_down", 502)])
 def test_reprice_refusals(case, status):
     second = search_data(callsign="ZZ999") if case == "gone" else search_data()
-    client = fake_client(search_data(), SouthairError("timeout") if case == "supplier_down" else second)
+    client = fake_client(search_data(), SouthairError("timeout") if case == "supplier_down" else second, fare_info={"FINAL_TOTAL": "915.40"})
     test, patcher, result = searched(STAFF, client)
     fare_ids = [guide_fare_id(result)] * (2 if case == "wrong_count" else 1)
     search_id = "x" * 20 if case == "expired" else result["search_id"]
@@ -111,7 +111,7 @@ def test_reprice_refusals(case, status):
 
 def test_round_trip_reprices_both_legs():
     body = {"origin": "KHI", "destination": "MUX", "departure_date": "2026-11-27", "return_date": "2026-11-30", "adults": 1}
-    client = fake_client(search_data(round_trip=True), search_data(round_trip=True), fare_info_error=SouthairError("x"))
+    client = fake_client(search_data(round_trip=True), search_data(round_trip=True), fare_info={"FINAL_TOTAL": "857.70"})
     test, patcher, result = searched(STAFF, client, body)
     out = guide_fare_id(result)
     ret = result["journeys"][1]["flights"][0]["fares"][0]["id"]
@@ -119,3 +119,57 @@ def test_round_trip_reprices_both_legs():
     priced = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [out, ret]}).json()
     patcher.stop()
     assert priced["selling_total"]["amount_minor"] == 87_500  # (457.70 + 400.00) x 1.02 = 874.85 -> 875
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_booking_enabled_follows_the_flag_set_here_not_the_env(enabled):
+    client = fake_client(search_data(), search_data(), fare_info={"FINAL_TOTAL": "915.40"})
+    test, patcher, result = searched(STAFF, client)
+    with patch.object(settings, "southair_booking_enabled", enabled):
+        body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [guide_fare_id(result)]}).json()
+    patcher.stop()
+    assert body["booking_enabled"] is enabled
+
+
+LIVE_BODY = {"origin": "LHE", "destination": "KHI", "departure_date": "2026-11-19", "adults": 1}
+
+
+def live_reprice(fare_info=None, fare_info_error=None, adults=1, fare="EB"):
+    client = fake_client(live_uat_search_data(), live_uat_search_data(), fare_info=fare_info, fare_info_error=fare_info_error)
+    test, patcher, result = searched(ADMIN, client, {**LIVE_BODY, "adults": adults})
+    fare_id = next(f["id"] for f in result["journeys"][0]["flights"][0]["fares"] if f["name"] == fare)
+    response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [fare_id]})
+    patcher.stop()
+    return response, client
+
+
+def test_live_shape_adults_only_is_verified_against_final_total():
+    response, client = live_reprice(fare_info=live_fare_info(13330))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # ACC 13,330 confirmed by FINAL_TOTAL 13,330; 13,330 x 1.02 = 13,596.60 -> Rs 13,597
+    assert body["selling_total"] == {"amount_minor": 1_359_700, "currency": "PKR"}
+    assert body["supplier_total"] == {"amount_minor": 1_333_000, "currency": "PKR"}
+    assert client.fare_info.await_args.kwargs["selections"] == [("LHEKHI", HASH_LIVE["EB"])]
+    assert HASH_LIVE["EB"] not in response.text and NLD not in response.text and "FINAL_TOTAL" not in response.text
+
+
+def test_live_shape_two_adults_needs_final_total_for_both():
+    ok, _ = live_reprice(fare_info=live_fare_info(26660), adults=2)
+    assert ok.status_code == 200 and ok.json()["selling_total"]["amount_minor"] == 2 * 1_359_700
+    # A FINAL_TOTAL that covers one adult only doesn't verify a two-adult total: refused.
+    refused, _ = live_reprice(fare_info=live_fare_info(13330), adults=2)
+    assert refused.status_code == 409 and "doesn't match" in refused.json()["detail"]
+
+
+@pytest.mark.parametrize("case", ["missing", "unparseable", "empty", "fare_info_error"])
+def test_live_shape_without_a_verified_total_is_refused(case):
+    fare_info = {"missing": live_fare_info(None), "unparseable": live_fare_info("n/a"), "empty": {}}.get(case)
+    response, client = live_reprice(fare_info=fare_info, fare_info_error=SouthairError("fare_info_failed") if case == "fare_info_error" else None)
+    assert response.status_code == 502 and "didn't confirm the total" in response.json()["detail"]
+    assert live_flights._quotes == {}  # nothing to hold on
+
+
+def test_live_shape_total_mismatch_is_refused():
+    response, _ = live_reprice(fare_info=live_fare_info(14000))
+    assert response.status_code == 409 and live_flights._quotes == {}

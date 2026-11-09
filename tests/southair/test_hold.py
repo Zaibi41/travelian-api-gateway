@@ -14,7 +14,7 @@ from app.schemas.live_flights import HoldRequest
 from app.services import flight_holds, live_flights
 from app.vendors.flights.southair.client import SouthairError
 
-from tests.southair.fixtures import HASH_EB, NLD, search_data
+from tests.southair.fixtures import HASH_EB, HASH_LIVE, NLD, live_fare_info, live_uat_search_data, search_data
 
 STAFF = BackOfficeUser("u2", "staff", NONE)
 TICKET_REF = "TICKET-REF-eyJpdiSECRET"
@@ -127,9 +127,41 @@ def test_supplier_failure_saves_nothing(failure):
     assert error.value.status == 502 and save.call_count == 0 and client.booking.await_count == 1
 
 
-def test_fare_info_failure_after_booking_still_saves_the_hold():
+@pytest.mark.parametrize("after,status", [(SouthairError("fare_info_failed"), "failed"), ({"ADT": {"BASE": {"FARE": {"VALUE": 450}}}}, "no_total"),
+                                          ({"FINAL_TOTAL": "999.00"}, "differs")])
+def test_unverified_total_after_booking_saves_the_hold_but_never_confirms_it(after, status):
     make_quote()
     client = fake_client()
-    client.fare_info = AsyncMock(side_effect=[{"ADT": {"TOTAL": "457.70"}}, SouthairError("fare_info_failed")])
-    _, save = run(hold_request(), client)
-    assert save.call_args.kwargs["audit"]["fare_info"] == "failed" and save.call_args.kwargs["supplier_total_minor"] == 45_770
+    client.fare_info = AsyncMock(side_effect=[{"ADT": {"TOTAL": "457.70"}}, after])
+    save = MagicMock(return_value="TRV-ABC123")
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(), client, saved=save)
+    assert error.value.status == 502 and "couldn't be verified" in error.value.message
+    assert "63B55C" in error.value.message and "TRV-ABC123" in error.value.message  # staff can find the hold
+    assert save.call_count == 1 and save.call_args.kwargs["audit"]["fare_info"] == status
+
+
+def make_live_quote():
+    request = FlightSearchRequest(origin="LHE", destination="KHI", departure_date="2026-11-19", adults=1)
+    ref = live_flights.FareRef("outbound", "LHEKHI", "Z8266@2026-11-19T00:25", "EB", "OLD-HASH", None)
+    live_flights._store_quote(live_flights.Quote("q" * 20, "u2", request, "OLD-NLD", [ref], "PKR", 1_333_000, 1_359_700, [], live_flights._now() + 600))
+
+
+def test_live_shape_hold_uses_final_total_before_and_after_booking():
+    make_live_quote()
+    client = fake_client(search=live_uat_search_data(), fare_info=live_fare_info(13330))
+    view, save = run(hold_request(total=1_359_700), client)
+    assert view.pnr == "63B55C" and view.selling_total.amount_minor == 1_359_700
+    assert client.booking.await_args.kwargs["acceptances"] == [HASH_LIVE["EB"]]
+    assert save.call_args.kwargs["audit"]["fare_info"] == "matches" and save.call_args.kwargs["supplier_total_minor"] == 1_333_000
+
+
+@pytest.mark.parametrize("before", [live_fare_info(None), {}, SouthairError("fare_info_failed")])
+def test_live_shape_no_verified_total_before_booking_creates_no_hold(before):
+    make_live_quote()
+    client = fake_client(search=live_uat_search_data())
+    client.fare_info = AsyncMock(side_effect=[before])
+    save = MagicMock()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(total=1_359_700), client, saved=save)
+    assert error.value.status == 502 and client.booking.await_count == 0 and save.call_count == 0

@@ -55,3 +55,13 @@ def live_uat_search_data():
     return {"request": {"adult": "1", "child": "0", "infant": "0", "travel_type": "O", "dep_city": "LHE", "arr_city": "KHI",
                         "dep_date": "19-11-2026", "NLD": NLD},
             "result": {"LHE-KHI": {"itinerary": {"FROM": "LHE", "TO": "KHI", "DATE": "19 Nov 2026"}, "flights": {"6af1bc80e37bf": flight}}}}
+
+
+def live_fare_info(final_total=13330):
+    """Sanitized shape of a real UAT fare_info for one adult on EB (LHE-KHI): components and FINAL_TOTAL, no ADT.TOTAL."""
+    return {
+        "ADT": {"BASE": {"FARE": {"VALUE": 10528}, "YR": {"VALUE": 316}, "YQ": {"VALUE": 316}},
+                "TFC": {"YI": {"VALUE": 20}, "XZ": {"VALUE": 100}, "SP": {"VALUE": 500},
+                        "N9": {"TITLE": "STAMP TAX - N9 (TAX)", "VALUE": 50}, "PK": {"VALUE": 1500}}},
+        **({"FINAL_TOTAL": final_total} if final_total is not None else {}),
+    }
