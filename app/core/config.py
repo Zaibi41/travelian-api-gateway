@@ -1,8 +1,14 @@
 import re
 from decimal import Decimal
+from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The repo's .env, found from this file rather than the working directory, so the
+# gateway reads the same settings wherever uvicorn is started from. Real environment
+# variables (Lightsail) still take precedence; a missing file is ignored.
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 # Exact browser origin: scheme, host, optional port. No path, no wildcard.
 _ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?$")
@@ -61,7 +67,7 @@ class Settings(BaseSettings):
     # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
     cors_allowed_origins: list[str] = []
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
 
     @field_validator("cors_allowed_origins")

@@ -4,10 +4,12 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
+from app.core.config import ENV_FILE
+
 
 class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", extra="ignore", hide_input_in_errors=True
+        env_file=ENV_FILE, extra="ignore", hide_input_in_errors=True
     )
 
     db_host: str = Field(min_length=1)
