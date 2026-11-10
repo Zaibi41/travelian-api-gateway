@@ -31,7 +31,9 @@ REVEAL_IDENTITY = "reveal_identity"
 #: Action permissions (what a user may do, not see): super_admin always; staff when granted.
 RECORD_PAYMENTS = "record_payments"
 ISSUE_TICKETS = "issue_tickets"
-ACTIONS = (RECORD_PAYMENTS, ISSUE_TICKETS)
+MANAGE_PEOPLE = "manage_people"
+MERGE_PEOPLE = "merge_people"
+ACTIONS = (RECORD_PAYMENTS, ISSUE_TICKETS, MANAGE_PEOPLE, MERGE_PEOPLE)
 PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, REVEAL_IDENTITY, *ACTIONS)
 
 FULL_ACCESS_ROLES = {"super_admin"}

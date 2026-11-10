@@ -52,4 +52,7 @@ async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, De
         return await flight_holds.hold(request, viewer)
     except flight_holds.HoldError as error:
         # detail: the sentence to show; code: a stable reason; pnr / booking_id when a hold exists.
+        if error.field_errors:  # per-field messages, shaped like request validation errors
+            detail = [{"loc": ["body", *path], "msg": message, "type": "value_error"} for path, message in error.field_errors]
+            return JSONResponse({"detail": detail, "code": error.code, "message": error.message, **error.extra}, status_code=error.status)
         return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)

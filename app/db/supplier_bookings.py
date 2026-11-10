@@ -59,6 +59,8 @@ class TravelerRecord:
     nationality: str | None = None
     document_expiry: date | None = None
     infant_of_position: int | None = None  # position of the adult an infant travels with
+    person_id: str | None = None           # saved person this copy came from (traveler_id)
+    document_id: str | None = None
 
     def __repr__(self) -> str:  # never print identity data
         return f"TravelerRecord(type={self.passenger_type})"
@@ -74,12 +76,13 @@ def _save_people(connection, booking_id: str, customer: CustomerRecord, traveler
     for position, traveler in enumerate(travelers):
         connection.execute(
             text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name,"
-                 " date_of_birth, id_type, document_number, document_country, nationality, document_expiry, infant_of_position)"
-                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :id_type, :doc, :country, :nationality, :expiry, :infant_of)"),
+                 " date_of_birth, id_type, document_number, document_country, nationality, document_expiry, infant_of_position, person_id, document_id)"
+                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :id_type, :doc, :country, :nationality, :expiry, :infant_of, :person, :document)"),
             {"id": str(uuid4()), "b": booking_id, "pos": position, "type": traveler.passenger_type, "title": traveler.title,
              "first": traveler.first_name, "last": traveler.last_name, "dob": traveler.date_of_birth, "id_type": traveler.id_type,
              "doc": (traveler.document_number or "").strip() or None, "country": traveler.document_country,
-             "nationality": traveler.nationality, "expiry": traveler.document_expiry, "infant_of": traveler.infant_of_position},
+             "nationality": traveler.nationality, "expiry": traveler.document_expiry, "infant_of": traveler.infant_of_position,
+             "person": traveler.person_id, "document": traveler.document_id},
         )
 
 

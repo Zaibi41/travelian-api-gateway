@@ -12,9 +12,39 @@ import re
 from datetime import date
 
 
-def normalize_document(document_number: str) -> str:
-    """Upper case, letters and digits only: the form to compare document numbers in."""
+def normalize_document(document_number: str, id_type: str | None = None, country: str | None = None) -> str:
+    """The form document numbers are matched in: a Pakistani national ID (CNIC / B-form) keeps its
+    digits only (dashes and spaces dropped); anything else is upper-case letters and digits."""
+    if id_type == "NATI" and (country or "").upper() == "PAK":
+        return re.sub(r"\D", "", document_number)
     return re.sub(r"[^A-Z0-9]", "", document_number.upper())
+
+
+def normalize_email(email: str | None) -> str | None:
+    value = (email or "").strip().lower()
+    return value or None
+
+
+def normalize_phone(phone_code: str | None, phone: str | None) -> str | None:
+    """Country code and number as digits only (e.g. 92 + 3001234567 -> 923001234567)."""
+    digits = re.sub(r"\D", "", f"{phone_code or ''}{(phone or '').lstrip('0')}")
+    return digits or None
+
+
+def mask_phone(phone_code: str | None, phone: str | None) -> str | None:
+    """"+92 •••••••567": the country code and last 3 digits only."""
+    digits = re.sub(r"\D", "", phone or "")
+    if not digits:
+        return None
+    return f"+{phone_code} " * bool(phone_code) + "•" * max(len(digits) - 3, 3) + digits[-3:]
+
+
+def mask_email(email: str | None) -> str | None:
+    """"a•••@example.com": the first character and the domain only."""
+    if not email or "@" not in email:
+        return None
+    local, domain = email.strip().split("@", 1)
+    return f"{local[:1]}•••@{domain}"
 
 
 def mask_document(document_number: str) -> str:

@@ -11,11 +11,15 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
+
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, BackOfficeUser
 from app.core.pakistan_airports import is_domestic
-from app.db import supplier_bookings
-from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
+from app.db import saved_people, supplier_bookings
+from app.schemas.live_flights import IDENTITY_FIELDS, FlightMoney, HoldContact, HoldPassenger, HoldRequest, HoldView
+from app.schemas.saved_people import SaveOutcomeView
 from app.services import live_flights
 from app.services.live_flights import RepriceError, get_quote, price_selection, sell
 from app.vendors.flights.southair import normalize
@@ -29,12 +33,14 @@ class HoldError(Exception):
     """code: stable reason for clients; extra: facts the page needs (pnr, booking_id) when a hold
     exists at the supplier although the call failed. message: the sentence to show."""
 
-    def __init__(self, status: int, message: str, code: str = "invalid_passengers", **extra: str):
+    def __init__(self, status: int, message: str, code: str = "invalid_passengers",
+                 field_errors: list[tuple[list, str]] | None = None, **extra: str):
         super().__init__(message)
         self.status = status
         self.message = message
         self.code = code
         self.extra = extra
+        self.field_errors = field_errors or []  # [(path e.g. ["passengers", 0, "date_of_birth"], message)]
 
 
 def _age_on(birth: date, on: date) -> int:
@@ -115,28 +121,114 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
     return result
 
 
+def _people_error(error: saved_people.PeopleError, path: list) -> HoldError:
+    return HoldError(error.status if error.status != 404 else 422, error.message, code=error.code, field_errors=[(path, error.message)])
+
+
+def resolve_saved(request: HoldRequest, owner: str | None) -> tuple[HoldRequest, dict[int, tuple[str, str | None]]]:
+    """Fill saved travelers and the saved customer from the database (server side), then run the
+    same validation as typed-in details. Returns the full request and {position: (person, document)}."""
+    links: dict[int, tuple[str, str | None]] = {}
+    passengers = []
+    for index, passenger in enumerate(request.passengers):
+        if passenger.traveler_id is None:
+            passengers.append(passenger)
+            continue
+        sent = [name for name in IDENTITY_FIELDS if getattr(passenger, name) is not None]
+        if sent:
+            raise HoldError(422, "A saved traveler's identity comes from the saved record; leave those fields out or edit the saved person.",
+                            code="identity_with_traveler_id", field_errors=[(["passengers", index, name], "Comes from the saved traveler.") for name in sent])
+        try:
+            saved = saved_people.load_for_hold(owner, passenger.traveler_id, passenger.document_id)
+        except saved_people.PeopleError as error:
+            raise _people_error(error, ["passengers", index, "document_id" if error.code.startswith("document") else "traveler_id"]) from None
+        for name in ("first_name", "last_name"):
+            if getattr(passenger, name) and not saved_people._same_name(getattr(passenger, name), getattr(saved, name)):
+                raise HoldError(422, "A saved traveler's name comes from the saved record.", code="identity_with_traveler_id",
+                                field_errors=[(["passengers", index, name], "Comes from the saved traveler.")])
+        if saved.date_of_birth is None:
+            raise HoldError(422, "This saved traveler has no date of birth. Add it to the saved person first.", code="date_of_birth_missing",
+                            field_errors=[(["passengers", index, "traveler_id"], "No date of birth saved.")])
+        values = passenger.model_dump(exclude={"traveler_id"}) | {
+            "title": passenger.title or saved.title, "first_name": saved.first_name, "last_name": saved.last_name,
+            "date_of_birth": saved.date_of_birth, "id_type": saved.id_type, "document_number": (saved.document_number or "").replace(" ", "").replace("-", "") or None,
+            "document_country": saved.document_country, "nationality": saved.nationality, "document_expiry": saved.document_expiry,
+        }
+        try:
+            passengers.append(HoldPassenger.model_validate(values))
+        except ValidationError as error:
+            raise HoldError(422, "The saved traveler's details don't pass the checks for this booking.", code="invalid_saved_traveler",
+                            field_errors=[(["passengers", index, *[p for p in e["loc"] if p != "__root__"]], e["msg"].removeprefix("Value error, "))
+                                          for e in error.errors()]) from None
+        links[index] = (saved.person_id, saved.document_id)
+    contact = request.contact
+    if contact.customer_id is not None:
+        try:
+            person = saved_people.load_contact(owner, contact.customer_id)
+        except saved_people.PeopleError as error:
+            raise _people_error(error, ["contact", "customer_id"]) from None
+        values = {name: getattr(contact, name) or getattr(person, name) for name in ("first_name", "last_name", "email", "phone_code", "phone")}
+        missing = [name for name, value in values.items() if not value]
+        if missing:
+            raise HoldError(422, "The saved customer has no phone or email. Add them for this booking.", code="contact_incomplete",
+                            field_errors=[(["contact", name], "Required.") for name in missing])
+        try:
+            contact = HoldContact.model_validate(values | {"customer_id": contact.customer_id, "save_for_next_time": contact.save_for_next_time})
+        except ValidationError as error:
+            raise HoldError(422, "The saved customer's details don't pass the checks.", code="invalid_saved_customer",
+                            field_errors=[(["contact", *e["loc"]], e["msg"]) for e in error.errors()]) from None
+    return request.model_copy(update={"passengers": passengers, "contact": contact}), links
+
+
+def _save_people(request: HoldRequest, reference: str, actor: str, owner: str | None,
+                 links: dict[int, tuple[str, str | None]]) -> list[SaveOutcomeView]:
+    """Create or link saved people after the hold. Any failure is reported, never raised."""
+    contact = request.contact
+    customer = saved_people.HoldCustomer(contact.first_name, contact.last_name, contact.phone_code, contact.phone, contact.email,
+                                         person_id=contact.customer_id, save=contact.save_for_next_time)
+    travelers = []
+    for index, passenger in enumerate(request.passengers):
+        document = None
+        if passenger.document_number and (passenger.document_country or passenger.nationality):
+            document = saved_people.DocumentInput(passenger.id_type, passenger.document_country or passenger.nationality,
+                                                  passenger.document_number, passenger.document_expiry)
+        person_id, document_id = links.get(index, (None, None))
+        travelers.append(saved_people.HoldTraveler(index, passenger.first_name, passenger.last_name, passenger.title, passenger.date_of_birth,
+                                                   passenger.nationality, document, person_id, document_id, passenger.save_for_next_time))
+    try:
+        outcomes = saved_people.save_from_hold(owner, actor, reference, customer, travelers)
+    except Exception:  # noqa: BLE001 - saving people never fails a hold
+        logger.warning("Saving people after a hold failed")
+        return [SaveOutcomeView(role="customer", status="not_saved", code="save_failed")]
+    from app.api.routes.saved_people import summary
+    return [SaveOutcomeView(role=o.role, position=o.position, status=o.status, person_id=o.person_id, document_id=o.document_id,
+                            possible_duplicate=summary(o.duplicate) if o.duplicate else None, reason=o.reason, code=o.code) for o in outcomes]
+
+
 def _customer(request: HoldRequest) -> supplier_bookings.CustomerRecord:
     contact = request.contact
     return supplier_bookings.CustomerRecord(first_name=contact.first_name.strip(), last_name=contact.last_name.strip(),
                                             phone_code=contact.phone_code, phone=contact.phone, email=contact.email.strip())
 
 
-def _travelers(request: HoldRequest) -> list[supplier_bookings.TravelerRecord]:
+def _travelers(request: HoldRequest, links: dict[int, tuple[str, str | None]] | None = None) -> list[supplier_bookings.TravelerRecord]:
     """Travelers in request order; infant n travels with adult n (as sent to the supplier)."""
     adult_positions = [index for index, passenger in enumerate(request.passengers) if passenger.type == "ADT"]
-    links = infant_adults(request)
+    infant_links = infant_adults(request)
     infants = 0
     result = []
-    for passenger in request.passengers:
+    saved = links or {}
+    for position, passenger in enumerate(request.passengers):
         infant_of = None
         if passenger.type == "INF":
-            infant_of = adult_positions[links[infants]]
+            infant_of = adult_positions[infant_links[infants]]
             infants += 1
         result.append(supplier_bookings.TravelerRecord(
             passenger_type=passenger.type, title=passenger.title, first_name=passenger.first_name.strip(),
             last_name=passenger.last_name.strip(), date_of_birth=passenger.date_of_birth, id_type=passenger.id_type,
             document_number=passenger.document_number, document_country=passenger.document_country,
             nationality=passenger.nationality, document_expiry=passenger.document_expiry, infant_of_position=infant_of,
+            person_id=saved.get(position, (None, None))[0], document_id=saved.get(position, (None, None))[1],
         ))
     return result
 
@@ -165,6 +257,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     if request.confirmed_total.currency != quote.currency or request.confirmed_total.amount_minor != quote.selling_total_minor:
         raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.",
                         code="confirm_total")
+    owner = None  # back-office holds are Travelian's own (saved people are scoped by owner)
+    request, links = await run_in_threadpool(resolve_saved, request, owner)
     counts = {"ADT": quote.request.adults, "CHD": quote.request.children, "INF": quote.request.infants}
     given = {kind: sum(p.type == kind for p in request.passengers) for kind in counts}
     if given != counts:
@@ -248,7 +342,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
                                "pnr_info": pnr_summary, "fare_info": fare_info, "repriced_supplier_total_minor": supplier_total},
-            actor_user_id=viewer.user_id, customer=_customer(request), travelers=_travelers(request),
+            actor_user_id=viewer.user_id, customer=_customer(request), travelers=_travelers(request, links),
             audit={"provider": NAME, "pnr": pnr, "time_limit": booking.get("time_limit"), "selling_total_minor": selling_total,
                    "currency": currency, "pax_count": pax_count, "fare_info": fare_info_status,
                    **({"total_source": total_source} if total_source else {}), **check_errors},
@@ -256,6 +350,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
+    saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links)
     if fare_info_status != "matches":
         # The hold exists at the supplier and is saved, but its total isn't verified: never
         # report it as confirmed. Staff must check the total with the supplier first.
@@ -263,4 +358,4 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
                              "Check the total with the supplier before taking any payment.", code="total_unverified", pnr=pnr, booking_id=reference)
     return HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
-                    selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings)
+                    selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)

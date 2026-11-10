@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.saved_people import SaveOutcomeView
+
 
 class FlightMoney(BaseModel):
     amount_minor: int = Field(description="Integer minor units (paisa for PKR).")
@@ -93,45 +95,74 @@ class RepriceView(BaseModel):
 _NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"
 
 
+IDENTITY_FIELDS = ("date_of_birth", "id_type", "document_number", "document_country", "nationality", "document_expiry")
+
+
 class HoldPassenger(BaseModel):
     """Our checks (the supplier and airline may add their own): passport needs number, issuing
     country and expiry; a Pakistani national ID (CNIC / B-form) is 13 digits. Expiry against the
-    travel dates is checked when the hold is placed."""
+    travel dates is checked when the hold is placed.
+
+    With traveler_id (a saved person) the identity fields are left out: the gateway loads them on
+    the server, checks the caller's scope and runs the same checks. Identity values sent together
+    with traveler_id are refused (identity_with_traveler_id)."""
 
     type: Literal["ADT", "CHD", "INF"]
-    title: Literal["MR", "MRS", "MISS", "MASTER"]
-    first_name: str = Field(pattern=_NAME)
-    last_name: str = Field(pattern=_NAME)
-    date_of_birth: date
-    id_type: Literal["PSPT", "NATI"]
+    title: Literal["MR", "MRS", "MISS", "MASTER"] | None = None
+    first_name: str | None = Field(None, pattern=_NAME)
+    last_name: str | None = Field(None, pattern=_NAME)
+    date_of_birth: date | None = None
+    id_type: Literal["PSPT", "NATI"] | None = None
     document_number: str | None = Field(None, pattern=r"^[A-Za-z0-9]{1,15}$")
     document_country: str | None = Field(None, pattern=r"^[A-Z]{3}$")
     document_expiry: date | None = None
     nationality: str | None = Field(None, pattern=r"^[A-Z]{3}$")
     travels_with: int | None = Field(None, ge=0, le=8, description="Infants only: the adult it travels with, counted among adults from 0 (Adult 1 = 0). Default: infant n with adult n.")
+    traveler_id: str | None = Field(None, min_length=8, max_length=36, description="A saved person; identity fields are then loaded by the gateway.")
+    document_id: str | None = Field(None, min_length=8, max_length=36, description="With traveler_id: which saved document (needed when the person has several).")
+    save_for_next_time: bool = Field(True, description="Create or update the saved person after the hold. Never blocks the hold.")
 
     @model_validator(mode="after")
     def document_rules(self):
+        if self.travels_with is not None and self.type != "INF":
+            raise ValueError(f"{self.first_name or 'Traveler'}: only an infant travels with an adult.")
+        if self.traveler_id is not None:
+            return self  # checked by the gateway after loading the saved person
+        missing = [name for name in ("title", "first_name", "last_name", "date_of_birth", "id_type") if getattr(self, name) is None]
+        if missing:
+            raise ValueError(f"Required: {', '.join(missing)}.")
         if self.id_type == "PSPT":
             missing = [label for label, value in (("passport number", self.document_number), ("issuing country", self.document_country),
                                                   ("passport expiry", self.document_expiry)) if not value]
             if missing:
                 raise ValueError(f"{self.first_name}: {', '.join(missing)} required for a passport.")
-        if self.travels_with is not None and self.type != "INF":
-            raise ValueError(f"{self.first_name}: only an infant travels with an adult.")
         if self.id_type == "NATI" and self.nationality == "PAK" and not re.fullmatch(r"\d{13}", self.document_number or ""):
             raise ValueError(f"{self.first_name}: a Pakistani national ID (CNIC or B-form) is 13 digits.")
         return self
 
 
 class HoldContact(BaseModel):
-    """The customer: who pays and is contacted (spec 8). Saved with the hold."""
+    """The customer: who pays and is contacted (spec 8). Saved with the hold.
 
-    first_name: str = Field(pattern=_NAME)
-    last_name: str = Field(pattern=_NAME)
-    email: str = Field(max_length=50, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-    phone_code: str = Field(pattern=r"^[1-9]\d{0,3}$")
-    phone: str = Field(pattern=r"^\d{5,10}$")
+    With customer_id (a saved person) the fields may be left out and are loaded by the gateway;
+    fields sent override them for this booking, and a changed phone or email also updates the
+    saved person."""
+
+    first_name: str | None = Field(None, pattern=_NAME)
+    last_name: str | None = Field(None, pattern=_NAME)
+    email: str | None = Field(None, max_length=50, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    phone_code: str | None = Field(None, pattern=r"^[1-9]\d{0,3}$")
+    phone: str | None = Field(None, pattern=r"^\d{5,10}$")
+    customer_id: str | None = Field(None, min_length=8, max_length=36, description="A saved person to use as the customer.")
+    save_for_next_time: bool = Field(True, description="Create or update the saved customer after the hold. Never blocks the hold.")
+
+    @model_validator(mode="after")
+    def required_without_saved_customer(self):
+        if self.customer_id is None:
+            missing = [name for name in ("first_name", "last_name", "email", "phone_code", "phone") if not getattr(self, name)]
+            if missing:
+                raise ValueError(f"Required: {', '.join(missing)}.")
+        return self
 
 
 class HoldRequest(BaseModel):
@@ -149,3 +180,4 @@ class HoldView(BaseModel):
     selling_total: FlightMoney
     label: Literal["UAT test data"] = "UAT test data"
     warnings: list[str] = Field(default_factory=list, description="Not errors: e.g. passport valid for under 6 months on an international route.")
+    saved_people: list[SaveOutcomeView] = Field(default_factory=list, description="What happened to the saved customer and travelers (never blocks the hold).")

@@ -126,6 +126,6 @@ export TRAVELIAN_TEST_DATABASE_URL='postgresql+psycopg://travelian_local:<passwo
 unset TRAVELIAN_TEST_DATABASE_URL
 ```
 
-Expected on 9 November 2026: 659 passed, 81 skipped without a test database; 740 passed with one. Holds need no identity-storage settings (docs/pii-storage.md).
+Expected on 10 November 2026: 674 passed, 102 skipped without a test database; 776 passed with one. Unit tests never reach the database your `.env` points at (tests/conftest.py); tests that need one use the disposable test database. Holds need no identity-storage settings (docs/pii-storage.md).
 
 Supplier tests use a mocked supplier and never call a real one.

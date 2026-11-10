@@ -19,3 +19,17 @@ def southair_settings_from_tests_only():
          patch.object(settings, "southair_username", None), \
          patch.object(settings, "southair_password", None):
         yield
+
+
+@pytest.fixture(autouse=True)
+def no_real_application_database(monkeypatch):
+    """Unit tests never reach the database the developer's .env points at. Tests that need a
+    database use the `database` fixture (tests/database), which replaces this with a disposable one."""
+    from fastapi import HTTPException
+
+    from app.db import agencies
+
+    def unavailable():
+        raise HTTPException(503, "Database not available in unit tests.")
+
+    monkeypatch.setattr(agencies, "application_engine", unavailable)
