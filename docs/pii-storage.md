@@ -31,9 +31,13 @@ settings; holds, the Passengers tab and saved people work with no extra setup.
   and document expiry year only, a document validity status (valid, expiring within 6 months,
   expired), phone country code and last 3 digits, email first letter and domain. This applies to
   every role, in search, lists and details.
-- Full values come only from the reveal endpoints (`/v1/admin/bookings/{id}/travelers/{position}/reveal`,
-  `/v1/admin/customers/{id}/reveal`), which need the `reveal_identity` permission and a reason.
-  Each reveal writes an audit event (who, which record, which fields, the reason) with no values.
+- Full values come only from the booking traveler reveal (`/v1/admin/bookings/{id}/travelers/{position}/reveal`),
+  which needs the `reveal_identity` permission and a reason, and writes an audit event (who, which
+  record, which fields, the reason) with no values. Saved people have no reveal (decided by Zohaib,
+  10 November 2026): their search, detail and edit screens show masked values only.
+- A hold's possible duplicate (`needs_choice`) is resolved with
+  `POST /v1/admin/bookings/{id}/saved-people/{role}/{position}/resolve`: the gateway reads the values
+  from that booking's own customer or traveler row, so the browser never resends identity values.
 - In a hold, a saved traveler (`traveler_id`) or saved customer (`customer_id`) is loaded on the
   server; the browser never receives the stored identity.
 - Identity values don't appear in logs or audit details.

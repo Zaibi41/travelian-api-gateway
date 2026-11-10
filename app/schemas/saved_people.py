@@ -2,7 +2,7 @@
 
 Search, list and detail never carry full document numbers, dates of birth, phones or emails: the
 document shows its last 3 characters, the date of birth its year, expiry a status, phone and email
-are masked. Full values come only from the reveal endpoint (reveal_identity, reason, logged).
+are masked. There is no reveal for saved people.
 """
 
 import re
@@ -49,7 +49,6 @@ class SavedPersonDetail(SavedPersonSummary):
     date_of_birth_masked: str | None = None
     merged_into_id: str | None = None
     bookings: list[SavedPersonBooking] = []
-    can_reveal_identity: bool = False
     can_manage: bool = Field(False, description="May create, edit and change documents (manage_people).")
     can_merge: bool = Field(False, description="May merge people (merge_people).")
 
@@ -73,9 +72,13 @@ class DocumentInput(BaseModel):
         return self
 
 
+BookingPersonRole = Literal["customer", "traveler"]
+
+
 class DuplicateChoice(BaseModel):
     choice: Literal["add_to_existing", "keep_separate"]
-    person_id: str = Field(min_length=8, max_length=36, description="The possible duplicate the choice is about.")
+    person_id: str | None = Field(None, min_length=8, max_length=36,
+                                  description="The possible duplicate the choice is about (required for add_to_existing).")
 
 
 class SavedPersonCreate(BaseModel):
@@ -110,21 +113,6 @@ class SavedPersonCreated(BaseModel):
 class MergeRequest(BaseModel):
     merge_into_person_id: str = Field(min_length=8, max_length=36)
     reason: str = Field(min_length=5, max_length=500)
-
-
-class SavedPersonRevealRequest(BaseModel):
-    reason: str = Field(min_length=5, max_length=500)
-
-
-class RevealedDocument(BaseModel):
-    id: str
-    document_number: str
-    document_expiry: date | None = None
-
-
-class SavedPersonReveal(BaseModel):
-    date_of_birth: date | None = None
-    documents: list[RevealedDocument] = []
 
 
 class SavedPersonEvent(BaseModel):

@@ -277,35 +277,44 @@ def get(owner: str | None, person_id: str) -> tuple[Person, list[dict[str, Any]]
     return person, [dict(row) for row in bookings]
 
 
+def _create_in(connection, owner: str | None, actor: str, values: dict[str, Any], document: DocumentInput | None,
+               choice: str | None, choice_person_id: str | None, source: dict[str, Any] | None = None) -> tuple[str, str | None, str]:
+    """The duplicate rules and checks shared by POST /customers and resolving a hold's needs_choice.
+    Returns (person_id, document_id, outcome): created, existing, or added_to_existing."""
+    source = source or {}
+    if document is not None:
+        held = _check_document_free(connection, owner, document, values["first_name"], values["last_name"], values.get("date_of_birth"))
+        if held is not None:
+            return held[0].id, held[1].id, "existing"
+    if choice is None:
+        duplicates = possible_duplicates(connection, owner, values["first_name"], values["last_name"], values.get("date_of_birth"),
+                                         pii.normalize_email(values.get("email")), pii.normalize_phone(values.get("phone_code"), values.get("phone")))
+        if duplicates:
+            raise PeopleError(409, "possible_duplicate", "A saved person looks like the same person. Choose: add to that person, or keep separate.",
+                              duplicate=duplicates[0][0], reason=duplicates[0][1])
+    if choice == "add_to_existing":
+        if not choice_person_id:
+            raise PeopleError(422, "person_required", "Choose the saved person to add to.")
+        target = load(connection, owner, choice_person_id, lock=True)
+        if target.merged_into_id:
+            raise PeopleError(409, "person_merged", "That person was merged into another record.", merged_into_id=target.merged_into_id)
+        document_id = _insert_document(connection, owner, actor, target.id, document) if document is not None else None
+        _event(connection, target.id, actor, "duplicate_choice", {"choice": choice, "documents_added": int(document is not None), **source})
+        return target.id, document_id, "added_to_existing"
+    person_id = _insert_person(connection, owner, actor, values)
+    document_id = _insert_document(connection, owner, actor, person_id, document) if document is not None else None
+    _event(connection, person_id, actor, "created", {"fields": sorted(k for k in PERSON_FIELDS if values.get(k)), "documents": int(document is not None), **source})
+    if choice == "keep_separate" and choice_person_id:
+        _event(connection, person_id, actor, "duplicate_choice", {"choice": choice, "other_person_id": choice_person_id, **source})
+    return person_id, document_id, "created"
+
+
 def create(owner: str | None, actor: str, values: dict[str, Any], document: DocumentInput | None,
            choice: str | None = None, choice_person_id: str | None = None) -> tuple[Person, str]:
     """Create a person (and document). Returns (person, outcome): created, existing, or added_to_existing."""
     with agencies.application_engine().begin() as connection:
-        if document is not None:
-            held = _check_document_free(connection, owner, document, values["first_name"], values["last_name"], values.get("date_of_birth"))
-            if held is not None:
-                return held[0], "existing"
-        if choice is None:
-            duplicates = possible_duplicates(connection, owner, values["first_name"], values["last_name"], values.get("date_of_birth"),
-                                             pii.normalize_email(values.get("email")), pii.normalize_phone(values.get("phone_code"), values.get("phone")))
-            if duplicates:
-                raise PeopleError(409, "possible_duplicate", "A saved person looks like the same person. Choose: add to that person, or keep separate.",
-                                  duplicate=duplicates[0][0], reason=duplicates[0][1])
-        if choice == "add_to_existing":
-            target = load(connection, owner, choice_person_id or "", lock=True)
-            if target.merged_into_id:
-                raise PeopleError(409, "person_merged", "That person was merged into another record.", merged_into_id=target.merged_into_id)
-            if document is not None:
-                _insert_document(connection, owner, actor, target.id, document)
-            _event(connection, target.id, actor, "duplicate_choice", {"choice": choice, "documents_added": int(document is not None)})
-            return load(connection, owner, target.id), "added_to_existing"
-        person_id = _insert_person(connection, owner, actor, values)
-        if document is not None:
-            _insert_document(connection, owner, actor, person_id, document)
-        _event(connection, person_id, actor, "created", {"fields": sorted(k for k in PERSON_FIELDS if values.get(k)), "documents": int(document is not None)})
-        if choice == "keep_separate" and choice_person_id:
-            _event(connection, person_id, actor, "duplicate_choice", {"choice": choice, "other_person_id": choice_person_id})
-        return load(connection, owner, person_id), "created"
+        person_id, _document_id, outcome = _create_in(connection, owner, actor, values, document, choice, choice_person_id)
+        return load(connection, owner, person_id), outcome
 
 
 def update(owner: str | None, actor: str, person_id: str, changes: dict[str, Any]) -> Person:
@@ -383,16 +392,6 @@ def merge(owner: str | None, actor: str, source_id: str, target_id: str, reason:
         return load(connection, owner, target_id)
 
 
-def reveal(owner: str | None, actor: str, person_id: str, reason: str) -> Person:
-    """The full values, logged (who, which person, which fields, reason; no values)."""
-    with agencies.application_engine().begin() as connection:
-        person = load(connection, owner, person_id)
-        fields = (["date_of_birth"] if person.date_of_birth else []) + (["documents"] if person.documents else [])
-        _event(connection, person_id, actor, "identity_revealed",
-               {"fields": fields, "document_ids": [d.id for d in person.documents], "reason": reason})
-        return person
-
-
 def events(owner: str | None, person_id: str) -> list[dict[str, Any]]:
     with agencies.application_engine().begin() as connection:
         load(connection, owner, person_id)
@@ -408,6 +407,53 @@ def backfill(connection) -> dict[str, int]:
     after = connection.scalar(text("SELECT count(*) FROM saved_people"))
     linked = connection.scalar(text("SELECT count(*) FROM booking_customers WHERE person_id IS NOT NULL"))
     return {"created": after - before, "linked_booking_customers": linked}
+
+
+# ---------- resolving a hold's needs_choice from the booking's own copy ----------
+
+def booking_copy(connection, owner: str | None, reference: str, role: str, position: int) -> tuple[str, dict[str, Any], DocumentInput | None]:
+    """(booking id, person values, document) read from the booking's own customer or traveler row, locked.
+    404 when the booking isn't in the caller's scope or has no such row; 409 when the row is already linked."""
+    booking_id = connection.scalar(text(f"SELECT id FROM bookings WHERE reference = :r AND {_owner_clause('agency_id')}"),
+                                   {"r": reference, "owner": owner})
+    if booking_id is None:
+        raise PeopleError(404, "booking_not_found", "Booking not found.")
+    if role == "customer":
+        row = connection.execute(
+            text("SELECT first_name, last_name, phone_code, phone, email, person_id FROM booking_customers WHERE booking_id = :b FOR UPDATE"),
+            {"b": booking_id}).mappings().one_or_none() if position == 0 else None
+    else:
+        row = connection.execute(
+            text("SELECT title, first_name, last_name, date_of_birth, nationality, id_type, document_country, document_number, document_expiry,"
+                 " person_id FROM booking_travelers WHERE booking_id = :b AND position = :p FOR UPDATE"),
+            {"b": booking_id, "p": position}).mappings().one_or_none()
+    if row is None:
+        raise PeopleError(404, "booking_person_not_found", f"This booking has no {role} at that position.")
+    if row["person_id"] is not None:
+        raise PeopleError(409, "already_linked", f"This booking's {role} is already linked to a saved person.", person_id=row["person_id"])
+    values = {k: row[k] for k in PERSON_FIELDS if k in row}
+    document = None
+    if role == "traveler" and row["document_number"]:
+        document = DocumentInput(row["id_type"], row["document_country"], row["document_number"], row["document_expiry"])
+    return booking_id, values, document
+
+
+def resolve_from_booking(owner: str | None, actor: str, reference: str, role: str, position: int, choice: str,
+                         choice_person_id: str | None, validate=None) -> tuple[Person, str]:
+    """Apply the duplicate choice for one person of a booking, using the booking's own copy (the browser
+    sends no identity values), then link the booking row. Same rules and checks as create()."""
+    with agencies.application_engine().begin() as connection:
+        booking_id, values, document = booking_copy(connection, owner, reference, role, position)
+        if validate is not None:
+            validate(values, document)
+        source = {"source": "booking", "booking_id": reference, "role": role, **({"position": position} if role == "traveler" else {})}
+        person_id, document_id, outcome = _create_in(connection, owner, actor, values, document, choice, choice_person_id, source)
+        if role == "traveler":
+            _link_traveler(connection, booking_id, position, person_id, document_id)
+        else:
+            connection.execute(text("UPDATE booking_customers SET person_id = :p WHERE booking_id = :b"), {"p": person_id, "b": booking_id})
+        _event(connection, person_id, actor, "linked_to_booking", source)
+        return load(connection, owner, person_id), outcome
 
 
 # ---------- holds ----------

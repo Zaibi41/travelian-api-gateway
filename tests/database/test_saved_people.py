@@ -1,5 +1,5 @@
 """Saved customers and travelers (migration 0017): matching, scope, masking, duplicates, merge,
-reveal, holds with saved people, and the backfill. Synthetic people only."""
+resolving a hold's possible duplicate from the booking, holds with saved people, and the backfill. Synthetic people only."""
 
 import asyncio
 from datetime import date, datetime, timedelta, timezone
@@ -116,7 +116,7 @@ def test_search_and_detail_are_masked_and_never_carry_full_numbers(db):
     assert result["birth_year"] == 1990 and result["phone_masked"] == "+92 •••••••567" and result["email_masked"] == "o•••@example.invalid"
     assert {d["document_number_masked"] for d in result["documents"]} == {"••••••567", "••••••••••671"}
     assert {d.get("document_validity") for d in result["documents"]} == {"valid", None}
-    assert detail.json()["date_of_birth_masked"] == "1990-••-••" and detail.json()["can_reveal_identity"] is True
+    assert detail.json()["date_of_birth_masked"] == "1990-••-••" and "can_reveal_identity" not in detail.json()
 
 
 def test_search_needs_three_characters_and_returns_at_most_twenty(db):
@@ -176,7 +176,7 @@ def test_remove_a_document(db):
     assert store.search(None, "AB1234567") == []
 
 
-# ---------- merge and reveal ----------
+# ---------- merge ----------
 
 def test_merge_moves_documents_and_booking_links_and_is_logged(db):
     connection, metadata = db
@@ -194,20 +194,6 @@ def test_merge_moves_documents_and_booking_links_and_is_logged(db):
     assert events["merged_into"]["reason"] == "Same person, two records" and events["merged_from"]["documents_moved"] == 1
     assert store.search(None, "3520212345671")[0].id == keep.id                 # the merged record no longer shows
     assert all(p.id != old.id for p in store.search(None, "test"))
-
-
-def test_reveal_needs_the_permission_and_is_logged_without_values(db):
-    connection, _ = db
-    saved, _ = person(document=passport())
-    assert api(STAFF).post(f"/v1/admin/customers/{saved.id}/reveal", json={"reason": "Ticketing needs it"}).status_code == 403
-    assert api().post(f"/v1/admin/customers/{saved.id}/reveal", json={"reason": ""}).status_code == 422
-    response = api().post(f"/v1/admin/customers/{saved.id}/reveal", json={"reason": "Ticketing needs it"})
-    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
-    assert response.json() == {"date_of_birth": "1990-01-31", "documents": [{"id": saved.documents[0].id, "document_number": "ab1234567", "document_expiry": "2031-01-01"}]}
-    details = connection.execute(text("SELECT details FROM saved_person_events WHERE action = 'identity_revealed'")).scalar()
-    assert details["reason"] == "Ticketing needs it" and details["fields"] == ["date_of_birth", "documents"]
-    all_events = str(connection.execute(text("SELECT details FROM saved_person_events")).scalars().all())
-    assert "1234567" not in all_events and "1990-01-31" not in all_events
 
 
 # ---------- holds with saved people ----------
@@ -340,6 +326,101 @@ def test_editing_a_saved_person_never_changes_past_bookings(db):
     api().patch(f"/v1/admin/customers/{traveler_id}", json={"first_name": "Renamed", "date_of_birth": "1991-02-02"})
     row = connection.execute(text("SELECT first_name, date_of_birth FROM booking_travelers")).one()
     assert (row.first_name, row.date_of_birth) == ("Test", date(1990, 1, 31))
+
+
+# ---------- resolving a hold's needs_choice from the booking's own copy ----------
+
+def needs_choice_booking(db):
+    """A hold whose traveler is a possible duplicate of a saved person (same name and birth date, other passport)."""
+    existing, _ = person(document=passport("CD7654321"))
+    view = hold([ADULT])
+    assert view.saved_people[1].status == "needs_choice"
+    return existing, view.booking_id
+
+
+def resolve_url(reference, role="traveler", position=0):
+    return f"/v1/admin/bookings/{reference}/saved-people/{role}/{position}/resolve"
+
+
+def booking_api(viewer=ADMIN):
+    app = FastAPI()
+    app.include_router(routes.booking_router, prefix="/v1")
+    app.dependency_overrides[require_back_office] = lambda: viewer
+    return TestClient(app)
+
+
+def test_resolve_add_to_existing_uses_the_booking_copy_and_links_it(db):
+    connection, _ = db
+    existing, reference = needs_choice_booking(db)
+    response = booking_api().post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id})
+    assert response.status_code == 200 and response.json()["outcome"] == "added_to_existing"
+    body = response.json()["person"]
+    assert body["id"] == existing.id and len(body["documents"]) == 2 and "AB1234567" not in response.text
+    row = connection.execute(text("SELECT person_id, document_id FROM booking_travelers")).one()
+    added = connection.scalar(text("SELECT id FROM saved_person_documents WHERE document_number_normalized = 'AB1234567'"))
+    assert (row.person_id, row.document_id) == (existing.id, added)
+    events = connection.execute(text("SELECT action, details FROM saved_person_events WHERE person_id = :p AND details->>'source' = 'booking'"),
+                                {"p": existing.id}).all()
+    assert {e.action for e in events} == {"duplicate_choice", "linked_to_booking"}
+    assert "AB1234567" not in str([e.details for e in events]) and "1990-01-31" not in str([e.details for e in events])
+
+
+def test_resolve_keep_separate_creates_a_new_person(db):
+    connection, _ = db
+    existing, reference = needs_choice_booking(db)
+    response = booking_api().post(resolve_url(reference), json={"choice": "keep_separate", "person_id": existing.id})
+    assert response.status_code == 201 and response.json()["outcome"] == "created"
+    new_id = response.json()["person"]["id"]
+    assert new_id != existing.id and connection.scalar(text("SELECT person_id FROM booking_travelers")) == new_id
+    assert connection.scalar(text("SELECT details->>'other_person_id' FROM saved_person_events WHERE person_id = :p AND action = 'duplicate_choice'"),
+                             {"p": new_id}) == existing.id
+
+
+def test_resolve_refuses_a_row_that_is_already_linked(db):
+    existing, reference = needs_choice_booking(db)
+    client = booking_api()
+    assert client.post(resolve_url(reference), json={"choice": "keep_separate"}).status_code == 201
+    again = client.post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id})
+    assert again.status_code == 409 and again.json()["code"] == "already_linked"
+    customer = client.post(resolve_url(reference, "customer", 0), json={"choice": "keep_separate"})   # the hold linked the customer
+    assert customer.status_code == 409 and customer.json()["code"] == "already_linked"
+
+
+def test_resolve_needs_manage_people(db):
+    connection, _ = db
+    existing, reference = needs_choice_booking(db)
+    response = booking_api(STAFF).post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id})
+    assert response.status_code == 403 and response.json()["code"] == "not_allowed"
+    assert connection.scalar(text("SELECT person_id FROM booking_travelers")) is None
+    granted = BackOfficeUser(ACTOR, "staff", NONE, frozenset({"manage_people"}))
+    assert booking_api(granted).post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id}).status_code == 200
+
+
+def test_resolve_refuses_a_booking_the_caller_cannot_see(db):
+    connection, _ = db
+    existing, reference = needs_choice_booking(db)
+    connection.execute(text("UPDATE bookings SET agency_id = 'ag-1'"))         # another owner's booking
+    client = booking_api()
+    response = client.post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id})
+    assert response.status_code == 404 and response.json()["code"] == "booking_not_found"
+    assert client.post(resolve_url("TRV-NOSUCH"), json={"choice": "keep_separate"}).json()["code"] == "booking_not_found"
+    assert connection.scalar(text("SELECT person_id FROM booking_travelers")) is None
+
+
+def test_resolve_applies_the_create_rules(db):
+    connection, _ = db
+    existing, reference = needs_choice_booking(db)
+    client = booking_api()
+    assert client.post(resolve_url(reference), json={"choice": "add_to_existing"}).json()["code"] == "person_required"
+    assert client.post(resolve_url(reference, position=5), json={"choice": "keep_separate"}).json()["code"] == "booking_person_not_found"
+    other, _ = person(first="Someone", last="Else", dob=date(1970, 3, 3), document=passport("ZZ1111111"))
+    connection.execute(text("UPDATE booking_travelers SET document_number = 'ZZ1111111'"))
+    conflict = client.post(resolve_url(reference), json={"choice": "keep_separate"})
+    assert conflict.status_code == 409 and conflict.json()["code"] == "document_belongs_to_another_person"
+    connection.execute(text("UPDATE booking_travelers SET document_number = 'AB1234567', document_expiry = NULL"))
+    invalid = client.post(resolve_url(reference), json={"choice": "keep_separate"})       # a passport without expiry fails the checks
+    assert invalid.status_code == 422 and invalid.json()["code"] == "booking_values_invalid"
+    assert connection.scalar(text("SELECT person_id FROM booking_travelers")) is None and other.id != existing.id
 
 
 # ---------- backfill ----------

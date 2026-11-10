@@ -1814,16 +1814,22 @@
             "type": "string"
           },
           "person_id": {
-            "description": "The possible duplicate the choice is about.",
-            "maxLength": 36,
-            "minLength": 8,
-            "title": "Person Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The possible duplicate the choice is about (required for add_to_existing).",
+            "title": "Person Id"
           }
         },
         "required": [
-          "choice",
-          "person_id"
+          "choice"
         ],
         "title": "DuplicateChoice",
         "type": "object"
@@ -4308,36 +4314,6 @@
         "title": "RevealResponse",
         "type": "object"
       },
-      "RevealedDocument": {
-        "properties": {
-          "document_expiry": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Expiry"
-          },
-          "document_number": {
-            "title": "Document Number",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "document_number"
-        ],
-        "title": "RevealedDocument",
-        "type": "object"
-      },
       "RoleRecord": {
         "properties": {
           "id": {
@@ -4718,11 +4694,6 @@
             "title": "Can Merge",
             "type": "boolean"
           },
-          "can_reveal_identity": {
-            "default": false,
-            "title": "Can Reveal Identity",
-            "type": "boolean"
-          },
           "date_of_birth_masked": {
             "anyOf": [
               {
@@ -4888,47 +4859,6 @@
           "details"
         ],
         "title": "SavedPersonEvent",
-        "type": "object"
-      },
-      "SavedPersonReveal": {
-        "properties": {
-          "date_of_birth": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Date Of Birth"
-          },
-          "documents": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/RevealedDocument"
-            },
-            "title": "Documents",
-            "type": "array"
-          }
-        },
-        "title": "SavedPersonReveal",
-        "type": "object"
-      },
-      "SavedPersonRevealRequest": {
-        "properties": {
-          "reason": {
-            "maxLength": 500,
-            "minLength": 5,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reason"
-        ],
-        "title": "SavedPersonRevealRequest",
         "type": "object"
       },
       "SavedPersonSearch": {
@@ -7450,6 +7380,91 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/saved-people/{role}/{position}/resolve": {
+      "post": {
+        "description": "Resolve a hold's needs_choice. The values come from the booking's own customer or traveler row (the\ncustomer is position 0); the browser sends only the choice. Links the booking row and is logged.",
+        "operationId": "resolve_booking_person_v1_admin_bookings__booking_id__saved_people__role___position__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "enum": [
+                "customer",
+                "traveler"
+              ],
+              "title": "Role",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "maximum": 8,
+              "minimum": 0,
+              "title": "Position",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateChoice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPersonCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not back office, or missing manage_people."
+          },
+          "404": {
+            "description": "No such booking (or not in the caller's scope), or no such customer or traveler."
+          },
+          "409": {
+            "description": "already_linked, document_belongs_to_another_person or person_merged."
+          },
+          "422": {
+            "description": "person_required (add_to_existing without person_id) or booking_values_invalid."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Booking Person",
+        "tags": [
+          "saved people"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/travelers/{position}/reveal": {
       "post": {
         "description": "Full date of birth and document number for one traveler. Logged with the reason (spec 3.2).",
@@ -8017,72 +8032,6 @@
           }
         ],
         "summary": "Merge Person",
-        "tags": [
-          "saved people"
-        ]
-      }
-    },
-    "/v1/admin/customers/{person_id}/reveal": {
-      "post": {
-        "description": "Full date of birth and document numbers. Needs reveal_identity and a reason; logged without values.",
-        "operationId": "reveal_person_v1_admin_customers__person_id__reveal_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "person_id",
-            "required": true,
-            "schema": {
-              "maxLength": 36,
-              "minLength": 8,
-              "title": "Person Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SavedPersonRevealRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SavedPersonReveal"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Not back office, or missing the permission."
-          },
-          "404": {
-            "description": "No such person or document."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Reveal Person",
         "tags": [
           "saved people"
         ]

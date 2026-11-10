@@ -1,9 +1,9 @@
 """Saved customers and travelers (one kind of record: a person). Back office only (super_admin and
 staff; agency and customer roles get 403, like the Bookings endpoints), in Travelian's own scope.
 
-Search and detail are masked; full values only through the reveal (reveal_identity + reason,
-logged). Create, edit and documents need manage_people; merge needs merge_people. Nothing is ever
-merged automatically. Errors carry a stable code and no personal data.
+Search and detail are masked (there is no reveal for saved people). Create, edit, documents and
+resolving a hold's possible duplicate need manage_people; merge needs merge_people. Nothing is
+ever merged automatically. Errors carry a stable code and no personal data.
 """
 
 from datetime import date
@@ -12,14 +12,15 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Query, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from app.api.routes.admin_dashboard import Viewer
 from app.core import pii
 from app.core.field_visibility import MANAGE_PEOPLE, MERGE_PEOPLE, BackOfficeUser
 from app.db import saved_people as store
 from app.schemas.saved_people import (
-    MergeRequest, RevealedDocument, SavedDocument, SavedPersonBooking, SavedPersonCreate, SavedPersonCreated, SavedPersonDetail,
-    SavedPersonEvent, SavedPersonReveal, SavedPersonRevealRequest, SavedPersonSearch, SavedPersonSummary, SavedPersonUpdate, DocumentInput,
+    BookingPersonRole, DocumentInput, DuplicateChoice, MergeRequest, SavedDocument, SavedPersonBooking, SavedPersonCreate, SavedPersonCreated,
+    SavedPersonDetail, SavedPersonEvent, SavedPersonSearch, SavedPersonSummary, SavedPersonUpdate,
 )
 
 router = APIRouter(
@@ -56,7 +57,7 @@ def detail(person: store.Person, bookings: list[dict], viewer: BackOfficeUser) -
     return SavedPersonDetail(
         **base, date_of_birth_masked=pii.mask_date(person.date_of_birth.isoformat()) if person.date_of_birth else None,
         merged_into_id=person.merged_into_id, bookings=[SavedPersonBooking(**b) for b in bookings],
-        can_reveal_identity=viewer.visibility.reveal_identity, can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE),
+        can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE),
     )
 
 
@@ -162,20 +163,6 @@ async def merge_person(viewer: Viewer, person_id: PersonId, body: MergeRequest):
         return error(exc)
 
 
-@router.post("/{person_id}/reveal", response_model=SavedPersonReveal, response_model_exclude_none=True)
-async def reveal_person(viewer: Viewer, person_id: PersonId, body: SavedPersonRevealRequest, response: Response):
-    """Full date of birth and document numbers. Needs reveal_identity and a reason; logged without values."""
-    if not viewer.visibility.reveal_identity:
-        return refuse(403, "not_allowed", "Revealing identity details requires the reveal identity permission.")
-    response.headers["Cache-Control"] = "no-store"
-    try:
-        person = await run_in_threadpool(store.reveal, owner_of(viewer), viewer.user_id, person_id, body.reason.strip())
-    except store.PeopleError as exc:
-        return error(exc)
-    return SavedPersonReveal(date_of_birth=person.date_of_birth, documents=[
-        RevealedDocument(id=d.id, document_number=d.document_number, document_expiry=d.document_expiry) for d in person.documents])
-
-
 @router.get("/{person_id}/events", response_model=list[SavedPersonEvent])
 async def person_events(viewer: Viewer, person_id: PersonId):
     """Audit trail for a saved person (ids and field names only)."""
@@ -184,3 +171,44 @@ async def person_events(viewer: Viewer, person_id: PersonId):
     except store.PeopleError as exc:
         return error(exc)
     return [SavedPersonEvent(action=r["action"], actor_user_id=r["actor_user_id"], at=r["created_at"], details=r["details"]) for r in rows]
+
+
+# ---------- a hold's possible duplicate, resolved from the booking's own copy ----------
+
+booking_router = APIRouter(
+    prefix="/admin/bookings",
+    tags=["saved people"],
+    responses={403: {"description": "Not back office, or missing manage_people."},
+               404: {"description": "No such booking (or not in the caller's scope), or no such customer or traveler."}},
+)
+
+
+def _validate_booking_copy(values: dict, document: store.DocumentInput | None) -> None:
+    """The same checks as POST /customers, applied to the values read from the booking."""
+    try:
+        SavedPersonCreate.model_validate({**{k: v for k, v in values.items() if v not in (None, "")},
+                                          "document": document.__dict__ if document else None})
+    except ValidationError:
+        raise store.PeopleError(422, "booking_values_invalid", "This booking's saved details don't pass the checks for a saved person.") from None
+
+
+@booking_router.post(
+    "/{booking_id}/saved-people/{role}/{position}/resolve", response_model=SavedPersonCreated, response_model_exclude_none=True,
+    responses={409: {"description": "already_linked, document_belongs_to_another_person or person_merged."},
+               422: {"description": "person_required (add_to_existing without person_id) or booking_values_invalid."}},
+)
+async def resolve_booking_person(viewer: Viewer, body: DuplicateChoice, role: BookingPersonRole,
+                                 booking_id: Annotated[str, Path(max_length=64)], position: Annotated[int, Path(ge=0, le=8)],
+                                 response: Response):
+    """Resolve a hold's needs_choice. The values come from the booking's own customer or traveler row (the
+    customer is position 0); the browser sends only the choice. Links the booking row and is logged."""
+    if not viewer.can(MANAGE_PEOPLE):
+        return refuse(403, "not_allowed", "Saving people requires the manage people permission.")
+    try:
+        person, outcome = await run_in_threadpool(store.resolve_from_booking, owner_of(viewer), viewer.user_id, booking_id, role, position,
+                                                  body.choice, body.person_id, _validate_booking_copy)
+        if outcome == "created":
+            response.status_code = 201
+        return SavedPersonCreated(person=await _detail(viewer, person.id), outcome=outcome)
+    except store.PeopleError as exc:
+        return error(exc)
