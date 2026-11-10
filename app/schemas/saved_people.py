@@ -55,6 +55,8 @@ class SavedPersonDetail(SavedPersonSummary):
 
 class SavedPersonSearch(BaseModel):
     results: list[SavedPersonSummary]
+    can_manage: bool = Field(False, description="The caller may create, edit and change documents (manage_people).")
+    can_merge: bool = Field(False, description="The caller may merge people (merge_people).")
 
 
 class DocumentInput(BaseModel):

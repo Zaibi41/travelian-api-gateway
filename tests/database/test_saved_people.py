@@ -124,7 +124,10 @@ def test_search_needs_three_characters_and_returns_at_most_twenty(db):
         person(first="Zain", last=f"Synthetic{chr(65 + index)}", dob=date(1990, 1, 1) + timedelta(days=index))
     client = api()
     assert client.get("/v1/admin/customers", params={"q": "za"}).status_code == 422
-    assert len(client.get("/v1/admin/customers", params={"q": "zai"}).json()["results"]) == 20
+    found = client.get("/v1/admin/customers", params={"q": "zai"}).json()
+    assert len(found["results"]) == 20 and (found["can_manage"], found["can_merge"]) == (True, True)
+    staff = api(STAFF).get("/v1/admin/customers", params={"q": "zai"}).json()
+    assert (staff["can_manage"], staff["can_merge"]) == (False, False)          # the flags come from the caller's permissions
 
 
 # ---------- duplicates and conflicts ----------

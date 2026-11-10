@@ -4863,6 +4863,18 @@
       },
       "SavedPersonSearch": {
         "properties": {
+          "can_manage": {
+            "default": false,
+            "description": "The caller may create, edit and change documents (manage_people).",
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "can_merge": {
+            "default": false,
+            "description": "The caller may merge people (merge_people).",
+            "title": "Can Merge",
+            "type": "boolean"
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/SavedPersonSummary"

@@ -87,7 +87,7 @@ async def search_people(viewer: Viewer, q: Annotated[str, Query(min_length=3, ma
                         limit: Annotated[int, Query(ge=1, le=20)] = 20):
     """Exact full document number first, then phone or email, then name prefix. Masked values only."""
     people = await run_in_threadpool(store.search, owner_of(viewer), q, limit)
-    return SavedPersonSearch(results=[summary(person) for person in people])
+    return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
 
 
 @router.get("/{person_id}", response_model=SavedPersonDetail, response_model_exclude_none=True)
