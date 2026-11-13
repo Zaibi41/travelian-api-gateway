@@ -1053,6 +1053,18 @@
             "title": "On Hold",
             "type": "integer"
           },
+          "payment_pending": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
+            "title": "Payment Pending"
+          },
           "unpaid": {
             "title": "Unpaid",
             "type": "integer"
@@ -7148,7 +7160,8 @@
                     "unpaid",
                     "expiring_soon",
                     "awaiting_issuance",
-                    "hold_deadlines"
+                    "hold_deadlines",
+                    "payment_pending"
                   ],
                   "type": "string"
                 },

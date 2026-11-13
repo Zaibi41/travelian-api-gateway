@@ -21,7 +21,7 @@ BookingStatus = Literal["held", "pending_payment", "payment_received", "confirme
 PaymentStatus = Literal["paid", "unpaid", "part_paid"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 IssuanceStatus = Literal["not_issued", "requested", "processing", "issued", "unknown"]
-Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines"]
+Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
 
@@ -54,6 +54,9 @@ class BookingListCards(BaseModel):
     expiring_window_hours: int
     awaiting_issuance: int | None = Field(None, description="Flights tab only.")
     hold_deadlines: int | None = Field(None, description="Flights tab only: open holds not yet expired.")
+    payment_pending: int | None = Field(
+        None, description="Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
+    )
 
 
 class BookingListItem(BaseModel):

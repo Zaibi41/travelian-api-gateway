@@ -53,6 +53,7 @@ ROWS = [
 def client(monkeypatch, rows=ROWS, viewer=SUPER_ADMIN, people=None):
     app = FastAPI()
     app.include_router(routes.router, prefix="/v1")
+    app.include_router(dashboard_routes.router, prefix="/v1")
     if viewer is None:
         def deny():
             raise HTTPException(403, "Back-office access denied.")
@@ -123,6 +124,23 @@ def test_cards_follow_the_filters_and_a_card_filters_the_list(monkeypatch):
     assert ids("awaiting_issuance", product="flight") == ["TRV-4"]
     hotels = api.get("/v1/admin/bookings", params={"product": "hotel"}).json()["cards"]
     assert hotels["all_bookings"] == 1 and "awaiting_issuance" not in hotels
+
+
+def test_flights_cards_match_the_dashboard_needs_action_cards(monkeypatch):
+    """Each dashboard needs-action card opens Bookings > Flights with one card picked: same rule, same count."""
+    api = client(monkeypatch)
+    for extra in ({}, {"provider": "sooperfare"}):
+        needs = api.get("/v1/admin/dashboard/summary", params=extra).json()["needs_action"]
+        flights = api.get("/v1/admin/bookings", params={"product": "flight", **extra}).json()
+        cards = flights["cards"]
+        assert cards["awaiting_issuance"] == needs["pending_issuance"]
+        assert cards["payment_pending"] == needs["payment_pending"]
+        assert cards["expiring_soon"] == needs["expiring_holds"]
+        assert cards["expiring_window_hours"] == needs["expiring_window_hours"]
+        for card, count in (("awaiting_issuance", "pending_issuance"), ("payment_pending", "payment_pending"), ("expiring_soon", "expiring_holds")):
+            picked = api.get("/v1/admin/bookings", params={"product": "flight", "card": card, **extra}).json()
+            assert picked["total"] == needs[count]
+    assert "payment_pending" not in api.get("/v1/admin/bookings").json()["cards"]
 
 
 def test_filters(monkeypatch):

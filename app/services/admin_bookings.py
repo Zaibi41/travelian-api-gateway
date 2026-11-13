@@ -17,7 +17,7 @@ from app.core.field_visibility import FieldVisibility
 from app.db.booking_people import People
 from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
-    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, is_expiring_hold, is_pending_issuance, period_range,
+    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
@@ -131,10 +131,11 @@ def card_rules(now: datetime, window_hours: int):
         ),
         "awaiting_issuance": is_pending_issuance,
         "hold_deadlines": lambda b: _open_hold(b, now),
+        "payment_pending": lambda b: is_payment_pending(b, now),
     }
 
 
-FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines"}
+FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines", "payment_pending"}
 
 
 def build_cards(rows: list[BookingRow], product: str | None, now: datetime, window_hours: int) -> BookingListCards:
@@ -148,6 +149,7 @@ def build_cards(rows: list[BookingRow], product: str | None, now: datetime, wind
     if product == "flight":
         cards.awaiting_issuance = count("awaiting_issuance")
         cards.hold_deadlines = count("hold_deadlines")
+        cards.payment_pending = count("payment_pending")
     return cards
 
 
