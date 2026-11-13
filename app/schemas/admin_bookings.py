@@ -250,7 +250,7 @@ class BookingDetail(BaseModel):
     supplier_payment: SupplierPayment | None = Field(None, description="Omitted without the cost and margin permission.")
     customer: BookingCustomer | None = Field(None, description="Omitted when no customer was saved.")
     passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
-    itinerary: list[BookingSegment] | None = Field(None, description="The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 12 Nov 2026).")
+    itinerary: list[BookingSegment] | None = Field(None, description="The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 14 Nov 2026).")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
     can_reveal_identity: bool = Field(False, description="Whether this viewer may call the reveal endpoint (the endpoint still checks).")
     payments: list[BookingPayment] | None = Field(None, description="The Payments tab. Omitted when no payment is recorded.")
