@@ -163,6 +163,26 @@ class PaymentAccountList(BaseModel):
     accounts: list[PaymentAccount] = Field(description="Active accounts, by method then name. Empty until an administrator adds them.")
 
 
+class ReceivingAccount(BaseModel):
+    """A receiving account as Finance > Accounts & Ledgers manages it (active and inactive)."""
+
+    id: str
+    method: PaymentMethod
+    label: str
+    active: bool
+
+
+class ReceivingAccountList(BaseModel):
+    accounts: list[ReceivingAccount] = Field(description="Every receiving account, active and inactive, by method then name.")
+
+
+class AddReceivingAccountRequest(BaseModel):
+    method: PaymentMethod
+    # Length is checked after spaces are collapsed (2 to 120), with the same message as the command.
+    label: str = Field(max_length=1000, description="The account's name staff see: 2 to 120 characters after extra spaces are removed. "
+                                                     "Not the full account number.")
+
+
 class RecordPaymentRequest(BaseModel):
     amount: BookingMoney
     method: PaymentMethod

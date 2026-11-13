@@ -23,9 +23,12 @@ class Account:
 
 
 class AccountError(Exception):
-    def __init__(self, message: str):
+    """A refused change. `status` is the HTTP status the admin routes answer with."""
+
+    def __init__(self, message: str, status: int = 422):
         super().__init__(message)
         self.message = message
+        self.status = status
 
 
 _SELECT = "SELECT id, method, label, active FROM payment_accounts"
@@ -50,16 +53,19 @@ def add(method: str, label: str, actor_user_id: str | None = None) -> Account:
             connection.execute(text("INSERT INTO payment_accounts (id, method, label, created_by_user_id) VALUES (:id, :m, :l, :a)"),
                                {"id": account.id, "m": method, "l": label, "a": actor_user_id})
     except IntegrityError:
-        raise AccountError("An active account with this name and method already exists.") from None
+        raise AccountError("An active account with this name and method already exists.", 409) from None
     return account
 
 
-def deactivate(account_id: str) -> None:
+def deactivate(account_id: str) -> Account:
+    """Stop offering the account for new payments. Past payments keep it (booking_payments.account_id
+    and received_into are untouched); accounts are never deleted."""
     with agencies.application_engine().begin() as connection:
-        changed = connection.execute(text("UPDATE payment_accounts SET active = false, deactivated_at = now() WHERE id = :id AND active"),
-                                     {"id": account_id}).rowcount
-    if not changed:
-        raise AccountError("No active account with that id.")
+        row = connection.execute(text("UPDATE payment_accounts SET active = false, deactivated_at = now() WHERE id = :id AND active "
+                                      "RETURNING id, method, label, active"), {"id": account_id}).mappings().one_or_none()
+    if not row:
+        raise AccountError("No active account with that id.", 404)
+    return Account(**row)
 
 
 def active_for_payment(connection, account_id: str, method: str) -> Account | None:

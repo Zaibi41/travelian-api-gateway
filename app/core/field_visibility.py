@@ -39,6 +39,10 @@ PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, REVEAL_IDENTITY, *ACTION
 FULL_ACCESS_ROLES = {"super_admin"}
 GRANTABLE_ROLES = {"staff"}
 BACK_OFFICE_ROLES = FULL_ACCESS_ROLES | GRANTABLE_ROLES
+#: Finance > Accounts & Ledgers (receiving accounts: list all, add, deactivate). The spec gives this
+#: to Finance and Super Admin; there is no Finance role yet, so Super Admin only. Add "finance" here
+#: when that role exists. Staff, agency and customer roles get 403.
+FINANCE_ACCOUNT_ROLES = {"super_admin"}
 #: Roles that may search supplier inventory (Group Ticketing, flights).
 SEARCH_ROLES = BACK_OFFICE_ROLES | {"agency_owner"}
 
@@ -115,6 +119,13 @@ async def require_back_office(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> BackOfficeUser:
     return await run_in_threadpool(_back_office_user, user)
+
+
+async def require_finance_accounts(
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> BackOfficeUser:
+    """Finance > Accounts & Ledgers: FINANCE_ACCOUNT_ROLES only, everyone else 403."""
+    return await run_in_threadpool(_back_office_user, user, FINANCE_ACCOUNT_ROLES, "Accounts & Ledgers access denied.")
 
 
 async def require_search_viewer(

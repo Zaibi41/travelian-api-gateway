@@ -82,7 +82,9 @@ Put the same values in `DB_*`, then create the tables:
 
 Run `alembic upgrade head` again whenever you pull new migrations. (Latest: `0019_payment_accounts`, Travelian's receiving accounts; `0018_booking_itinerary`, the flights of each new hold.)
 
-Receiving accounts (the Payments tab's "Received into" choice) are added on the server:
+Receiving accounts (the Payments tab's "Received into" choice) are managed in the portal under
+Finance > Accounts & Ledgers (Super Admin; `/v1/admin/finance/payment-accounts`: list all, add,
+deactivate), or on the server:
 
 ```bash
 .venv/bin/python -m app.cli.payment_accounts add --method bank_transfer --label "Meezan Bank, Travelian current account"

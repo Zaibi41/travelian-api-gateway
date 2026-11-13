@@ -1,6 +1,31 @@
 {
   "components": {
     "schemas": {
+      "AddReceivingAccountRequest": {
+        "properties": {
+          "label": {
+            "description": "The account's name staff see: 2 to 120 characters after extra spaces are removed. Not the full account number.",
+            "maxLength": 1000,
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link"
+            ],
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "label"
+        ],
+        "title": "AddReceivingAccountRequest",
+        "type": "object"
+      },
       "AdminOverview": {
         "properties": {
           "active_agencies": {
@@ -4183,6 +4208,57 @@
           "status"
         ],
         "title": "ProviderStatus",
+        "type": "object"
+      },
+      "ReceivingAccount": {
+        "description": "A receiving account as Finance > Accounts & Ledgers manages it (active and inactive).",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link"
+            ],
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "label",
+          "active"
+        ],
+        "title": "ReceivingAccount",
+        "type": "object"
+      },
+      "ReceivingAccountList": {
+        "properties": {
+          "accounts": {
+            "description": "Every receiving account, active and inactive, by method then name.",
+            "items": {
+              "$ref": "#/components/schemas/ReceivingAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "title": "ReceivingAccountList",
         "type": "object"
       },
       "RecordPaymentRequest": {
@@ -8494,6 +8570,143 @@
         "summary": "Dashboard Summary",
         "tags": [
           "admin dashboard"
+        ]
+      }
+    },
+    "/v1/admin/finance/payment-accounts": {
+      "get": {
+        "description": "Every receiving account, active and inactive, by method then name.",
+        "operationId": "list_all_payment_accounts_v1_admin_finance_payment_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingAccountList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not Super Admin (or Finance, once that role exists)."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List All Payment Accounts",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "description": "Add an active receiving account. Extra spaces in the name are removed.",
+        "operationId": "add_payment_account_v1_admin_finance_payment_accounts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddReceivingAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not Super Admin (or Finance, once that role exists)."
+          },
+          "409": {
+            "description": "An active account with this name and method already exists."
+          },
+          "422": {
+            "description": "The account name must be 2 to 120 characters."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Payment Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/payment-accounts/{account_id}/deactivate": {
+      "post": {
+        "description": "Stop offering the account for new payments. Payments already recorded keep it.",
+        "operationId": "deactivate_payment_account_v1_admin_finance_payment_accounts__account_id__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not Super Admin (or Finance, once that role exists)."
+          },
+          "404": {
+            "description": "No active account with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deactivate Payment Account",
+        "tags": [
+          "admin finance"
         ]
       }
     },
