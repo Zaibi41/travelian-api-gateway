@@ -89,7 +89,8 @@ def _save_people(connection, booking_id: str, customer: CustomerRecord, traveler
 def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None, currency: str,
               selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any],
               actor_user_id: str, audit: dict[str, Any],
-              customer: CustomerRecord | None = None, travelers: list[TravelerRecord] | None = None) -> str:
+              customer: CustomerRecord | None = None, travelers: list[TravelerRecord] | None = None,
+              itinerary: list[dict[str, Any]] | None = None) -> str:
     """Insert a held, unpaid, not-issued UAT booking, its customer and travelers, and the audit
     entry, in one transaction. Returns the reference."""
     with agencies.application_engine().begin() as connection:
@@ -97,13 +98,14 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
         connection.execute(
             text(
                 "INSERT INTO bookings (id, reference, pnr, product, provider_id, created_by_user_id, booking_status, payment_status,"
-                " issuance_status, hold_expires_at, currency, total_minor, supplier_cost_minor, import_source, supplier_ref, supplier_response)"
+                " issuance_status, hold_expires_at, currency, total_minor, supplier_cost_minor, import_source, supplier_ref, supplier_response, itinerary)"
                 " VALUES (:id, :ref, :pnr, 'flight', :provider, :actor, 'held', 'unpaid', 'not_issued', :expires, :currency, :total,"
-                " :cost, :source, :supplier_ref, CAST(:response AS jsonb))"
+                " :cost, :source, :supplier_ref, CAST(:response AS jsonb), CAST(:itinerary AS jsonb))"
             ),
             {"id": booking_id, "ref": reference, "pnr": pnr, "provider": provider, "actor": actor_user_id, "expires": hold_expires_at,
              "currency": currency, "total": selling_total_minor, "cost": supplier_total_minor, "source": UAT_SOURCE,
-             "supplier_ref": supplier_ref, "response": json.dumps(supplier_response)},
+             "supplier_ref": supplier_ref, "response": json.dumps(supplier_response),
+             "itinerary": json.dumps(itinerary) if itinerary else None},
         )
         if customer is not None:
             _save_people(connection, booking_id, customer, travelers or [])

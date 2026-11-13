@@ -343,6 +343,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
                                "pnr_info": pnr_summary, "fare_info": fare_info, "repriced_supplier_total_minor": supplier_total},
             actor_user_id=viewer.user_id, customer=_customer(request), travelers=_travelers(request, links),
+            itinerary=[ref.segment for ref in fresh if ref.segment],
             audit={"provider": NAME, "pnr": pnr, "time_limit": booking.get("time_limit"), "selling_total_minor": selling_total,
                    "currency": currency, "pax_count": pax_count, "fare_info": fare_info_status,
                    **({"total_source": total_source} if total_source else {}), **check_errors},

@@ -37,3 +37,28 @@ def test_issuance_can_be_unknown(database):
     connection.execute(text("UPDATE bookings SET issuance_status='unknown' WHERE reference=:r"), {"r": reference})
     item = admin_bookings.build_detail(admin_bookings.find_booking(store.list_dashboard_bookings(), reference), NONE)
     assert item.statuses.issuance == "unknown"
+
+
+SEGMENT = {"direction": "outbound", "origin": "LHE", "destination": "KHI", "airline_code": "Z8", "airline_name": "South Air", "flight_number": "Z8266",
+           "departure_local": "2026-11-19T00:25", "arrival_local": "2026-11-19T02:35", "duration_minutes": 130, "stops": 0, "stop_cities": [],
+           "fare_name": "EB", "baggage": "20 kg", "meal": None}
+
+
+def test_itinerary_is_saved_with_the_hold_and_shown_on_the_detail(database):
+    reference = supplier_bookings.save_hold(
+        provider="southair", pnr="ABC123", supplier_ref="x", hold_expires_at=None, currency="PKR", selling_total_minor=1, supplier_total_minor=1,
+        supplier_response={}, actor_user_id=None, audit={}, itinerary=[SEGMENT],
+    )
+    detail = admin_bookings.build_detail(admin_bookings.find_booking(store.list_dashboard_bookings(), reference), NONE)
+    assert "itinerary" not in detail.sections_not_available
+    assert [(s.flight_number, s.origin, s.destination, s.departure_local, s.fare_name, s.baggage) for s in detail.itinerary] == [
+        ("Z8266", "LHE", "KHI", "2026-11-19T00:25", "EB", "20 kg")]
+
+
+def test_holds_without_an_itinerary_say_it_is_not_recorded(database):
+    reference = supplier_bookings.save_hold(
+        provider="southair", pnr="ABC124", supplier_ref="x", hold_expires_at=None, currency="PKR", selling_total_minor=1, supplier_total_minor=1,
+        supplier_response={}, actor_user_id=None, audit={},
+    )
+    detail = admin_bookings.build_detail(admin_bookings.find_booking(store.list_dashboard_bookings(), reference), NONE)
+    assert detail.itinerary is None and "itinerary" in detail.sections_not_available

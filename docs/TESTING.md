@@ -80,7 +80,7 @@ Put the same values in `DB_*`, then create the tables:
 .venv/bin/alembic current        # should end in "(head)"
 ```
 
-Run `alembic upgrade head` again whenever you pull new migrations. If a migration is missing, the admin pages fail; the dashboard shows "Agency service unavailable."
+Run `alembic upgrade head` again whenever you pull new migrations. (Latest: `0018_booking_itinerary`, the flights of each new hold for the Booking detail's Itinerary tab.) If a migration is missing, the admin pages fail; the dashboard shows "Agency service unavailable."
 
 ### Sample bookings are not in git
 

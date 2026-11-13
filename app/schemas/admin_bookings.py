@@ -213,6 +213,25 @@ class RevealResponse(BaseModel):
     document_expiry: date | None = None
 
 
+class BookingSegment(BaseModel):
+    """One flight of the Itinerary tab, as the supplier described it when the booking was held."""
+
+    direction: Literal["outbound", "return"]
+    origin: str
+    destination: str
+    airline_code: str | None = None
+    airline_name: str | None = None
+    flight_number: str | None = None
+    departure_local: str | None = Field(None, description="Local time at the origin, e.g. 2026-11-19T00:25.")
+    arrival_local: str | None = Field(None, description="Local time at the destination.")
+    duration_minutes: int | None = None
+    stops: int | None = None
+    stop_cities: list[str] = Field(default_factory=list)
+    fare_name: str | None = None
+    baggage: str | None = None
+    meal: str | None = None
+
+
 class BookingDetail(BaseModel):
     source: Literal["gateway_bookings"] = SOURCE
     sample: bool
@@ -231,6 +250,7 @@ class BookingDetail(BaseModel):
     supplier_payment: SupplierPayment | None = Field(None, description="Omitted without the cost and margin permission.")
     customer: BookingCustomer | None = Field(None, description="Omitted when no customer was saved.")
     passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
+    itinerary: list[BookingSegment] | None = Field(None, description="The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 12 Nov 2026).")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
     can_reveal_identity: bool = Field(False, description="Whether this viewer may call the reveal endpoint (the endpoint still checks).")
     payments: list[BookingPayment] | None = Field(None, description="The Payments tab. Omitted when no payment is recorded.")

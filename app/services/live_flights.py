@@ -38,6 +38,8 @@ class FareRef:
     fare_code: str
     fare_hash: str
     adult_total: normalize.Amount | None
+    #: The flight as shown (airline, number, times, fare, baggage): saved as the booking's itinerary.
+    segment: dict | None = None
 
 
 @dataclass
@@ -126,6 +128,17 @@ def _fare_view(fare_id: str, fare: normalize.Fare, viewer: BackOfficeUser, fallb
     return view
 
 
+def segment(direction: str, leg: normalize.Leg, flight: normalize.Flight, fare: normalize.Fare) -> dict:
+    """One flight of a booking's itinerary, as the supplier described it. No passenger data."""
+    return {
+        "direction": direction, "origin": leg.origin, "destination": leg.destination,
+        "airline_code": flight.airline_code, "airline_name": flight.airline_name, "flight_number": flight.flight_number,
+        "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
+        "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
+        "fare_name": fare.code, "baggage": fare.baggage, "meal": fare.meal,
+    }
+
+
 async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_factory=None) -> FlightSearchView:
     session = SearchSession(id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=request, nld="", expires_at=_now() + SEARCH_TTL_SECONDS)
     expires_at = datetime.fromtimestamp(session.expires_at, timezone.utc)
@@ -156,7 +169,8 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
             fare_views = []
             for fare in flight.fares:
                 fare_id = secrets.token_urlsafe(12)
-                session.fares[fare_id] = FareRef(direction, leg.route_key, flight.key, fare.code, fare.fare_hash, fare.adult_total)
+                session.fares[fare_id] = FareRef(direction, leg.route_key, flight.key, fare.code, fare.fare_hash, fare.adult_total,
+                                                 segment(direction, leg, flight, fare))
                 fare_views.append(_fare_view(fare_id, fare, viewer, currency))
             flights.append(FlightView(
                 id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
@@ -261,7 +275,8 @@ async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], c
         fare = next((f for f in (flight.fares if flight else []) if f.code == ref.fare_code), None)
         if fare is None:
             raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
-        fresh.append(FareRef(ref.direction, ref.route_key, ref.flight_key, fare.code, fare.fare_hash, fare.adult_total))
+        fresh.append(FareRef(ref.direction, ref.route_key, ref.flight_key, fare.code, fare.fare_hash, fare.adult_total,
+                             segment(ref.direction, leg, flight, fare)))
 
     fallback = await account_currency(client)
     counts = [("ADT", request.adults), ("CHD", request.children), ("INF", request.infants)]

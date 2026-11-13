@@ -21,7 +21,7 @@ from app.services.admin_dashboard import (
 )
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
-    BookingListItem, BookingMoney, BookingPassenger, BookingStatuses, FilterOption, SupplierPayment,
+    BookingListItem, BookingMoney, BookingPassenger, BookingSegment, BookingStatuses, FilterOption, SupplierPayment,
 )
 
 #: Bookings tabs. "group" has no rows in the bookings table yet, but the tab exists.
@@ -207,6 +207,8 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         missing.remove("payments")
     if people and any(t.ticket_number for t in people.travelers):
         missing.remove("tickets")
+    if booking.itinerary:
+        missing.remove("itinerary")
     detail = BookingDetail(
         sample=is_sample(booking), sample_label=data_label(booking),
         booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
@@ -241,6 +243,8 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
             )
             for t in people.travelers
         ]
+    if booking.itinerary:
+        detail.itinerary = [BookingSegment.model_validate(segment) for segment in booking.itinerary]
     if people and people.events:
         detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
                         for e in people.events]

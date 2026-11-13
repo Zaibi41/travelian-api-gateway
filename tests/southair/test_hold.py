@@ -431,3 +431,18 @@ def test_pnr_lookup_failing_falls_back_and_records_the_error_codes_only():
     audit = save.call_args.kwargs["audit"]
     assert audit["fare_info"] == "failed" and audit["pnr_info_error"] == "pnr lookup_failed" and audit["fare_info_error"] == "fare_info_failed"
     assert "Test" not in str(audit) and "AB1234567" not in str(audit)
+
+
+def test_hold_saves_the_itinerary_from_the_fresh_search():
+    """The flights as held (from the supplier's re-check, not the old search) become the booking's
+    itinerary: airline, number, times, fare and baggage; no passenger data."""
+    make_quote()
+    _, save = run(hold_request(), fake_client())
+    itinerary = save.call_args.kwargs["itinerary"]
+    assert len(itinerary) == 1
+    segment = itinerary[0]
+    assert segment["direction"] == "outbound" and segment["origin"] == "KHI" and segment["destination"] == "MUX"
+    assert segment["flight_number"] and segment["departure_local"].startswith("2026-11-27") and segment["fare_name"] == "EB"
+    assert set(segment) == {"direction", "origin", "destination", "airline_code", "airline_name", "flight_number", "departure_local",
+                            "arrival_local", "duration_minutes", "stops", "stop_cities", "fare_name", "baggage", "meal"}
+    assert "Test" not in str(itinerary) and "AB1234567" not in str(itinerary)

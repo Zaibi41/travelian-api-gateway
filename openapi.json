@@ -563,6 +563,21 @@
           "fare": {
             "$ref": "#/components/schemas/BookingFare"
           },
+          "itinerary": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BookingSegment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 12 Nov 2026).",
+            "title": "Itinerary"
+          },
           "passengers": {
             "anyOf": [
               {
@@ -1528,6 +1543,153 @@
           "buckets"
         ],
         "title": "BookingReport",
+        "type": "object"
+      },
+      "BookingSegment": {
+        "description": "One flight of the Itinerary tab, as the supplier described it when the booking was held.",
+        "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Code"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
+          "arrival_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local time at the destination.",
+            "title": "Arrival Local"
+          },
+          "baggage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baggage"
+          },
+          "departure_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local time at the origin, e.g. 2026-11-19T00:25.",
+            "title": "Departure Local"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "outbound",
+              "return"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "fare_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fare Name"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "meal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meal"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "stop_cities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stop Cities",
+            "type": "array"
+          },
+          "stops": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stops"
+          }
+        },
+        "required": [
+          "direction",
+          "origin",
+          "destination"
+        ],
+        "title": "BookingSegment",
         "type": "object"
       },
       "BookingStatuses": {
