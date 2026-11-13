@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.field_visibility import ALL, NONE, BackOfficeUser, resolve_actions
+from app.db import payment_accounts
 from app.db import booking_payments
 from app.db.issuance import IssuanceRefused
 from app.services import issuance
@@ -54,7 +55,8 @@ def held(database):
     """A UAT hold (1 adult + 1 infant, total Rs 467, supplier Rs 457.70), fully paid, ticketing on."""
     connection, metadata, _ = database
     reference = save(connection, metadata)
-    booking_payments.record(reference, amount_minor=46_700, currency="PKR", method="bank_transfer", received_into="Meezan Bank",
+    booking_payments.record(reference, amount_minor=46_700, currency="PKR", method="bank_transfer",
+                            account_id=payment_accounts.add("bank_transfer", "Meezan Bank").id,
                             payer_reference="TXN-1", received_at=datetime(2026, 11, 9, tzinfo=timezone.utc), actor_user_id=ACTOR)
     with patch.object(settings, "southair_ticketing_enabled", True):
         yield connection, reference

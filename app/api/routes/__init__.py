@@ -16,6 +16,7 @@ from app.api.routes.integration_group_ticketing import (
 from app.api.routes.live_ticketing import router as live_ticketing_router
 from app.api.routes.logos import router as logos_router
 from app.api.routes.operations import router as operations_router
+from app.api.routes.payment_accounts import router as payment_accounts_router
 from app.api.routes.saved_people import booking_router as saved_people_booking_router
 from app.api.routes.saved_people import router as saved_people_router
 
@@ -42,5 +43,6 @@ router.include_router(admin_dashboard_router)
 
 router.include_router(admin_bookings_router)
 router.include_router(saved_people_router)
+router.include_router(payment_accounts_router)
 router.include_router(saved_people_booking_router)
 router.include_router(logos_router)

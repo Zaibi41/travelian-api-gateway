@@ -130,6 +130,35 @@ def test_search_needs_three_characters_and_returns_at_most_twenty(db):
     assert (staff["can_manage"], staff["can_merge"]) == (False, False)          # the flags come from the caller's permissions
 
 
+def test_without_q_the_register_lists_the_most_recent_people(db):
+    """The Customers page's first view: latest booking first, then the most recently saved; merged
+    people and other owners' people left out; masked values only; at most 50."""
+    connection, metadata = db
+    old, _ = person(first="Old", dob=date(1980, 1, 1))
+    newer, _ = person(first="Newer", dob=date(1981, 1, 1), phone_code="92", phone="3001234567")
+    booked, _ = person(first="Booked", dob=date(1982, 1, 1))
+    merged, _ = person(first="Merged", dob=date(1983, 1, 1))
+    agency, _ = person(owner="ag-1", first="Agency", dob=date(1984, 1, 1))
+    connection.execute(text("UPDATE saved_people SET updated_at = now() - interval '2 days' WHERE id = :p"), {"p": old.id})
+    connection.execute(text("UPDATE saved_people SET merged_into_id = :t WHERE id = :p"), {"p": merged.id, "t": newer.id})
+    reference = save(connection, metadata, pnr="ABC777")
+    connection.execute(text("UPDATE booking_customers SET person_id = :p WHERE booking_id = (SELECT id FROM bookings WHERE reference = :r)"),
+                       {"p": booked.id, "r": reference})
+
+    names = [p.first_name for p in store.recent(None, 50)]
+    assert names[0] == "Booked" and names.index("Newer") < names.index("Old")
+    assert "Merged" not in names and "Agency" not in names
+    assert [p.first_name for p in store.recent("ag-1", 50)] == ["Agency"]
+
+    client = api()
+    listed = client.get("/v1/admin/customers", params={"limit": 50}).json()
+    assert [r["first_name"] for r in listed["results"]] == names and listed["can_manage"] is True
+    assert "3001234567" not in str(listed) and any(r.get("phone_masked") for r in listed["results"])
+    assert "match" not in listed["results"][0]
+    assert client.get("/v1/admin/customers", params={"limit": 51}).status_code == 422
+    assert len(client.get("/v1/admin/customers", params={"limit": 2}).json()["results"]) == 2
+
+
 # ---------- duplicates and conflicts ----------
 
 def test_same_name_and_birth_date_with_another_document_is_a_possible_duplicate(db):

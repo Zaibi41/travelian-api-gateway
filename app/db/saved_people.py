@@ -265,6 +265,15 @@ def search(owner: str | None, q: str, limit: int = 20) -> list[Person]:
     return unique[:limit]
 
 
+def recent(owner: str | None, limit: int = 50) -> list[Person]:
+    """The most recent saved people, for the register's first page: latest booking first (people
+    never booked last), then the most recently saved or edited. Merged people excluded."""
+    with agencies.application_engine().begin() as connection:
+        live = f"{_owner_clause('p.owner_agency_id')} AND p.merged_into_id IS NULL"
+        return _people(connection, f"{live} ORDER BY last_booking_at DESC NULLS LAST, p.updated_at DESC, p.id LIMIT :limit",
+                       {"owner": owner, "limit": limit})
+
+
 def get(owner: str | None, person_id: str) -> tuple[Person, list[dict[str, Any]]]:
     with agencies.application_engine().begin() as connection:
         person = load(connection, owner, person_id)

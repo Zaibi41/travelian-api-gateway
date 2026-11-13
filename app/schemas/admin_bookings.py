@@ -151,10 +151,22 @@ class BookingPayment(BaseModel):
     recorded_at: datetime
 
 
+class PaymentAccount(BaseModel):
+    """One of Travelian's receiving accounts (where customer payments arrive)."""
+
+    id: str
+    method: PaymentMethod
+    label: str
+
+
+class PaymentAccountList(BaseModel):
+    accounts: list[PaymentAccount] = Field(description="Active accounts, by method then name. Empty until an administrator adds them.")
+
+
 class RecordPaymentRequest(BaseModel):
     amount: BookingMoney
     method: PaymentMethod
-    received_into: str = Field(min_length=2, max_length=120)
+    account_id: str = Field(min_length=8, max_length=36, description="The receiving account (GET /v1/admin/payment-accounts); active and of this method.")
     reference: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*$")
     received_at: datetime = Field(description="When the money was received. Not in the future.")
 

@@ -14,7 +14,7 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.db import agencies
+from app.db import agencies, payment_accounts
 from app.db.supplier_bookings import _event
 
 METHODS = ("bank_transfer", "jazzcash", "1link")
@@ -49,9 +49,10 @@ def payment_status(paid_minor: int, total_minor: int) -> str:
     return "paid" if paid_minor >= total_minor else "part_paid"
 
 
-def record(reference: str, *, amount_minor: int, currency: str, method: str, received_into: str, payer_reference: str,
+def record(reference: str, *, amount_minor: int, currency: str, method: str, account_id: str, payer_reference: str,
            received_at: datetime, actor_user_id: str) -> tuple[Payment, str]:
-    """Record one payment. Returns (payment, the booking's new payment status)."""
+    """Record one payment into one of Travelian's active receiving accounts of that method (migration
+    0019; its name is kept as received_into). Returns (payment, the booking's new payment status)."""
     with agencies.application_engine().begin() as connection:
         booking = connection.execute(
             text("SELECT id, currency, total_minor, booking_status FROM bookings WHERE reference = :r FOR UPDATE"), {"r": reference},
@@ -62,6 +63,10 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, rec
             raise PaymentRefused(409, "This booking is closed and can't take a payment.")
         if currency.upper() != booking["currency"]:
             raise PaymentRefused(422, f"Payments for this booking are in {booking['currency']}.")
+        account = payment_accounts.active_for_payment(connection, account_id, method)
+        if account is None:
+            raise PaymentRefused(422, "Choose one of Travelian's receiving accounts for this payment method.")
+        received_into = account.label
         paid = connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"), {"b": booking["id"]})
         if paid + amount_minor > booking["total_minor"]:
             raise PaymentRefused(409, "This is more than the amount due on the booking.")
@@ -69,10 +74,10 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, rec
         try:
             with connection.begin_nested():
                 connection.execute(
-                    text("INSERT INTO booking_payments (id, booking_id, amount_minor, currency, method, received_into, reference,"
-                         " received_at, recorded_by_user_id) VALUES (:id, :b, :amount, :currency, :method, :into, :ref, :at, :actor)"),
+                    text("INSERT INTO booking_payments (id, booking_id, amount_minor, currency, method, received_into, account_id, reference,"
+                         " received_at, recorded_by_user_id) VALUES (:id, :b, :amount, :currency, :method, :into, :account, :ref, :at, :actor)"),
                     {"id": payment_id, "b": booking["id"], "amount": amount_minor, "currency": booking["currency"], "method": method,
-                     "into": received_into, "ref": payer_reference, "at": received_at, "actor": actor_user_id},
+                     "into": received_into, "account": account.id, "ref": payer_reference, "at": received_at, "actor": actor_user_id},
                 )
         except IntegrityError:
             raise PaymentRefused(409, "A payment with this method and reference is already recorded.") from None

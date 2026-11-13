@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.field_visibility import NONE
-from app.db import booking_payments, booking_people
+from app.db import booking_payments, booking_people, payment_accounts
 from app.db import bookings as store
 from app.services import admin_bookings
 from tests.database.test_booking_people import ACTOR, save
@@ -14,8 +14,15 @@ from tests.database.test_booking_people import ACTOR, save
 AT = datetime(2026, 11, 9, 10, 0, tzinfo=timezone.utc)
 
 
+def account_for(method="bank_transfer", label=None):
+    """The test's receiving account for a method (created once per test database)."""
+    label = label or {"bank_transfer": "Meezan Bank current account", "jazzcash": "JazzCash business wallet", "1link": "1Link collections"}[method]
+    found = [a for a in payment_accounts.list_accounts() if a.method == method and a.label == label]
+    return found[0].id if found else payment_accounts.add(method, label).id
+
+
 def record(reference, amount, ref="TXN-1", method="bank_transfer", currency="PKR"):
-    return booking_payments.record(reference, amount_minor=amount, currency=currency, method=method, received_into="Meezan Bank current account",
+    return booking_payments.record(reference, amount_minor=amount, currency=currency, method=method, account_id=account_for(method),
                                    payer_reference=ref, received_at=AT, actor_user_id=ACTOR)
 
 
@@ -81,3 +88,58 @@ def test_closed_or_missing_booking_takes_no_payment(booking):
 def test_record_payments_is_a_grantable_permission(database):
     connection, _, _ = database
     connection.execute(text("INSERT INTO role_permissions (role_id, permission) VALUES (4, 'record_payments')"))
+
+
+
+def test_the_payment_keeps_the_receiving_accounts_name_and_id(booking):
+    connection, reference = booking
+    record(reference, 10_000)
+    row = connection.execute(text("SELECT received_into, account_id FROM booking_payments")).one()
+    assert row[0] == "Meezan Bank current account" and row[1] == account_for()
+
+
+def test_only_an_active_account_of_the_payments_method_is_accepted(booking):
+    connection, reference = booking
+    jazzcash = account_for("jazzcash")
+    with pytest.raises(booking_payments.PaymentRefused) as error:
+        booking_payments.record(reference, amount_minor=10_000, currency="PKR", method="bank_transfer", account_id=jazzcash,
+                                payer_reference="TXN-9", received_at=AT, actor_user_id=ACTOR)
+    assert error.value.status == 422 and "receiving accounts" in error.value.message
+    bank = account_for()
+    payment_accounts.deactivate(bank)
+    with pytest.raises(booking_payments.PaymentRefused) as error:
+        booking_payments.record(reference, amount_minor=10_000, currency="PKR", method="bank_transfer", account_id=bank,
+                                payer_reference="TXN-10", received_at=AT, actor_user_id=ACTOR)
+    assert error.value.status == 422
+    assert connection.execute(text("SELECT count(*) FROM booking_payments")).scalar() == 0
+
+
+def test_accounts_are_listed_active_only_and_names_are_unique_per_method(booking):
+    bank = payment_accounts.add("bank_transfer", "  HBL   collections  ")
+    assert bank.label == "HBL collections"
+    with pytest.raises(payment_accounts.AccountError):
+        payment_accounts.add("bank_transfer", "hbl COLLECTIONS")
+    assert payment_accounts.add("jazzcash", "HBL collections").method == "jazzcash"   # same name, another method: allowed
+    payment_accounts.deactivate(bank.id)
+    assert [a.label for a in payment_accounts.list_accounts() if a.method == "bank_transfer"] == []
+    assert payment_accounts.add("bank_transfer", "HBL collections").active          # a deactivated name can be used again
+    with pytest.raises(payment_accounts.AccountError):
+        payment_accounts.add("cash", "Till")
+
+
+def test_the_list_route_and_the_command(booking, capsys):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api.routes.payment_accounts import router
+    from app.cli import payment_accounts as cli
+    from app.core.field_visibility import NONE, BackOfficeUser, require_back_office
+    assert cli.main(["add", "--method", "1link", "--label", "1Link collections"]) == 0
+    assert "1Link collections" in capsys.readouterr().out
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    app.dependency_overrides[require_back_office] = lambda: BackOfficeUser("u-1", "staff", NONE)
+    listed = TestClient(app).get("/v1/admin/payment-accounts").json()["accounts"]
+    assert [(a["method"], a["label"]) for a in listed] == [("1link", "1Link collections")] and set(listed[0]) == {"id", "method", "label"}
+    assert cli.main(["deactivate", "--id", listed[0]["id"]]) == 0
+    assert TestClient(app).get("/v1/admin/payment-accounts").json()["accounts"] == []
+    assert cli.main(["deactivate", "--id", listed[0]["id"]]) == 1

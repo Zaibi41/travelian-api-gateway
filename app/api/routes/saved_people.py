@@ -83,10 +83,13 @@ async def _detail(viewer: BackOfficeUser, person_id: str) -> SavedPersonDetail:
 
 @router.get("", response_model=SavedPersonSearch, response_model_exclude_none=True,
             responses={422: {"description": "Search needs at least 3 characters."}})
-async def search_people(viewer: Viewer, q: Annotated[str, Query(min_length=3, max_length=64, description="Full document number, phone, email, or name prefix.")],
-                        limit: Annotated[int, Query(ge=1, le=20)] = 20):
-    """Exact full document number first, then phone or email, then name prefix. Masked values only."""
-    people = await run_in_threadpool(store.search, owner_of(viewer), q, limit)
+async def search_people(viewer: Viewer,
+                        q: Annotated[str | None, Query(min_length=3, max_length=64, description="Full document number, phone, email, or name prefix. Leave out to list the most recent people.")] = None,
+                        limit: Annotated[int, Query(ge=1, le=50)] = 20):
+    """With q: exact full document number first, then phone or email, then name prefix. Without q:
+    the most recent people (latest booking first, then the most recently saved). Masked values only."""
+    people = await run_in_threadpool(store.search, owner_of(viewer), q, limit) if q is not None \
+        else await run_in_threadpool(store.recent, owner_of(viewer), limit)
     return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
 
 

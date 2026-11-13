@@ -80,7 +80,17 @@ Put the same values in `DB_*`, then create the tables:
 .venv/bin/alembic current        # should end in "(head)"
 ```
 
-Run `alembic upgrade head` again whenever you pull new migrations. (Latest: `0018_booking_itinerary`, the flights of each new hold for the Booking detail's Itinerary tab.) If a migration is missing, the admin pages fail; the dashboard shows "Agency service unavailable."
+Run `alembic upgrade head` again whenever you pull new migrations. (Latest: `0019_payment_accounts`, Travelian's receiving accounts; `0018_booking_itinerary`, the flights of each new hold.)
+
+Receiving accounts (the Payments tab's "Received into" choice) are added on the server:
+
+```bash
+.venv/bin/python -m app.cli.payment_accounts add --method bank_transfer --label "Meezan Bank, Travelian current account"
+.venv/bin/python -m app.cli.payment_accounts list
+.venv/bin/python -m app.cli.payment_accounts deactivate --id <account id>
+```
+
+Methods: `bank_transfer`, `jazzcash`, `1link`. Use a name staff recognise, not a full account number. A payment can only be recorded into an active account of its method. If a migration is missing, the admin pages fail; the dashboard shows "Agency service unavailable."
 
 ### Sample bookings are not in git
 

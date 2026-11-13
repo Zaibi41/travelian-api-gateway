@@ -102,7 +102,7 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     "/{booking_id}/payments", response_model=RecordPaymentResponse, response_model_exclude_none=True, status_code=201,
     responses={403: {"description": "Needs the record_payments permission."}, 404: {"description": "No such booking."},
                409: {"description": "Closed booking, more than the amount due, or the reference is already recorded."},
-               422: {"description": "Invalid payment or wrong currency."}},
+               422: {"description": "Invalid payment, wrong currency, or not an active receiving account of this method."}},
 )
 async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_id: Annotated[str, Path(max_length=64)]):
     """Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged."""
@@ -117,7 +117,7 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
     try:
         payment, status = await run_in_threadpool(
             booking_payments.record, booking_id, amount_minor=request.amount.amount_minor, currency=request.amount.currency,
-            method=request.method, received_into=request.received_into.strip(), payer_reference=request.reference.strip(),
+            method=request.method, account_id=request.account_id, payer_reference=request.reference.strip(),
             received_at=request.received_at, actor_user_id=viewer.user_id,
         )
     except booking_payments.PaymentRefused as error:

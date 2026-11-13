@@ -283,7 +283,7 @@ def test_agency_and_customer_roles_cannot_reach_the_reveal(monkeypatch):
 
 
 PAYER = BackOfficeUser("u-6", "staff", NONE, frozenset({"record_payments"}))
-PAYMENT_BODY = {"amount": {"amount_minor": 20_000, "currency": "PKR"}, "method": "jazzcash", "received_into": "JazzCash business wallet",
+PAYMENT_BODY = {"amount": {"amount_minor": 20_000, "currency": "PKR"}, "method": "jazzcash", "account_id": "acct-00000001",
                 "reference": "JC-778", "received_at": "2026-11-05T06:30:00+00:00"}
 
 
@@ -293,7 +293,7 @@ def test_recording_a_payment_needs_the_permission(monkeypatch, viewer, status):
     calls = []
     def record(reference, **kwargs):
         calls.append((reference, kwargs))
-        return booking_payments.Payment("p1", kwargs["amount_minor"], "PKR", kwargs["method"], kwargs["received_into"], kwargs["payer_reference"],
+        return booking_payments.Payment("p1", kwargs["amount_minor"], "PKR", kwargs["method"], "JazzCash business wallet", kwargs["payer_reference"],
                                         kwargs["received_at"], viewer.user_id, viewer.role, NOW), "part_paid"
     monkeypatch.setattr(booking_payments, "record", record)
     response = client(monkeypatch, viewer=viewer).post("/v1/admin/bookings/TRV-2/payments", json=PAYMENT_BODY)
