@@ -91,20 +91,25 @@ def _in_dates(booking: BookingRow, query: BookingListQuery, now: datetime) -> bo
     return start <= value and (value < end if exclusive else value <= end)
 
 
-def _matches_text(booking: BookingRow, q: str) -> bool:
+def visible_pnr(booking: BookingRow, visibility: FieldVisibility) -> str | None:
+    """A group booking's PNR is the supplier's PNR: only with the supplier names permission."""
+    return booking.pnr if booking.product != "group" or visibility.supplier_names else None
+
+
+def _matches_text(booking: BookingRow, q: str, visibility: FieldVisibility) -> bool:
     # Booking ID and PNR only; ticket numbers, passengers and phones are not stored yet.
-    return any(q in (value or "").lower() for value in (booking.booking_id, booking.pnr))
+    return any(q in (value or "").lower() for value in (booking.booking_id, visible_pnr(booking, visibility)))
 
 
 def _in_tab(bookings: Iterable[BookingRow], product: str | None) -> list[BookingRow]:
     return [b for b in bookings if b.product in BOOKING_PRODUCTS and (product is None or b.product == product)]
 
 
-def _filtered(bookings: list[BookingRow], query: BookingListQuery, now: datetime) -> list[BookingRow]:
+def _filtered(bookings: list[BookingRow], query: BookingListQuery, now: datetime, visibility: FieldVisibility) -> list[BookingRow]:
     return [
         b for b in bookings
         if _in_dates(b, query, now)
-        and (query.q is None or _matches_text(b, query.q))
+        and (query.q is None or _matches_text(b, query.q, visibility))
         and (query.booking_status is None or b.status == query.booking_status)
         and (query.payment_status is None or payment_status(b) == query.payment_status)
         and (query.issuance_status is None or issuance_status(b) == query.issuance_status)
@@ -163,7 +168,7 @@ def build_list(
     bookings = list(bookings)
     tab = _in_tab(bookings, query.product)
     # Cards follow every filter except the card itself, so picking a card doesn't zero the others.
-    in_filters = _filtered(tab, query, now)
+    in_filters = _filtered(tab, query, now, visibility)
     card_rule = card_rules(now, window_hours).get(query.card) if query.card else None
     rows = sorted([b for b in in_filters if card_rule is None or card_rule(b)], key=_sort_key)
     page = rows[query.offset:query.offset + query.limit]
@@ -177,7 +182,7 @@ def build_list(
     items = []
     for b in page:
         item = BookingListItem(
-            booking_id=b.booking_id, pnr=b.pnr, product=b.product, customer_or_agency=customer_or_agency(b),
+            booking_id=b.booking_id, pnr=visible_pnr(b, visibility), product=b.product, customer_or_agency=customer_or_agency(b),
             statuses=_statuses(b), amount=_money(b.total_minor, b.currency),
             created_at=b.created_at, expires_at=b.hold_expires_at, sample=is_sample(b), data_label=data_label(b),
         )
@@ -213,7 +218,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         missing.remove("itinerary")
     detail = BookingDetail(
         sample=is_sample(booking), sample_label=data_label(booking),
-        booking_id=booking.booking_id, pnr=booking.pnr, product=booking.product,
+        booking_id=booking.booking_id, pnr=visible_pnr(booking, visibility), product=booking.product,
         customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
         fare=fare, sections_not_available=missing, can_reveal_identity=visibility.reveal_identity,

@@ -13,6 +13,8 @@ Back office only (super_admin and staff). Adults only, 1 to 9. The price comes f
 Payments use the existing `POST /v1/admin/bookings/{booking_id}/payments`; it refuses a group hold past its time limit.
 Audit (`booking_events`): `hold_created`, `hold_expired`, `hold_released`, `payment_recorded`, `price_change_accepted`, `issuance_started`, `issuance_issued` / `issuance_failed` / `issuance_unknown`.
 Staff see `stock` (`supplier` or `owned`), never `supplier`, unless granted "see supplier names". Supplier cost is never returned here.
+
+Group identity: each search result and each hold carry `group_source` (`provider`, `provider_name`, `supplier_pnr`, `supplier_group_id`, `supplier_ticket_id`) only for viewers with the supplier names permission (Super Admin; staff when granted). When a hold is created the listing row's identity is copied onto the booking (`supplier_response -> 'source'`; the hold's PNR when the supplier gives one, else the listing's). Dhillu & Sahi: the ticket's `pnr`, the first subpart's `group_id` and `id`. Skypass: `airline_pnr` and the ticket `id`; Skypass sends no group ID, and `open_seats_slot` (hold-only) is never returned. In Bookings, a group booking's `pnr` (the supplier's) is also left out, and not searchable, without that permission.
 Passport numbers and dates of birth are stored as in the Flights holds (plain text for the sandbox phase, masked on read; docs/pii-storage.md).
 
 ## Hold time and the expiry job

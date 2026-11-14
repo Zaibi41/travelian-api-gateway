@@ -35,7 +35,7 @@ from app.schemas.group_holds import (
     ContactError, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
     GroupIssueResult, GroupPriceCheck, age_on,
 )
-from app.schemas.group_ticketing import GroupInventory, GroupTicket
+from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.services import flight_holds
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
@@ -160,6 +160,19 @@ def _flight(booking: store.GroupBooking) -> GroupHoldFlight:
     )
 
 
+def booking_source(booking: store.GroupBooking) -> GroupSource | None:
+    """The identity kept on the booking; the booking's own provider and PNR for holds made before it was kept."""
+    source = booking.source
+    return GroupSource.of(source.get("provider") or booking.provider, source.get("supplier_pnr") or booking.pnr,
+                          source.get("supplier_group_id"), source.get("supplier_ticket_id"))
+
+
+def source_record(ticket: GroupTicket, held_pnr: str | None) -> dict[str, str | None]:
+    """What the booking keeps of the listing row: provider, supplier PNR (the hold's, else the listing's), group and ticket IDs."""
+    return {"provider": ticket.vendor, "supplier_pnr": held_pnr or ticket.pnr,
+            "supplier_group_id": ticket.supplier_group_id, "supplier_ticket_id": ticket.supplier_ticket_id}
+
+
 def build_view(booking: store.GroupBooking, people: booking_people.People | None, viewer: BackOfficeUser, now: datetime) -> GroupHoldView:
     money = lambda minor: GroupMoney(amount_minor=minor, currency=booking.currency)  # noqa: E731
     status = _status(booking, now)
@@ -182,6 +195,7 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         view.supplier = booking.provider or None
         view.pnr = booking.pnr
         view.supplier_release_failed = booking.release_failed
+        view.group_source = booking_source(booking)
     if people is not None:
         if people.customer:
             c = people.customer
@@ -317,7 +331,8 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
             provider=ticket.vendor, pnr=held.pnr or "", supplier_ref=held.supplier_ref, hold_expires_at=expires_at, currency=selling.currency,
             selling_total_minor=selling.amount_minor * request.adults, supplier_total_minor=held.cost_per_adult.amount_minor * request.adults,
             supplier_response={"adults": request.adults, "held_at": held_at.isoformat(), "hold_minutes": settings.group_hold_minutes,
-                               "ticket": {"updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type}},
+                               "ticket": {"updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
+                               "source": source_record(ticket, held.pnr)},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
             audit={"pnr": held.pnr, "time_limit": expires_at.isoformat(), "amount_minor": selling.amount_minor * request.adults,
                    "currency": selling.currency, "pax_count": request.adults},

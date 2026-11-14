@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.schemas.saved_people import SaveOutcomeView
+from app.schemas.group_ticketing import GroupSource
 from app.services.group_ticketing_view import GroupMoney
 
 MAX_ADULTS = 9
@@ -153,6 +154,8 @@ class GroupHoldView(BaseModel):
     flight: GroupHoldFlight
     stock: Literal["supplier", "owned"]
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
+    group_source: GroupSource | None = Field(None, description="Provider, supplier PNR, group and ticket IDs, as copied from the listing "
+                                                               "when the hold was created. Only with the supplier names permission.")
     price_per_adult: GroupMoney = Field(description="Selling price per adult, from the hold (or the accepted new price).")
     total: GroupMoney
     amount_paid: GroupMoney

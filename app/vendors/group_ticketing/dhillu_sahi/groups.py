@@ -51,6 +51,12 @@ def _legs(ticket: "DhilluSahiTicket") -> list[GroupLeg]:
     return legs
 
 
+def _first_subpart(ticket: "DhilluSahiTicket", key: str) -> str | None:
+    """A ticket's identity from its first subpart: group_id (the supplier group, e.g. 3056) or id (e.g. 10817).
+    The listing row and ticket carry no ID of their own."""
+    return _text(ticket.subpart[0].get(key)) if ticket.subpart else None
+
+
 class DhilluSahiGroup(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -84,6 +90,8 @@ def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi
                 ticket_type=ticket.ticket_type,
                 legs=_legs(ticket),
                 subparts=ticket.subpart,
+                supplier_group_id=_first_subpart(ticket, "group_id"),
+                supplier_ticket_id=_first_subpart(ticket, "id"),
             )
             for ticket in group.tickets
         ]

@@ -153,6 +153,20 @@ def test_supplier_name_only_for_viewers_allowed_to_see_it(provider):
     assert VENDOR not in body and "K7P2QX" not in body
 
 
+def test_hold_copies_the_group_identity_onto_the_booking(provider, database):
+    connection, _, _ = database
+    stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "20+7",
+        "subpart": [{"id": 10817, "group_id": 3056, "departure_time": "06:40"}]}]}])
+    req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
+    view = place(req=req, stock=stock)
+    kept = connection.execute(text("SELECT supplier_response -> 'source' FROM bookings WHERE reference = :r"), {"r": view.booking_id}).scalar_one()
+    assert kept == {"provider": VENDOR, "supplier_pnr": "K7P2QX", "supplier_group_id": "3056", "supplier_ticket_id": "10817"}
+    assert (view.group_source.supplier_group_id, view.group_source.supplier_ticket_id, view.group_source.supplier_pnr) == ("3056", "10817", "K7P2QX")
+    staff_view = run(group_holds.read(view.booking_id, STAFF))
+    assert staff_view.group_source is None and "3056" not in staff_view.model_dump_json() and "10817" not in staff_view.model_dump_json()
+
+
 def test_hold_failure_saves_nothing_and_is_never_retried(provider, database):
     provider.hold_error = RuntimeError("timeout")
     with pytest.raises(GroupHoldError) as error:

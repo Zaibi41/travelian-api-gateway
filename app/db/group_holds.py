@@ -13,7 +13,7 @@ supplier_ref and supplier_response never leave the gateway.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -52,6 +52,9 @@ class GroupBooking:
     adults: int
     paid_minor: int
     release: dict[str, Any]  # {} until the seats need releasing; then status, attempts, last_error, updated_at
+    #: Group identity copied from the listing when the hold was created (supplier_response -> 'source'):
+    #: provider, supplier_pnr, supplier_group_id, supplier_ticket_id. {} for holds made before it was kept.
+    source: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:  # never print the supplier reference
         return f"GroupBooking({self.reference}, {self.booking_status})"
@@ -66,7 +69,7 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
     row = connection.execute(
         text("SELECT id, reference, pnr, provider_id, booking_status, issuance_status, payment_status, hold_expires_at, currency,"
              " total_minor, supplier_cost_minor, supplier_ref, itinerary, supplier_response -> 'adults' AS adults,"
-             " supplier_response -> 'release' AS release"
+             " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source"
              " FROM bookings WHERE reference = :r AND product = 'group'" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
@@ -78,7 +81,8 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
     return GroupBooking(row["id"], row["reference"], row["pnr"], row["provider_id"], row["booking_status"], row["issuance_status"],
                         row["payment_status"], row["hold_expires_at"], row["currency"], row["total_minor"], row["supplier_cost_minor"],
                         row["supplier_ref"], row["itinerary"] if isinstance(row["itinerary"], list) else [], int(adults or 0), int(paid),
-                        row["release"] if isinstance(row["release"], dict) else {})
+                        row["release"] if isinstance(row["release"], dict) else {},
+                        row["source"] if isinstance(row["source"], dict) else {})
 
 
 def load(reference: str) -> GroupBooking:

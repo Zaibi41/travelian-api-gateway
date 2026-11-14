@@ -40,6 +40,32 @@ class GroupTicket(BaseModel):
     #: Supplier-side identifiers a hold needs (Skypass ticket id and open_seats_slot). Never returned to callers.
     source_ticket_id: str | None = None
     source_slot: str | None = None
+    #: Group identity, copied onto our booking when a hold is created. Only for viewers with the supplier
+    #: names permission. Dhillu & Sahi: first subpart's group_id and id. Skypass: no group ID; ticket id.
+    supplier_group_id: str | None = None
+    supplier_ticket_id: str | None = None
+
+
+#: How each group source is named to viewers with the supplier names permission.
+PROVIDER_NAMES = {"dhillu_sahi": "Dhillu & Sahi", "skypass": "Skypass"}
+
+
+class GroupSource(BaseModel):
+    """Which supplier fare this is. Only for viewers with the supplier names permission."""
+
+    provider: str = Field(description="Source code, e.g. dhillu_sahi or skypass.")
+    provider_name: str = Field(description="Display name, e.g. Dhillu & Sahi.")
+    supplier_pnr: str | None = None
+    supplier_group_id: str | None = None
+    supplier_ticket_id: str | None = None
+
+    @classmethod
+    def of(cls, provider: str | None, supplier_pnr: str | None, supplier_group_id: str | None,
+           supplier_ticket_id: str | None) -> "GroupSource | None":
+        if not provider:
+            return None
+        return cls(provider=provider, provider_name=PROVIDER_NAMES.get(provider, provider), supplier_pnr=supplier_pnr or None,
+                   supplier_group_id=supplier_group_id or None, supplier_ticket_id=supplier_ticket_id or None)
 
 
 class GroupInventory(BaseModel):

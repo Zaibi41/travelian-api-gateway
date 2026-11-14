@@ -186,6 +186,9 @@ def _normalize_ticket(ticket: SkypassTicket) -> GroupInventory:
         subparts=subparts,
         source_ticket_id=str(ticket.id),
         source_slot=str(ticket.open_seats_slot) if ticket.open_seats_slot is not None else None,
+        # Skypass sends no group ID (airline_id is the airline). Its ticket id identifies the fare; open_seats_slot
+        # is a hold-only ID and stays in the gateway.
+        supplier_ticket_id=str(ticket.id),
     )
     return GroupInventory(
         id=f"skypass:{ticket.id}",

@@ -3436,6 +3436,17 @@
           "flight": {
             "$ref": "#/components/schemas/GroupHoldFlight"
           },
+          "group_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provider, supplier PNR, group and ticket IDs, as copied from the listing when the hold was created. Only with the supplier names permission."
+          },
           "hold_expires_at": {
             "anyOf": [
               {
@@ -3964,6 +3975,60 @@
         "title": "GroupSearchRequest",
         "type": "object"
       },
+      "GroupSource": {
+        "description": "Which supplier fare this is. Only for viewers with the supplier names permission.",
+        "properties": {
+          "provider": {
+            "description": "Source code, e.g. dhillu_sahi or skypass.",
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_name": {
+            "description": "Display name, e.g. Dhillu & Sahi.",
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "supplier_group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Group Id"
+          },
+          "supplier_pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Pnr"
+          },
+          "supplier_ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Ticket Id"
+          }
+        },
+        "required": [
+          "provider",
+          "provider_name"
+        ],
+        "title": "GroupSource",
+        "type": "object"
+      },
       "GroupTicketView": {
         "properties": {
           "airline": {
@@ -4032,6 +4097,17 @@
             ],
             "description": "Outbound flight number, e.g. 9P700.",
             "title": "Flight Number"
+          },
+          "group_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provider, supplier PNR, group and ticket IDs. Only with the supplier names permission."
           },
           "hand_carry": {
             "anyOf": [

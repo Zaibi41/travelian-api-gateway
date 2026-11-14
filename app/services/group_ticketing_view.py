@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.field_visibility import FieldVisibility
-from app.schemas.group_ticketing import GroupInventory, GroupTicket
+from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.services import supplier_logos
 from app.services.group_ticketing import group_ticket_id, stock_label
 
@@ -66,6 +66,7 @@ class GroupTicketView(BaseModel):
     hold_unavailable_reason: str | None = Field(None, description="Why Hold seats is off for this fare, when it is.")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     pnr: str | None = Field(None, description="Supplier PNR. Only with the supplier names permission.")
+    group_source: GroupSource | None = Field(None, description="Provider, supplier PNR, group and ticket IDs. Only with the supplier names permission.")
     subparts: list[dict[str, Any]] | None = Field(None, description="Raw supplier segments. Requires both supplier names and cost and margin permissions.")
     supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
 
@@ -155,6 +156,10 @@ def _legs(ticket: GroupTicket) -> list[GroupLegView]:
                          meal=meal_text(leg.meal) or meal_text(ticket.meal)) for leg in ticket.legs]
 
 
+def ticket_source(ticket: GroupTicket) -> GroupSource | None:
+    return GroupSource.of(ticket.vendor, ticket.pnr, ticket.supplier_group_id, ticket.supplier_ticket_id)
+
+
 def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicketView:
     cost = supplier_cost(ticket)
     legs = _legs(ticket)
@@ -171,6 +176,7 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
     view.can_hold = view.hold_unavailable_reason is None
     if visibility.supplier_names:
         view.supplier, view.pnr = ticket.vendor, ticket.pnr
+        view.group_source = ticket_source(ticket)
     if visibility.supplier_names and visibility.cost_and_margin:
         view.subparts = ticket.subparts
     if visibility.cost_and_margin:
