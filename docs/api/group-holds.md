@@ -17,6 +17,14 @@ Staff see `stock` (`supplier` or `owned`), never `supplier`, unless granted "see
 Group identity: each search result and each hold carry `group_source` (`provider`, `provider_name`, `supplier_pnr`, `supplier_group_id`, `supplier_ticket_id`) only for viewers with the supplier names permission (Super Admin; staff when granted). When a hold is created the listing row's identity is copied onto the booking (`supplier_response -> 'source'`; the hold's PNR when the supplier gives one, else the listing's). Dhillu & Sahi: the ticket's `pnr`, the first subpart's `group_id` and `id`. Skypass: `airline_pnr` and the ticket `id`; Skypass sends no group ID, and `open_seats_slot` (hold-only) is never returned. In Bookings, a group booking's `pnr` (the supplier's) is also left out, and not searchable, without that permission.
 Passport numbers and dates of birth are stored as in the Flights holds (plain text for the sandbox phase, masked on read; docs/pii-storage.md).
 
+## Dhillu & Sahi listing setting
+
+`DHILLU_SAHI_SECTOR_GROUP_IDS`: the sector group ids sent as `my_sector_id` to the listing call, comma-separated, read exactly as written (items trimmed, empty items ignored). There is no default. Unset or empty: the Dhillu & Sahi listing is never called, its fares are left out (as for any unconfigured supplier), so it can't be held either, and one warning naming the setting is logged at startup. Example only, not a default:
+
+```
+DHILLU_SAHI_SECTOR_GROUP_IDS=9,29,26
+```
+
 ## Hold record order
 
 Our record is written before the supplier is called (`booking_status` `hold_pending`, with the customer and travelers), then the supplier is called, then the record becomes `held` with the PNR, supplier reference and the supplier's answer. A supplier refusal or unclear answer marks it `hold_failed` (not listed anywhere; nothing pending). If the supplier held but the record can't be completed, it becomes `hold_unrecorded` with the supplier PNR in `supplier_response -> 'unrecorded'` (and in a CRITICAL log line if even that fails). Where the provider releases (Skypass), one release call is made at once and the expiry job retries up to `GROUP_HOLD_RELEASE_ATTEMPTS`; once released the record reads as released. Unrecorded holds are shown only to viewers with supplier access (Bookings list and the hold page, status `not_recorded`, `supplier_notice`: "Supplier hold not recorded, it expires by itself after 1 hour", "Supplier hold not recorded, the seats are being released" or "Supplier hold not released, release manually"). The error answer gives viewers with supplier access the real reason (e.g. `IntegrityError/CheckViolation (ck_bookings_pnr)`), the PNR and the booking reference; everyone else gets "The booking couldn't be saved. Ask an admin to check it before trying again."

@@ -9,12 +9,14 @@ from app.api.routes.operations import router as operations_router
 from app.core.config import settings
 from app.core.parameter_store import load_parameter_store_settings
 from app.services.group_hold_expiry import run_forever as run_group_hold_expiry
+from app.vendors.group_ticketing.dhillu_sahi.inventory import warn_if_ids_missing as warn_if_dhillu_sahi_ids_missing
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.ready = False
     await asyncio.to_thread(load_parameter_store_settings)
+    warn_if_dhillu_sahi_ids_missing()
     app.state.ready = True
     # Group holds: expire past their time limit and give the seats back at the supplier.
     stop = asyncio.Event()

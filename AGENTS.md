@@ -32,7 +32,7 @@
 - Base URL: `https://api.dhilluandsahi.com`.
 - Authentication contract supplied by the user: `POST /api/login`, JSON body with `email` and `password`, token at `success.token`.
 - Group inventory contract supplied by the user: `POST /api/pnr-respect-to-mysector-user`, Bearer token, JSON body optionally containing `my_sector_id`.
-- Live behavior: omitting `my_sector_id` returned HTTP 404; using the documented example `9` previously returned inventory. Do not assume `9` means account-wide inventory; set the confirmed account value with `DHILLU_SAHI_GROUP_SECTOR_ID` before fetching/searching.
+- Live behavior: omitting `my_sector_id` returned HTTP 404; using the documented example `9` previously returned inventory. `my_sector_id` is a sector group id; the gateway reads the ids only from `DHILLU_SAHI_SECTOR_GROUP_IDS` (no default in code). Do not add or assume ids in code, tests or docs.
 - Availability contract supplied by the user: `POST /api/check-availbility`, Bearer token, JSON body with `pnr`, `adult`, `child`, and `price`.
 - Booking contract supplied by the user: `POST /api/add-booking`, Bearer token, passenger arrays and booking fields as documented in the API implementation and README. Do not retry automatically. Confirmed by Dhillu & Sahi on 2026-11-14: add-booking only holds seats (unpaid), the supplier expires an unpaid booking after 1 hour, and there is no cancel call. It is wired as the Group Ticketing hold (docs/api/group-holds.md), behind GROUP_DHILLU_SAHI_HOLD_ENABLED.
 - Booking-details contract supplied by the user: `POST /api/agent-booking-detail`, Bearer token, JSON body with `booking_id`.

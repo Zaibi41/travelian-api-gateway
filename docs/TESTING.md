@@ -55,7 +55,7 @@ Leave anything you don't need empty: a feature whose settings are missing report
 
 | Variable | What it is |
 | --- | --- |
-| `DHILLU_SAHI_BASE_URL`, `DHILLU_SAHI_EMAIL`, `DHILLU_SAHI_PASSWORD`, `DHILLU_SAHI_TIMEOUT_SECONDS`, `DHILLU_SAHI_GROUP_SECTOR_ID` | Group Ticketing supplier. |
+| `DHILLU_SAHI_BASE_URL`, `DHILLU_SAHI_EMAIL`, `DHILLU_SAHI_PASSWORD`, `DHILLU_SAHI_TIMEOUT_SECONDS`, `DHILLU_SAHI_SECTOR_GROUP_IDS` | Group Ticketing supplier. |
 | `SKYPASS_ENDPOINT`, `SKYPASS_CLIENT_ID`, `SKYPASS_CLIENT_SECRET` | Second Group Ticketing supplier. |
 | `GROUP_TICKETING_MARKUP_PERCENT`, `GROUP_TICKETING_MARKUP_FIXED_MINOR` | Group selling price = supplier price + percent + fixed amount (in paisa). Unset (or empty) counts as 0: fares sell at the listing price per adult. Use the approved markup. |
 | `GROUP_HOLD_MINUTES`, `GROUP_HOLD_JOB_INTERVAL_SECONDS`, `GROUP_HOLD_RELEASE_ATTEMPTS` | Travelian's own group hold time (default 30 minutes), how often the expiry job runs (30 s), and how many times it retries a failed supplier release (5). |

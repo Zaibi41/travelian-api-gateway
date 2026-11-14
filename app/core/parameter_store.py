@@ -10,7 +10,7 @@ PARAMETER_SETTINGS = {
     "dhillu_sahi_base_url": "group-ticketing/dhillu-sahi/base-url",
     "dhillu_sahi_email": "group-ticketing/dhillu-sahi/email",
     "dhillu_sahi_password": "group-ticketing/dhillu-sahi/password",
-    "dhillu_sahi_group_sector_id": "group-ticketing/dhillu-sahi/group-sector-id",
+    "dhillu_sahi_sector_group_ids": "group-ticketing/dhillu-sahi/sector-group-ids",
     "skypass_endpoint": "group-ticketing/skypass/endpoint",
     "skypass_client_id": "group-ticketing/skypass/client-id",
     "skypass_client_secret": "group-ticketing/skypass/client-secret",

@@ -1,5 +1,6 @@
 """Dhillu & Sahi group inventory: one listing call (POST /api/pnr-respect-to-mysector-user, JSON {"my_sector_id": "<id>"})
-per configured sector group id (DHILLU_SAHI_SECTOR_GROUP_IDS, default 9,29,26: 9 = KSA, 29 = Kuwait, 26 not labelled yet), merged. A ticket
+per sector group id in DHILLU_SAHI_SECTOR_GROUP_IDS, merged. The ids come only from the environment; unset or empty
+means the listing is not configured and is never called. A ticket
 listed under more than one id is kept once (by supplier ticket id). One failing id is logged and the others are still
 returned; only when every id fails is the supplier reported as failed."""
 
@@ -13,9 +14,13 @@ from app.vendors.group_ticketing.dhillu_sahi.groups import GroupInventory, norma
 logger = logging.getLogger(__name__)
 
 
+MISSING_IDS_WARNING = ("Dhillu & Sahi listing not configured: DHILLU_SAHI_SECTOR_GROUP_IDS is not set. "
+                       "Dhillu & Sahi fares are left out of Group Ticketing until it is set (e.g. DHILLU_SAHI_SECTOR_GROUP_IDS=<id>,<id>).")
+
+
 def sector_group_ids() -> list[str]:
-    """The configured ids in order, without repeats (DHILLU_SAHI_SECTOR_GROUP_IDS, then the legacy single value)."""
-    values = (settings.dhillu_sahi_sector_group_ids or "").split(",") + [settings.dhillu_sahi_group_sector_id or ""]
+    """DHILLU_SAHI_SECTOR_GROUP_IDS as written: comma-separated, each item trimmed, empty items and repeats dropped."""
+    values = (settings.dhillu_sahi_sector_group_ids or "").split(",")
     ids: list[str] = []
     for value in (value.strip() for value in values):
         if value and value not in ids:
@@ -25,6 +30,14 @@ def sector_group_ids() -> list[str]:
 
 def is_configured() -> bool:
     return bool(settings.dhillu_sahi_email and settings.dhillu_sahi_password and sector_group_ids())
+
+
+def warn_if_ids_missing() -> bool:
+    """At startup: one warning naming the missing setting. Returns whether it warned."""
+    if sector_group_ids():
+        return False
+    logger.warning(MISSING_IDS_WARNING, extra={"setting": "DHILLU_SAHI_SECTOR_GROUP_IDS"})
+    return True
 
 
 def merge(listings: list[tuple[str, list[GroupInventory]]]) -> list[GroupInventory]:

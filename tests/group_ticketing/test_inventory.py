@@ -134,11 +134,10 @@ def exercise(
             ),
             patch.object(
                 settings,
-                "dhillu_sahi_group_sector_id",
+                "dhillu_sahi_sector_group_ids",
                 "synthetic-sector" if configured[0] else None,
             ),
-            # One Dhillu & Sahi sector group (the legacy single value); Al Haider not configured here.
-            patch.object(settings, "dhillu_sahi_sector_group_ids", ""),
+            # Al Haider not configured here.
             patch.object(settings, "al_haider_base_url", None),
             patch.object(settings, "al_haider_access_token", None),
             patch.object(settings, "dhillu_sahi_base_url", "https://dhillu.invalid"),

@@ -18,14 +18,14 @@ class DhilluSahiClientContractTests(unittest.IsolatedAsyncioTestCase):
 
         client = DhilluSahiAuthClient("https://vendor.test", transport=httpx.MockTransport(handler))
         login = await client.login("agent@example.test", "sample-password")
-        groups = await client.fetch_groups(login["token"], "9")
+        groups = await client.fetch_groups(login["token"], "101")
 
         self.assertEqual(len(groups), 1)
         self.assertEqual(seen[0].url.path, "/api/login")
         self.assertEqual(json.loads(seen[0].content), {"email": "agent@example.test", "password": "sample-password"})
         self.assertEqual(seen[1].url.path, "/api/pnr-respect-to-mysector-user")
         self.assertEqual(seen[1].headers["Authorization"], "Bearer test-token")
-        self.assertEqual(json.loads(seen[1].content), {"my_sector_id": "9"})
+        self.assertEqual(json.loads(seen[1].content), {"my_sector_id": "101"})
 
     async def test_availability_booking_and_details_contracts(self):
         seen = []
