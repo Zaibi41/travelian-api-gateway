@@ -17,7 +17,7 @@ from app.schemas.admin_dashboard import FilterOption
 
 
 Product = Literal["flight", "group", "hotel", "umrah"]
-BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired"]
+BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired", "hold_unrecorded"]
 PaymentStatus = Literal["paid", "unpaid", "part_paid"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 IssuanceStatus = Literal["not_issued", "requested", "processing", "issued", "unknown"]

@@ -44,9 +44,11 @@ def _now() -> datetime:
 
 def _read_bookings() -> list[BookingRow]:
     try:
-        return booking_store.list_dashboard_bookings()
+        rows = booking_store.list_dashboard_bookings()
     except BookingsUnavailable:
         raise HTTPException(503, "Dashboard booking data is not available.") from None
+    # A supplier hold Travelian couldn't record is not a booking: Bookings shows it to supplier access only.
+    return [row for row in rows if row.status != "hold_unrecorded"]
 
 
 def _query(viewer: BackOfficeUser, period: Period = "all", product: Product | None = None, provider: str | None = None):

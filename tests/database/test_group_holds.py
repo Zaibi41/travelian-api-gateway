@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.field_visibility import ALL, NONE, BackOfficeUser, resolve_actions
 from app.db import booking_payments, payment_accounts, saved_people
+from app.db import bookings as booking_store
 from app.schemas.group_holds import GroupHoldRequest
 from app.services import group_holds
 from app.services.group_holds import GroupHoldError, HeldSeats, SupplierRefused
@@ -55,7 +56,7 @@ class FakeProvider:
         self.calls.append(("hold", len(passengers)))
         if self.hold_error:
             raise self.hold_error
-        return HeldSeats("K7P2QX", SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"))
+        return HeldSeats(getattr(self, "pnr", "K7P2QX"), SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"))
 
     async def price(self, held):
         self.calls.append("price")
@@ -167,14 +168,54 @@ def test_hold_copies_the_group_identity_onto_the_booking(provider, database):
     assert staff_view.group_source is None and "3056" not in staff_view.model_dump_json() and "10817" not in staff_view.model_dump_json()
 
 
-def test_hold_failure_saves_nothing_and_is_never_retried(provider, database):
+def test_hold_failure_leaves_nothing_pending_and_is_never_retried(provider, database):
     provider.hold_error = RuntimeError("timeout")
     with pytest.raises(GroupHoldError) as error:
         place()
     assert error.value.code == "not_confirmed_hold" and error.value.status == 502
     assert provider.calls == [("hold", 2)]
     connection, _, _ = database
-    assert connection.scalar(text("SELECT count(*) FROM bookings WHERE product = 'group'")) == 0
+    rows = connection.execute(text("SELECT booking_status, pnr, supplier_response ->> 'hold_failure' FROM bookings WHERE product = 'group'")).all()
+    assert [tuple(row) for row in rows] == [("hold_failed", None, "not_confirmed")]
+    assert booking_store.list_dashboard_bookings() == []  # a failed hold is not a booking
+
+
+def test_supplier_pnr_with_a_hyphen_is_saved(provider, database):
+    """The reported bug: Skypass PNR 4FGYK2-4B4VYB broke ck_bookings_pnr (migration 0020)."""
+    provider.pnr = "4FGYK2-4B4VYB"
+    view = place()
+    assert view.status == "held" and view.pnr == "4FGYK2-4B4VYB"
+    connection, _, _ = database
+    with pytest.raises(Exception), connection.begin_nested():
+        connection.execute(text("INSERT INTO bookings (id, reference, pnr, product, booking_status, payment_status, issuance_status, currency, total_minor)"
+                                " VALUES ('00000000-0000-4000-8000-000000000001', 'TRV-FLIGHT-X', 'AB-12', 'flight', 'held', 'unpaid', 'not_issued', 'PKR', 1)"))
+
+
+def test_dhillu_sahi_pnr_with_spaces_is_saved_exactly(provider, database):
+    provider.pnr = "4FMUAF - 4KOCE5"
+    assert place().pnr == "4FMUAF - 4KOCE5"
+
+
+def test_save_failure_after_supplier_hold_keeps_the_pnr_on_a_record(provider, database):
+    with patch.object(group_holds.store, "confirm_hold", side_effect=RuntimeError("update failed")), pytest.raises(GroupHoldError) as error:
+        place()
+    assert error.value.extra["pnr"] == "K7P2QX" and ("release", SUPPLIER_REF) in provider.calls
+    connection, _, _ = database
+    status, pnr = connection.execute(text("SELECT booking_status, supplier_response -> 'unrecorded' ->> 'supplier_pnr' FROM bookings"
+                                          " WHERE reference = :r"), {"r": error.value.extra["booking_id"]}).one()
+    assert (status, pnr) == ("cancelled", "K7P2QX")  # released at the supplier, so the record reads as released
+
+
+def test_unreleased_unrecorded_hold_is_shown_to_supplier_access_only(provider, database):
+    provider.release_errors = 99
+    with patch.object(group_holds.store, "confirm_hold", side_effect=RuntimeError("update failed")), pytest.raises(GroupHoldError) as error:
+        place()
+    reference = error.value.extra["booking_id"]
+    view = run(group_holds.read(reference, ADMIN))
+    assert view.status == "not_recorded" and view.supplier_notice == group_holds.NOT_RELEASED  # one release failed; the job keeps trying
+    with pytest.raises(GroupHoldError):
+        run(group_holds.read(reference, STAFF))
+    assert [b.booking_id for b in booking_store.list_dashboard_bookings()] == [reference]
 
 
 def test_supplier_refusal_and_unsupported_source(provider):

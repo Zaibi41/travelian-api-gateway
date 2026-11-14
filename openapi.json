@@ -1739,7 +1739,8 @@
               "confirmed",
               "ticket_issued",
               "cancelled",
-              "expired"
+              "expired",
+              "hold_unrecorded"
             ],
             "title": "Booking",
             "type": "string"
@@ -3423,6 +3424,12 @@
             "title": "Can Record Payments",
             "type": "boolean"
           },
+          "can_release": {
+            "default": false,
+            "description": "Release hold can be used now: held, and the provider has a release call (the endpoint still checks).",
+            "title": "Can Release",
+            "type": "boolean"
+          },
           "customer": {
             "anyOf": [
               {
@@ -3520,14 +3527,15 @@
             "title": "Saved People"
           },
           "status": {
-            "description": "held; expired (time limit passed, can't be held again: search again); released; processing (issuing); issued; unknown (issuing outcome unclear).",
+            "description": "held; expired (time limit passed, can't be held again: search again); released; processing (issuing); issued; unknown (issuing outcome unclear); not_recorded (the supplier held but the booking couldn't be completed; only viewers with supplier access can open it).",
             "enum": [
               "held",
               "expired",
               "released",
               "processing",
               "issued",
-              "unknown"
+              "unknown",
+              "not_recorded"
             ],
             "title": "Status",
             "type": "string"
@@ -3551,6 +3559,18 @@
             ],
             "description": "Only with the supplier names permission.",
             "title": "Supplier"
+          },
+          "supplier_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What happens to the seats at the supplier, e.g. 'Supplier hold not recorded, it expires by itself after 1 hour'. Only with the supplier names permission.",
+            "title": "Supplier Notice"
           },
           "supplier_release_failed": {
             "anyOf": [
@@ -8196,7 +8216,8 @@
                     "confirmed",
                     "ticket_issued",
                     "cancelled",
-                    "expired"
+                    "expired",
+                    "hold_unrecorded"
                   ],
                   "type": "string"
                 },

@@ -55,6 +55,8 @@ class GroupBooking:
     #: Group identity copied from the listing when the hold was created (supplier_response -> 'source'):
     #: provider, supplier_pnr, supplier_group_id, supplier_ticket_id. {} for holds made before it was kept.
     source: dict[str, Any] = field(default_factory=dict)
+    #: Set when the supplier held but the booking couldn't be completed: supplier_pnr, error, at.
+    unrecorded: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:  # never print the supplier reference
         return f"GroupBooking({self.reference}, {self.booking_status})"
@@ -69,11 +71,12 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
     row = connection.execute(
         text("SELECT id, reference, pnr, provider_id, booking_status, issuance_status, payment_status, hold_expires_at, currency,"
              " total_minor, supplier_cost_minor, supplier_ref, itinerary, supplier_response -> 'adults' AS adults,"
-             " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source"
+             " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source,"
+             " supplier_response -> 'unrecorded' AS unrecorded"
              " FROM bookings WHERE reference = :r AND product = 'group'" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
-    if row is None:
+    if row is None or row["booking_status"] in ("hold_pending", "hold_failed"):
         raise GroupHoldRefused(404, "Group booking not found.", "not_found")
     paid = connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"), {"b": row["id"]})
     adults = row["adults"] if isinstance(row["adults"], int) else connection.scalar(
@@ -82,7 +85,8 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
                         row["payment_status"], row["hold_expires_at"], row["currency"], row["total_minor"], row["supplier_cost_minor"],
                         row["supplier_ref"], row["itinerary"] if isinstance(row["itinerary"], list) else [], int(adults or 0), int(paid),
                         row["release"] if isinstance(row["release"], dict) else {},
-                        row["source"] if isinstance(row["source"], dict) else {})
+                        row["source"] if isinstance(row["source"], dict) else {},
+                        row["unrecorded"] if isinstance(row["unrecorded"], dict) else {})
 
 
 def load(reference: str) -> GroupBooking:
@@ -102,11 +106,15 @@ def _set_release(connection, booking_id: str, state: dict[str, Any]) -> None:
     )
 
 
-def _expire(connection, booking: GroupBooking, now: datetime) -> None:
-    """held -> expired, seats to be released at the supplier by the expiry job."""
+RELEASE_NOT_AVAILABLE = "not_available"  # the source has no release call: the hold ends at the supplier by itself
+
+
+def _expire(connection, booking: GroupBooking, now: datetime, no_release: frozenset[str] = frozenset()) -> None:
+    """held -> expired; seats to be released at the supplier by the expiry job, unless the source has no release call."""
     connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
                        {"b": booking.id})
-    _set_release(connection, booking.id, {"status": RELEASE_PENDING, "attempts": 0, "updated_at": now.isoformat()})
+    status = RELEASE_NOT_AVAILABLE if booking.provider in no_release else RELEASE_PENDING
+    _set_release(connection, booking.id, {"status": status, "attempts": 0, "updated_at": now.isoformat()})
     _event(connection, booking.id, None, "hold_expired", {"pnr": booking.pnr, "time_limit": booking.hold_expires_at.isoformat() if booking.hold_expires_at else None})
 
 
@@ -114,18 +122,18 @@ def _expirable(booking: GroupBooking, now: datetime) -> bool:
     return booking.booking_status == "held" and is_over(booking, now) and booking.issuance_status in ("not_issued", "requested")
 
 
-def expire_if_over(reference: str, now: datetime) -> GroupBooking:
+def expire_if_over(reference: str, now: datetime, no_release: frozenset[str] = frozenset()) -> GroupBooking:
     """Mark a held booking whose time limit has passed as expired (once, with an audit entry).
     Leaves a booking that is being issued, or whose issuing is unclear, alone."""
     with agencies.application_engine().begin() as connection:
         booking = _load(connection, reference, lock=True)
         if _expirable(booking, now):
-            _expire(connection, booking, now)
+            _expire(connection, booking, now, no_release)
             booking = _load(connection, reference, lock=False)
         return booking
 
 
-def expire_due(now: datetime) -> list[str]:
+def expire_due(now: datetime, no_release: frozenset[str] = frozenset()) -> list[str]:
     """Every held group booking past its time limit becomes expired. Returns their references."""
     with agencies.application_engine().begin() as connection:
         references = connection.execute(
@@ -137,7 +145,7 @@ def expire_due(now: datetime) -> list[str]:
         with agencies.application_engine().begin() as connection:
             booking = _load(connection, reference, lock=True)
             if _expirable(booking, now):
-                _expire(connection, booking, now)
+                _expire(connection, booking, now, no_release)
                 expired.append(reference)
     return expired
 
@@ -208,3 +216,88 @@ def accept_price(reference: str, actor: str, expected_total_minor: int, total_mi
         _event(connection, booking.id, actor, "price_change_accepted",
                {"amount_minor": total_minor, "previous_amount_minor": booking.total_minor, "currency": booking.currency, "payment_status": status})
         return _load(connection, reference, lock=False)
+
+
+# ---------- the hold record, written before the supplier is called ----------
+
+HOLD_PENDING, HOLD_FAILED, HOLD_UNRECORDED = "hold_pending", "hold_failed", "hold_unrecorded"
+
+
+def create_pending(*, provider: str, currency: str, selling_total_minor: int, supplier_total_minor: int | None,
+                   supplier_response: dict[str, Any], actor_user_id: str, customer, travelers: list, itinerary: list[dict[str, Any]],
+                   reference_prefix: str) -> tuple[str, str]:
+    """Our record before the supplier is called: 'hold_pending', no PNR yet, with its customer and travelers.
+    Returns (booking id, reference)."""
+    from uuid import uuid4
+
+    from app.db.supplier_bookings import _save_people, new_reference
+
+    with agencies.application_engine().begin() as connection:
+        booking_id, reference = str(uuid4()), new_reference(reference_prefix)
+        connection.execute(
+            text("INSERT INTO bookings (id, reference, product, provider_id, created_by_user_id, booking_status, payment_status,"
+                 " issuance_status, currency, total_minor, supplier_cost_minor, supplier_response, itinerary)"
+                 " VALUES (:id, :ref, 'group', :provider, :actor, :status, 'unpaid', 'not_issued', :currency, :total, :cost,"
+                 " CAST(:response AS jsonb), CAST(:itinerary AS jsonb))"),
+            {"id": booking_id, "ref": reference, "provider": provider, "actor": actor_user_id, "status": HOLD_PENDING, "currency": currency,
+             "total": selling_total_minor, "cost": supplier_total_minor, "response": json.dumps(supplier_response, default=str),
+             "itinerary": json.dumps(itinerary) if itinerary else None},
+        )
+        if customer is not None:
+            _save_people(connection, booking_id, customer, travelers)
+        _event(connection, booking_id, actor_user_id, "hold_requested", {"travelers": len(travelers)})
+    return booking_id, reference
+
+
+def mark_hold_failed(booking_id: str, actor: str | None, reason_code: str) -> None:
+    """The supplier didn't hold (or didn't confirm): the record stays as 'hold_failed', nothing pending."""
+    with agencies.application_engine().begin() as connection:
+        connection.execute(
+            text("UPDATE bookings SET booking_status = :s, supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
+                 " || jsonb_build_object('hold_failure', CAST(:r AS text)), updated_at = now(), revision = revision + 1"
+                 " WHERE id = :b AND booking_status = :pending"),
+            {"s": HOLD_FAILED, "r": reason_code, "b": booking_id, "pending": HOLD_PENDING},
+        )
+        _event(connection, booking_id, actor, "hold_failed", {"reason_code": reason_code})
+
+
+def confirm_hold(booking_id: str, actor: str, *, pnr: str | None, supplier_ref: str, hold_expires_at: datetime,
+                 selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any], audit: dict[str, Any]) -> None:
+    """The supplier held: 'hold_pending' -> 'held' with the PNR, supplier reference, totals and the supplier's answer."""
+    with agencies.application_engine().begin() as connection:
+        updated = connection.execute(
+            text("UPDATE bookings SET booking_status = 'held', pnr = :pnr, supplier_ref = :ref, hold_expires_at = :expires,"
+                 " total_minor = :total, supplier_cost_minor = :cost,"
+                 " supplier_response = COALESCE(supplier_response, '{}'::jsonb) || CAST(:response AS jsonb),"
+                 " updated_at = now(), revision = revision + 1 WHERE id = :b AND booking_status = :pending"),
+            {"pnr": pnr, "ref": supplier_ref, "expires": hold_expires_at, "total": selling_total_minor, "cost": supplier_total_minor,
+             "response": json.dumps(supplier_response, default=str), "b": booking_id, "pending": HOLD_PENDING},
+        ).rowcount
+        if updated != 1:
+            raise RuntimeError("hold record is no longer pending")
+        _event(connection, booking_id, actor, "hold_created", audit)
+
+
+def mark_unrecorded(booking_id: str, actor: str | None, *, supplier_pnr: str | None, supplier_ref: str | None, error: str,
+                    now: datetime, release_pending: bool) -> None:
+    """The supplier held but confirm_hold failed. Keep the supplier PNR (in supplier_response, which has no format rule)
+    and the supplier reference on a 'hold_unrecorded' record. release_pending: the seats are to be released
+    (Skypass); the expiry job retries up to GROUP_HOLD_RELEASE_ATTEMPTS."""
+    state: dict[str, Any] = {"unrecorded": {"supplier_pnr": supplier_pnr, "error": error, "at": now.isoformat()}}
+    if release_pending:
+        state["release"] = {"status": RELEASE_PENDING, "attempts": 0, "updated_at": now.isoformat()}
+    with agencies.application_engine().begin() as connection:
+        connection.execute(
+            text("UPDATE bookings SET booking_status = :s, supplier_ref = :ref,"
+                 " supplier_response = COALESCE(supplier_response, '{}'::jsonb) || CAST(:state AS jsonb),"
+                 " updated_at = now(), revision = revision + 1 WHERE id = :b"),
+            {"s": HOLD_UNRECORDED, "ref": supplier_ref, "state": json.dumps(state), "b": booking_id},
+        )
+        _event(connection, booking_id, actor, "hold_not_recorded", {"pnr": supplier_pnr, "reason_code": error})
+
+
+def mark_unrecorded_released(reference: str, actor: str | None) -> None:
+    """The seats of an unrecorded hold were given back: the record reads as released (cancelled)."""
+    with agencies.application_engine().begin() as connection:
+        connection.execute(text("UPDATE bookings SET booking_status = 'cancelled', updated_at = now(), revision = revision + 1"
+                                " WHERE reference = :r AND booking_status = :s"), {"r": reference, "s": HOLD_UNRECORDED})

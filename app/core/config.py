@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     dhillu_sahi_password: SecretStr | None = None
     dhillu_sahi_timeout_seconds: float = 10.0
     dhillu_sahi_group_sector_id: str | None = None
+    # Dhillu & Sahi holds (add-booking holds seats unpaid; the supplier ends them after 1 hour; no cancel call).
+    # Token and agent id are optional: without them the gateway logs in with the email and password and uses the
+    # login's token and agent_id. When both an agent id here and the login's are present they must match.
+    dhillu_sahi_token: SecretStr | None = None
+    dhillu_sahi_agent_id: int | None = Field(None, gt=0)
+    group_dhillu_sahi_hold_enabled: bool = True
     skypass_endpoint: str | None = None
     skypass_client_id: SecretStr | None = None
     skypass_client_secret: SecretStr | None = None

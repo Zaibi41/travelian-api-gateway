@@ -114,10 +114,14 @@ def test_group_baggage_text_puts_hand_carry_first(checked, hand, expected):
 def test_hold_only_where_the_provider_holds_and_a_selling_price_exists():
     skypass = ticket_view(skypass_ticket(), NONE)
     assert skypass.can_hold is True and skypass.hold_unavailable_reason is None
-    dhillu = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], NONE)
-    assert dhillu.can_hold is False and dhillu.hold_unavailable_reason == "Holding isn't available for this provider"
-    named = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], ALL)
-    assert named.can_hold is False and named.hold_unavailable_reason == "Dhillu & Sahi has no hold API"
+    with patch.object(settings, "group_dhillu_sahi_hold_enabled", False):  # the off switch: today's reasons
+        dhillu = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], NONE)
+        assert dhillu.can_hold is False and dhillu.hold_unavailable_reason == "Holding isn't available for this provider"
+        named = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], ALL)
+        assert named.can_hold is False and named.hold_unavailable_reason == "Dhillu & Sahi has no hold API"
+    with patch.object(settings, "group_dhillu_sahi_hold_enabled", True), patch.object(settings, "dhillu_sahi_email", "a@example.invalid"), \
+         patch.object(settings, "dhillu_sahi_password", SecretStr("synthetic")):
+        assert ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], NONE).can_hold is True
     with patch.object(settings, "skypass_endpoint", None):  # Skypass not configured: no holds either
         assert ticket_view(skypass_ticket(), NONE).can_hold is False
     with patch.object(settings, "group_ticketing_markup_percent", None), patch.object(settings, "group_ticketing_markup_fixed_minor", None):

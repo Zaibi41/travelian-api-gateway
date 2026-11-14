@@ -141,14 +141,15 @@ class GroupHoldPayment(BaseModel):
     received_at: datetime
 
 
-GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued", "unknown"]
+GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued", "unknown", "not_recorded"]
 
 
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
     pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
     status: GroupHoldStatus = Field(description="held; expired (time limit passed, can't be held again: search again); released; "
-                                                "processing (issuing); issued; unknown (issuing outcome unclear).")
+                                                "processing (issuing); issued; unknown (issuing outcome unclear); not_recorded (the supplier held "
+                                                "but the booking couldn't be completed; only viewers with supplier access can open it).")
     hold_expires_at: datetime | None = Field(None, description="Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.")
     adults: int
     flight: GroupHoldFlight
@@ -167,8 +168,11 @@ class GroupHoldView(BaseModel):
     can_record_payments: bool = Field(False, description="This viewer may record a payment now (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due, provider supports it (the endpoint still checks).")
     issue_unavailable_reason: str | None = Field(None, description="Why Issue tickets is off for this booking's provider, when it is.")
+    can_release: bool = Field(False, description="Release hold can be used now: held, and the provider has a release call (the endpoint still checks).")
     supplier_release_failed: bool | None = Field(None, description="The seats could not be released at the supplier after the hold ended "
                                                                    "(being retried, or given up). Only with the supplier names permission.")
+    supplier_notice: str | None = Field(None, description="What happens to the seats at the supplier, e.g. 'Supplier hold not recorded, it expires "
+                                                         "by itself after 1 hour'. Only with the supplier names permission.")
     saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
 
 

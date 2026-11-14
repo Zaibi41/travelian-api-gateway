@@ -50,6 +50,8 @@ def call(viewer, path="/v1/group-ticketing/inventory", markup=Decimal("5"), fixe
     with (
         patch("app.api.routes.group_ticketing.fetch_all_group_inventory", new=AsyncMock(return_value=groups())),
         patch.object(settings, "group_ticketing_markup_percent", markup),
+        # Dhillu & Sahi Hold seats switched off (GROUP_DHILLU_SAHI_HOLD_ENABLED=false): today's off state and reasons.
+        patch.object(settings, "group_dhillu_sahi_hold_enabled", False),
         patch.object(settings, "group_ticketing_markup_fixed_minor", fixed),
     ):
         client = TestClient(app)

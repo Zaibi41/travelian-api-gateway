@@ -87,7 +87,7 @@ async def list_bookings(
 async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
     bookings = await run_in_threadpool(_read_bookings)
     booking = service.find_booking(bookings, booking_id)
-    if booking is None:
+    if booking is None or not service.visible_to(booking, viewer.visibility):
         raise HTTPException(404, "Booking not found.")
     try:
         people = await run_in_threadpool(booking_people.read, booking.booking_id)

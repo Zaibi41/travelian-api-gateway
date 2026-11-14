@@ -107,6 +107,19 @@ class DhilluSahiAuthClient:
             raise DhilluSahiAuthError("Dhillu & Sahi booking response did not match the expected schema")
         return booking_id
 
+    async def create_booking(self, token: str, booking: dict[str, Any]) -> dict[str, Any]:
+        """add-booking, returning the supplier's whole answer. Never retried. success false: error_code
+        'rejected' (nothing booked); success true without a usable booking id: 'invalid_response' (unclear)."""
+        async with self._new_http_client() as client:
+            payload = await self._post_json(client, "/api/add-booking", json=booking, operation="booking creation", token=token)
+        if payload.get("success") is not True:
+            raise DhilluSahiAuthError("Dhillu & Sahi refused the booking", error_code="rejected")
+        data = payload.get("data")
+        booking_id = data.get("id") if isinstance(data, dict) else None
+        if type(booking_id) is not int or booking_id <= 0:
+            raise DhilluSahiAuthError("Dhillu & Sahi booking response had no booking id", error_code="invalid_response")
+        return payload
+
     async def fetch_booking_details(self, token: str, booking_id: int) -> dict[str, Any]:
         """Fetch and validate booking and associated group details."""
         async with self._new_http_client() as client:

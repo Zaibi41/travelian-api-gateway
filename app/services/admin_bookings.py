@@ -101,8 +101,13 @@ def _matches_text(booking: BookingRow, q: str, visibility: FieldVisibility) -> b
     return any(q in (value or "").lower() for value in (booking.booking_id, visible_pnr(booking, visibility)))
 
 
-def _in_tab(bookings: Iterable[BookingRow], product: str | None) -> list[BookingRow]:
-    return [b for b in bookings if b.product in BOOKING_PRODUCTS and (product is None or b.product == product)]
+def visible_to(booking: BookingRow, visibility: FieldVisibility) -> bool:
+    """A supplier hold Travelian couldn't record ('hold_unrecorded') only reaches viewers with supplier access."""
+    return booking.status != "hold_unrecorded" or visibility.supplier_names
+
+
+def _in_tab(bookings: Iterable[BookingRow], product: str | None, visibility: FieldVisibility) -> list[BookingRow]:
+    return [b for b in bookings if b.product in BOOKING_PRODUCTS and (product is None or b.product == product) and visible_to(b, visibility)]
 
 
 def _filtered(bookings: list[BookingRow], query: BookingListQuery, now: datetime, visibility: FieldVisibility) -> list[BookingRow]:
@@ -166,7 +171,7 @@ def build_list(
     bookings: Iterable[BookingRow], query: BookingListQuery, now: datetime, window_hours: int, visibility: FieldVisibility,
 ) -> BookingList:
     bookings = list(bookings)
-    tab = _in_tab(bookings, query.product)
+    tab = _in_tab(bookings, query.product, visibility)
     # Cards follow every filter except the card itself, so picking a card doesn't zero the others.
     in_filters = _filtered(tab, query, now, visibility)
     card_rule = card_rules(now, window_hours).get(query.card) if query.card else None

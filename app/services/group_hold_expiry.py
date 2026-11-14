@@ -7,7 +7,8 @@ Every GROUP_HOLD_JOB_INTERVAL_SECONDS:
    supplier didn't confirm) gets one release call. Success: logged as supplier_released. Failure:
    logged, attempts + 1, tried again next run, 'failed' after GROUP_HOLD_RELEASE_ATTEMPTS. While a
    failed attempt stands, Admin and Super Admin see "Supplier release failed, release manually".
-Release is the only supplier call this job makes. Nothing here depends on a supplier expiry.
+Release is the only supplier call this job makes; sources without a release call (Dhillu & Sahi) get none:
+the supplier ends their holds by itself after 1 hour. Nothing here depends on a supplier expiry.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.db import group_holds as store
-from app.services.group_holds import HeldRef, provider_for
+from app.services.group_holds import NO_RELEASE_SOURCES, HeldRef, provider_for
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     """One pass. Returns what happened: expired, released, failed (references), for logs and tests."""
     now = now or _now()
     outcome: dict[str, list[str]] = {"expired": [], "released": [], "failed": []}
-    expired = await run_in_threadpool(store.expire_due, now)
+    expired = await run_in_threadpool(store.expire_due, now, frozenset(NO_RELEASE_SOURCES))
     outcome["expired"] = expired
     for reference in expired:
         logger.info("Group hold expired", extra={"reference": reference})
@@ -51,6 +52,8 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
         updated = await run_in_threadpool(store.mark_release_attempt, booking.reference, None, error is None, error, now,
                                           settings.group_hold_release_attempts)
         if error is None:
+            if booking.booking_status == store.HOLD_UNRECORDED:
+                await run_in_threadpool(store.mark_unrecorded_released, booking.reference, None)
             outcome["released"].append(booking.reference)
             logger.info("Group hold seats released at the supplier", extra={"reference": booking.reference})
         else:

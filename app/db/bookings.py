@@ -49,7 +49,8 @@ _SELECT = text(
            b.supplier_cost_minor, b.import_source, b.agency_id, a.name AS agency_name, b.updated_at,
            NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), '') AS customer_name, b.itinerary
        FROM bookings b LEFT JOIN agencies a ON a.id = b.agency_id
-       LEFT JOIN booking_customers c ON c.booking_id = b.id"""
+       LEFT JOIN booking_customers c ON c.booking_id = b.id
+       WHERE b.booking_status NOT IN ('hold_pending', 'hold_failed')"""
 )
 
 
