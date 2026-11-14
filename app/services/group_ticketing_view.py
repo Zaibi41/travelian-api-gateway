@@ -188,7 +188,7 @@ NO_HOLD_PROVIDER = "Holding isn't available for this provider"
 # Dhillu & Sahi's documented API (login, groups, check availability, add booking, booking
 # detail) has no hold, release or cancel call. Names the supplier, so only for viewers with
 # the supplier names permission; everyone else gets NO_HOLD_PROVIDER.
-NO_HOLD_API = {"dhillu_sahi": "Dhillu & Sahi has no hold API"}
+NO_HOLD_API = {"dhillu_sahi": "Dhillu & Sahi has no hold API", "al_haider": "Holding is not wired for Al Haider yet"}
 NO_PRICE = "The provider sent no price for this fare"
 
 

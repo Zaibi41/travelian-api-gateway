@@ -24,13 +24,20 @@ class Settings(BaseSettings):
     dhillu_sahi_email: str | None = None
     dhillu_sahi_password: SecretStr | None = None
     dhillu_sahi_timeout_seconds: float = 10.0
-    dhillu_sahi_group_sector_id: str | None = None
+    dhillu_sahi_group_sector_id: str | None = None  # legacy single value; merged into the ids below
+    # Sector group ids for the listing call (my_sector_id), comma-separated; one listing call per id, merged.
+    # Confirmed live 14 Nov 2026: 9 returns Saudi Arabia routes (Dammam, Riyadh), 29 returns Kuwait. There is no
+    # call that lists the ids.
+    dhillu_sahi_sector_group_ids: str = "9,29"
     # Dhillu & Sahi holds (add-booking holds seats unpaid; the supplier ends them after 1 hour; no cancel call).
     # Token and agent id are optional: without them the gateway logs in with the email and password and uses the
     # login's token and agent_id. When both an agent id here and the login's are present they must match.
     dhillu_sahi_token: SecretStr | None = None
     dhillu_sahi_agent_id: int | None = Field(None, gt=0)
     group_dhillu_sahi_hold_enabled: bool = True
+    # Al Haider (Group Ticketing): a permanent access token sent as a Bearer header (no login call).
+    al_haider_base_url: str | None = None
+    al_haider_access_token: SecretStr | None = None
     skypass_endpoint: str | None = None
     skypass_client_id: SecretStr | None = None
     skypass_client_secret: SecretStr | None = None

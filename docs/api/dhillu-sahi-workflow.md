@@ -53,7 +53,7 @@ The direct booking request is not yet bound to a persisted selection/accepted qu
 
 ## Manual clarifications still required
 
-- `my_sector_id` is described as a date but demonstrated as a numeric selector. Continue using the confirmed configured account selector; do not reinterpret it or claim account-wide coverage.
+- `my_sector_id` is a sector group id (verified live 14 Nov 2026: 9 = Saudi Arabia, 29 = Kuwait, 26 = Oman). No call lists the ids. The gateway calls the listing once per id in `DHILLU_SAHI_SECTOR_GROUP_IDS` and merges the results (repeats dropped by supplier ticket id); one failing id doesn't hide the others.
 - The manual's group inventory example is incomplete JSON. Tests use clearly synthetic complete structures reflecting the documented fields, not a claim of a captured live response.
 - Supplier login agent identity does not document how multiple Travelian agencies share or own supplier accounts.
 - Creation financial obligations, fare-change guarantees, idempotency, lost-response lookup and cancellation/refund/issuance contracts remain unconfirmed.

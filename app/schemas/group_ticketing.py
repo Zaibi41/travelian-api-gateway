@@ -41,13 +41,13 @@ class GroupTicket(BaseModel):
     source_ticket_id: str | None = None
     source_slot: str | None = None
     #: Group identity, copied onto our booking when a hold is created. Only for viewers with the supplier
-    #: names permission. Dhillu & Sahi: first subpart's group_id and id. Skypass: no group ID; ticket id.
+    #: names permission. Dhillu & Sahi: first subpart's group_id and id. Skypass: no group ID; ticket id. Al Haider: group id and first detail id.
     supplier_group_id: str | None = None
     supplier_ticket_id: str | None = None
 
 
 #: How each group source is named to viewers with the supplier names permission.
-PROVIDER_NAMES = {"dhillu_sahi": "Dhillu & Sahi", "skypass": "Skypass"}
+PROVIDER_NAMES = {"dhillu_sahi": "Dhillu & Sahi", "skypass": "Skypass", "al_haider": "Al Haider"}
 
 
 class GroupSource(BaseModel):

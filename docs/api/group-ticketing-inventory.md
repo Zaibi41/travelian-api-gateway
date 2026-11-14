@@ -100,3 +100,10 @@ This response-focused increment does not change booking guards, UI, SQL, supplie
 ## UUID representation
 
 Generated public group/ticket IDs now use canonical hyphenated UUIDv5 strings instead of 32-character UUID hex. Their underlying UUID values and deterministic identity inputs are unchanged. Single-ticket lookup accepts both previous unhyphenated IDs and canonical UUIDs and returns canonical IDs. Clients must treat IDs as opaque strings and refresh cached inventory if they compare literal ID strings. Supplier identifiers and PNRs are unchanged. No data migration is required.
+
+## Al Haider
+
+`app/vendors/group_ticketing/al_haider/`, from `docs/postman/Al Haider Travel.postman_collection.json`. A permanent access token (`AL_HAIDER_ACCESS_TOKEN`, sent as `Authorization: Bearer`; no login, no email or password) and `AL_HAIDER_BASE_URL`. Only `GET /api/available/groups` (all query values empty) is called; booking calls are not built and Hold seats is off ("Holding is not wired for Al Haider yet" for viewers with supplier access, the general reason otherwise).
+
+Fields used (live response read 14 Nov 2026): `pnr` (supplier PNR); `id` (supplier group id); first `details[].id` by `sr` (supplier ticket id); `airline.airline_name`, `airline.logo_url` (served through the gateway); `sector` "ISB-MCT-JED" (airport codes, shown "ISB - MCT - JED"; each flight's codes come from it, since `details[].origin`/`destination` are city names); `dept_date`; `details[]` in `sr` order: `flight_no` "9P-710" -> 9P710, `flight_date`, `dept_time`, `arv_time`, `baggage` "20+7" = 20 kg checked + 7 kg hand carry (same format as Skypass; the group-level `baggage` is always null); `available_no_of_pax` (seats left); `meal` Yes/No; `type` ("KSA ONEWAY"); `price` (whole rupees, PKR). The price is read as per passenger: the API has no total or per-type price fields and its values (Rs 69,000 to 105,000 for one-way KSA and Muscat flights) match the other suppliers' per-adult prices on the same routes. Al Haider has not confirmed it in writing.
+

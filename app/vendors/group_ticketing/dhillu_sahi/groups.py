@@ -65,8 +65,9 @@ class DhilluSahiGroup(BaseModel):
     tickets: list[DhilluSahiTicket] = Field(default_factory=list)
 
 
-def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi") -> list[GroupInventory]:
-    """Validate supplier rows and map them to the gateway's normalized group shape."""
+def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi", scope: str | None = None) -> list[GroupInventory]:
+    """Validate supplier rows and map them to the gateway's normalized group shape. `scope` (the sector group id the
+    rows came from) keeps row-position group ids apart when several listing calls are merged."""
     groups: list[GroupInventory] = []
     for group_index, row in enumerate(rows):
         group = DhilluSahiGroup.model_validate(row)
@@ -97,7 +98,7 @@ def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi
         ]
         groups.append(
             GroupInventory(
-                id=f"{vendor_name}:{row.get('id', group_index)}",
+                id=f"{vendor_name}:{scope + ':' if scope else ''}{row.get('id', group_index)}",
                 vendor=vendor_name,
                 sector=group.sector,
                 airline=airline,

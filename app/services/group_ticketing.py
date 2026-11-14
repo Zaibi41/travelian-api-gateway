@@ -6,6 +6,8 @@ from uuid import NAMESPACE_URL, uuid5
 
 from app.schemas.group_ticketing import GroupInventory, GroupTicket
 from app.services.vendor_fanout import gather_vendor_calls
+from app.vendors.group_ticketing.al_haider.inventory import fetch_inventory as fetch_al_haider_inventory
+from app.vendors.group_ticketing.al_haider.inventory import is_configured as al_haider_is_configured
 from app.vendors.group_ticketing.dhillu_sahi.inventory import fetch_inventory as fetch_dhillu_sahi_inventory
 from app.vendors.group_ticketing.dhillu_sahi.inventory import is_configured as dhillu_sahi_is_configured
 from app.vendors.group_ticketing.skypass.inventory import fetch_inventory as fetch_skypass_inventory
@@ -62,6 +64,8 @@ def get_group_inventory_vendors() -> list[tuple[str, Callable[[], Awaitable[list
         vendors.append(("dhillu_sahi", fetch_dhillu_sahi_inventory))
     if skypass_is_configured():
         vendors.append(("skypass", fetch_skypass_inventory))
+    if al_haider_is_configured():
+        vendors.append(("al_haider", fetch_al_haider_inventory))
     return vendors
 
 
