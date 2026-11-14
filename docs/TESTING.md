@@ -57,7 +57,8 @@ Leave anything you don't need empty: a feature whose settings are missing report
 | --- | --- |
 | `DHILLU_SAHI_BASE_URL`, `DHILLU_SAHI_EMAIL`, `DHILLU_SAHI_PASSWORD`, `DHILLU_SAHI_TIMEOUT_SECONDS`, `DHILLU_SAHI_GROUP_SECTOR_ID` | Group Ticketing supplier. |
 | `SKYPASS_ENDPOINT`, `SKYPASS_CLIENT_ID`, `SKYPASS_CLIENT_SECRET` | Second Group Ticketing supplier. |
-| `GROUP_TICKETING_MARKUP_PERCENT`, `GROUP_TICKETING_MARKUP_FIXED_MINOR` | Group selling price = supplier price + percent + fixed amount (in paisa). With both 0, no price is shown to anyone. Use the approved markup. |
+| `GROUP_TICKETING_MARKUP_PERCENT`, `GROUP_TICKETING_MARKUP_FIXED_MINOR` | Group selling price = supplier price + percent + fixed amount (in paisa). With both unset (or empty), no price is shown to anyone and Hold seats is off ("No selling price is configured for group fares"). Setting `GROUP_TICKETING_MARKUP_PERCENT=0` on purpose sells at the listing price. Use the approved markup. |
+| `GROUP_HOLD_MINUTES`, `GROUP_HOLD_JOB_INTERVAL_SECONDS`, `GROUP_HOLD_RELEASE_ATTEMPTS` | Travelian's own group hold time (default 30 minutes), how often the expiry job runs (30 s), and how many times it retries a failed supplier release (5). |
 | `GROUP_TICKETING_DEFAULT_CURRENCY` | Currency for group fares that arrive without one. |
 | `SOUTHAIR_BASE_URL`, `SOUTHAIR_USERNAME`, `SOUTHAIR_PASSWORD`, `SOUTHAIR_TIMEOUT_SECONDS` | Southair flights (AEROST OTA API). |
 | `FLIGHT_MARKUP_PERCENT`, `FLIGHT_MARKUP_FIXED_MINOR` | Flight selling price = supplier fare + percent + fixed amount (in paisa) per passenger. With both 0, no price is shown and nothing can be confirmed or held. |

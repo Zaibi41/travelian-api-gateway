@@ -145,10 +145,10 @@ GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued",
 
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
-    pnr: str | None = None
+    pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
     status: GroupHoldStatus = Field(description="held; expired (time limit passed, can't be held again: search again); released; "
                                                 "processing (issuing); issued; unknown (issuing outcome unclear).")
-    hold_expires_at: datetime | None = None
+    hold_expires_at: datetime | None = Field(None, description="Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.")
     adults: int
     flight: GroupHoldFlight
     stock: Literal["supplier", "owned"]
@@ -162,7 +162,10 @@ class GroupHoldView(BaseModel):
     travelers: list[GroupHoldTraveler] = Field(default_factory=list, description="Masked documents and dates of birth.")
     payments: list[GroupHoldPayment] = Field(default_factory=list)
     can_record_payments: bool = Field(False, description="This viewer may record a payment now (the endpoint still checks).")
-    can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due (the endpoint still checks).")
+    can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due, provider supports it (the endpoint still checks).")
+    issue_unavailable_reason: str | None = Field(None, description="Why Issue tickets is off for this booking's provider, when it is.")
+    supplier_release_failed: bool | None = Field(None, description="The seats could not be released at the supplier after the hold ended "
+                                                                   "(being retried, or given up). Only with the supplier names permission.")
     saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
 
 

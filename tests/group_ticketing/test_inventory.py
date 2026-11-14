@@ -189,7 +189,7 @@ def test_combines_both_adapters_without_search_filtering():
     assert {ticket["ticket_type"] for ticket in tickets} == {"One Way", "Two Way"}
     first = next(ticket for ticket in tickets if ticket["pnr"] == "MOCK-001")
     assert first["remaining"] == 3
-    assert first["meal"] == 5
+    assert "meal" not in first  # the supplier sends 0/1; an unknown value (5) is not shown as Yes or No
     assert "price" not in first  # super admin: supplier_cost instead (D23)
     assert first["supplier_cost"] == {"amount_minor": 10_000, "currency": "PKR"}
     assert first["subparts"] == [{"synthetic_leg": "outbound"}]

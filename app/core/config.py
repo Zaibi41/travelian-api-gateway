@@ -63,17 +63,30 @@ class Settings(BaseSettings):
     # cap; a changed price only needs the user's explicit acceptance (spec confirmation #18).
     flight_price_change_limit_minor: int | None = Field(None, ge=0)
     # Group Ticketing selling price = supplier price + percent + fixed amount (D23).
-    # With both at 0 no selling price is returned, so the supplier price is never
-    # passed off as a selling price.
-    group_ticketing_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)
-    group_ticketing_markup_fixed_minor: int = Field(0, ge=0)
+    # Both unset: no selling price at all, so the supplier price is never passed off as a
+    # selling price by accident (holds are refused: "no_selling_price"). Setting either one,
+    # even to 0, is a deliberate choice: GROUP_TICKETING_MARKUP_PERCENT=0 sells at the listing price.
+    group_ticketing_markup_percent: Decimal | None = Field(None, ge=0, le=100)
+    group_ticketing_markup_fixed_minor: int | None = Field(None, ge=0)
     # Suppliers that send no currency price in this currency.
     group_ticketing_default_currency: str = Field("PKR", pattern=r"^[A-Z]{3}$")
+    # Group holds: Travelian's own hold time (suppliers hold longer; this is the portal's limit).
+    # Expiry = hold creation + this many minutes, kept on the booking; no supplier expiry is used.
+    group_hold_minutes: int = Field(30, ge=1, le=1440)
+    # The expiry job: how often it runs, and how many times a failed supplier release is retried.
+    group_hold_job_interval_seconds: int = Field(30, ge=5, le=3600)
+    group_hold_release_attempts: int = Field(5, ge=1, le=50)
     # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
     cors_allowed_origins: list[str] = []
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
+
+    @field_validator("group_ticketing_markup_percent", "group_ticketing_markup_fixed_minor", mode="before")
+    @classmethod
+    def empty_markup_is_unset(cls, value):
+        """GROUP_TICKETING_MARKUP_*= (empty, as in .env.example) means not set, never 0."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("cors_allowed_origins")
     @classmethod

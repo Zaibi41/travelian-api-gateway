@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.group_ticketing import GroupInventory, GroupTicket
+from app.schemas.group_ticketing import GroupInventory, GroupLeg, GroupTicket
 
 
 class DhilluSahiTicket(BaseModel):
@@ -18,9 +18,37 @@ class DhilluSahiTicket(BaseModel):
     price: str | int | float | None = None
     ticket_type: str | int | None = None
     baggage: str | int | None = None
+    hand_carry: str | int | None = Field(default=None, alias="departure_handcarry")
     sold: str | int | None = None
     remaining: int | None = None
     subpart: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _text(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _codes(sector_name: Any) -> tuple[str | None, str | None]:
+    parts = [part.strip().upper() for part in str(sector_name or "").split("-") if part.strip()]
+    return (parts[0], parts[-1]) if len(parts) >= 2 else (None, None)
+
+
+def _legs(ticket: "DhilluSahiTicket") -> list[GroupLeg]:
+    """Each subpart is one flight of the one-way group (ticket_type 1): departure_* fields and the
+    supplier's misspelt arivval_* fields. There is no return leg in this feed."""
+    legs = []
+    for part in ticket.subpart:
+        origin, destination = _codes(part.get("departure_sector_name") or ticket.sector)
+        legs.append(GroupLeg(
+            direction="outbound",
+            flight_number=_text(part.get("departure_flight_number")), origin=origin, destination=destination,
+            departure_date=_text(part.get("departure_date")), departure_time=_text(part.get("departure_time")),
+            arrival_date=_text(part.get("arivval_date")), arrival_time=_text(part.get("arivval_time")),
+            baggage=_text(part.get("departure_baggage")) or _text(ticket.baggage),
+            hand_carry=_text(part.get("departure_handcarry")) or _text(ticket.hand_carry), meal=ticket.meal,
+        ))
+    return legs
 
 
 class DhilluSahiGroup(BaseModel):
@@ -51,8 +79,10 @@ def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi
                 updated_at=ticket.updated_at,
                 sold=ticket.sold,
                 baggage=ticket.baggage,
+                hand_carry=ticket.hand_carry,
                 meal=ticket.meal,
                 ticket_type=ticket.ticket_type,
+                legs=_legs(ticket),
                 subparts=ticket.subpart,
             )
             for ticket in group.tickets

@@ -3413,7 +3413,7 @@
           },
           "can_issue_tickets": {
             "default": false,
-            "description": "This viewer may issue now: held, not expired, nothing due (the endpoint still checks).",
+            "description": "This viewer may issue now: held, not expired, nothing due, provider supports it (the endpoint still checks).",
             "title": "Can Issue Tickets",
             "type": "boolean"
           },
@@ -3446,7 +3446,20 @@
                 "type": "null"
               }
             ],
+            "description": "Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.",
             "title": "Hold Expires At"
+          },
+          "issue_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why Issue tickets is off for this booking's provider, when it is.",
+            "title": "Issue Unavailable Reason"
           },
           "payment_status": {
             "enum": [
@@ -3473,6 +3486,7 @@
                 "type": "null"
               }
             ],
+            "description": "The supplier's PNR. Only with the supplier names permission.",
             "title": "Pnr"
           },
           "price_per_adult": {
@@ -3526,6 +3540,18 @@
             ],
             "description": "Only with the supplier names permission.",
             "title": "Supplier"
+          },
+          "supplier_release_failed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The seats could not be released at the supplier after the hold ended (being retried, or given up). Only with the supplier names permission.",
+            "title": "Supplier Release Failed"
           },
           "total": {
             "$ref": "#/components/schemas/GroupMoney"
@@ -3612,6 +3638,139 @@
           "hold"
         ],
         "title": "GroupIssueResult",
+        "type": "object"
+      },
+      "GroupLegView": {
+        "properties": {
+          "arrival_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Date"
+          },
+          "arrival_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Time"
+          },
+          "baggage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Checked baggage in kg, e.g. '20'.",
+            "title": "Baggage"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "departure_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Time"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination"
+          },
+          "direction": {
+            "enum": [
+              "outbound",
+              "return"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "hand_carry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hand carry in kg, e.g. '7'.",
+            "title": "Hand Carry"
+          },
+          "meal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Yes",
+                  "No"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meal"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          }
+        },
+        "required": [
+          "direction"
+        ],
+        "title": "GroupLegView",
         "type": "object"
       },
       "GroupMoney": {
@@ -3830,11 +3989,12 @@
                 "type": "null"
               }
             ],
+            "description": "Checked baggage of the outbound leg in kg.",
             "title": "Baggage"
           },
           "can_hold": {
             "default": false,
-            "description": "Whether the gateway can hold seats on this fare (its source supports holds).",
+            "description": "Whether Hold seats can be used on this fare: its source holds seats and a selling price exists.",
             "title": "Can Hold",
             "type": "boolean"
           },
@@ -3861,9 +4021,56 @@
             "description": "HH:MM of the first segment, when the supplier sends it.",
             "title": "Departure Time"
           },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outbound flight number, e.g. 9P700.",
+            "title": "Flight Number"
+          },
+          "hand_carry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hand carry of the outbound leg in kg.",
+            "title": "Hand Carry"
+          },
+          "hold_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why Hold seats is off for this fare, when it is.",
+            "title": "Hold Unavailable Reason"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "legs": {
+            "description": "Every flight, outbound then return.",
+            "items": {
+              "$ref": "#/components/schemas/GroupLegView"
+            },
+            "title": "Legs",
+            "type": "array"
           },
           "logo_url": {
             "anyOf": [
@@ -3880,10 +4087,11 @@
           "meal": {
             "anyOf": [
               {
+                "enum": [
+                  "Yes",
+                  "No"
+                ],
                 "type": "string"
-              },
-              {
-                "type": "integer"
               },
               {
                 "type": "null"

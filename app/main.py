@@ -8,6 +8,7 @@ from app.api.routes import router
 from app.api.routes.operations import router as operations_router
 from app.core.config import settings
 from app.core.parameter_store import load_parameter_store_settings
+from app.services.group_hold_expiry import run_forever as run_group_hold_expiry
 
 
 @asynccontextmanager
@@ -15,10 +16,19 @@ async def lifespan(app: FastAPI):
     app.state.ready = False
     await asyncio.to_thread(load_parameter_store_settings)
     app.state.ready = True
+    # Group holds: expire past their time limit and give the seats back at the supplier.
+    stop = asyncio.Event()
+    job = asyncio.create_task(run_group_hold_expiry(stop))
     try:
         yield
     finally:
         app.state.ready = False
+        stop.set()
+        job.cancel()
+        try:
+            await job
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+            pass
 
 
 app = FastAPI(

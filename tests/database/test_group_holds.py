@@ -38,18 +38,24 @@ TICKET_ID = group_ticket_id(inventory()[0].tickets[0])
 
 
 class FakeProvider:
-    def __init__(self, cost=100_000_00, issue_answer=None, hold_error=None):
+    """A provider that holds, prices and releases; `supports_issue` lets the generic issue path be tested
+    (no real group provider issues yet)."""
+
+    issue_unavailable_reason = group_holds.NO_ISSUE_REASON
+
+    def __init__(self, cost=100_000_00, issue_answer=None, hold_error=None, supports_issue=True, release_errors=0):
         self.cost = cost
         self.issue_answer = issue_answer
         self.hold_error = hold_error
+        self.supports_issue = supports_issue
+        self.release_errors = release_errors
         self.calls = []
 
     async def hold(self, ticket, passengers, contact):
         self.calls.append(("hold", len(passengers)))
         if self.hold_error:
             raise self.hold_error
-        return HeldSeats("K7P2QX", SUPPLIER_REF, datetime.now(timezone.utc) + timedelta(minutes=30),
-                         GroupMoney(amount_minor=self.cost, currency="PKR"))
+        return HeldSeats("K7P2QX", SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"))
 
     async def price(self, held):
         self.calls.append("price")
@@ -57,6 +63,9 @@ class FakeProvider:
 
     async def release(self, held):
         self.calls.append(("release", held.supplier_ref))
+        if self.release_errors:
+            self.release_errors -= 1
+            raise RuntimeError("supplier down")
 
     async def issue(self, held, cost):
         self.calls.append(("issue", cost.amount_minor))
@@ -123,8 +132,11 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
 def test_supplier_name_only_for_viewers_allowed_to_see_it(provider):
     view = place()
     assert view.supplier == VENDOR
+    assert view.pnr == "K7P2QX"
     staff_view = run(group_holds.read(view.booking_id, STAFF))
-    assert staff_view.supplier is None and staff_view.stock == "supplier" and VENDOR not in staff_view.model_dump_json()
+    assert staff_view.supplier is None and staff_view.pnr is None and staff_view.stock == "supplier"
+    body = staff_view.model_dump_json()
+    assert VENDOR not in body and "K7P2QX" not in body
 
 
 def test_hold_failure_saves_nothing_and_is_never_retried(provider, database):

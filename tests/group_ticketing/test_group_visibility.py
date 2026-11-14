@@ -43,14 +43,14 @@ VIEWERS = {
 }
 
 
-def call(viewer, path="/v1/group-ticketing/inventory", markup=Decimal("5")):
+def call(viewer, path="/v1/group-ticketing/inventory", markup=Decimal("5"), fixed=0):
     app = FastAPI()
     app.include_router(router, prefix="/v1")
     app.dependency_overrides[require_search_viewer] = lambda: viewer
     with (
         patch("app.api.routes.group_ticketing.fetch_all_group_inventory", new=AsyncMock(return_value=groups())),
         patch.object(settings, "group_ticketing_markup_percent", markup),
-        patch.object(settings, "group_ticketing_markup_fixed_minor", 0),
+        patch.object(settings, "group_ticketing_markup_fixed_minor", fixed),
     ):
         client = TestClient(app)
         if path.endswith("/search"):
@@ -75,8 +75,10 @@ def test_staff_and_agency_get_no_supplier_cost_or_raw_fields(role, path):
     assert ticket["selling_price"] == {"amount_minor": 9_975_000, "currency": "PKR"}  # 95,000 + 5% = 99,750
     assert ticket["logo_url"].startswith("/v1/logos/") and ticket["departure_time"] == "09:45"
     assert set(ticket) <= {"id", "updated_at", "sold", "departure_date", "departure_time", "sector", "airline",
-                           "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price", "stock", "can_hold"}
-    assert ticket["stock"] == "supplier" and ticket["can_hold"] is False  # no group source supports holds yet
+                           "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price", "stock", "can_hold",
+                           "legs", "flight_number", "hand_carry", "hold_unavailable_reason"}
+    assert ticket["stock"] == "supplier" and ticket["can_hold"] is False  # Dhillu & Sahi can't hold
+    assert ticket["hold_unavailable_reason"] == "Holding isn't available for this provider"
 
 
 def test_super_admin_gets_supplier_cost_and_raw_fields():
@@ -101,8 +103,15 @@ def test_single_ticket_follows_the_same_rules():
 
 
 def test_no_markup_means_no_price_at_all():
-    ticket = ticket_of(call(VIEWERS["staff"], markup=Decimal("0")))
+    with patch.object(settings, "group_ticketing_markup_fixed_minor", None):
+        ticket = ticket_of(call(VIEWERS["staff"], markup=None, fixed=None))
     assert "selling_price" not in ticket and "95000" not in json.dumps(ticket)
+    assert ticket["can_hold"] is False
+
+
+def test_a_markup_set_to_zero_on_purpose_sells_at_the_listing_price():
+    ticket = ticket_of(call(VIEWERS["staff"], markup=Decimal("0")))
+    assert ticket["selling_price"] == {"amount_minor": 9_500_000, "currency": "PKR"}
 
 
 def test_selling_price_rounds_up_and_adds_fixed_amount():

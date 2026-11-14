@@ -1,15 +1,18 @@
 """Group Ticketing hold lifecycle (admin, adults only): hold seats -> price shown -> payments ->
 price re-checked -> issue tickets; or release; or the hold expires.
 
-Each group source plugs in as a GroupHoldProvider. The provider registry is empty today: no
-configured group supplier has a documented hold / release / price / issue contract with response
-schemas (docs/api/group-holds.md), so `provider_for` returns None and holds are refused with
-"hold_not_supported" before anything is sent. Supplier calls that change state are never retried.
+Each group source plugs in as a GroupHoldProvider (docs/api/group-holds.md). Skypass holds and
+releases seats (no issuing: its submit-booking is not built); Dhillu & Sahi has no hold call, so
+its fares answer "hold_not_supported" before anything is sent. State-changing supplier calls are
+never retried here; the expiry job (group_hold_expiry) retries only releases.
 
-The price is never known before the hold. The hold's supplier price per adult becomes the selling
-price (group markup) and the booking total. Before issuing, the price is checked again: when it
-moved, issuing stops with "price_changed" until the customer agrees (accepted_total) or the hold
-is released. Supplier names and cost never leave this module except for viewers allowed to see them.
+The hold time is Travelian's own: expiry = creation + GROUP_HOLD_MINUTES, kept on the booking.
+No supplier expiry is used. After it, payments and issuing are refused even if the supplier still
+holds the seats, and the job gives the seats back. The supplier price per adult from the listing
+becomes the selling price (group markup) and the booking total. Before issuing, the price is
+checked again: when it moved, issuing stops with "price_changed" until the customer agrees
+(accepted_total) or the hold is released. Supplier names, supplier PNRs and cost never leave this
+module except for viewers allowed to see them.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
@@ -48,10 +51,9 @@ REFERENCE_PREFIX = "TRV-GRP-"
 
 @dataclass(frozen=True)
 class HeldSeats:
-    """What a provider returns for a confirmed hold."""
-    pnr: str
-    supplier_ref: str          # the supplier's hold or booking id; stays in the gateway
-    expires_at: datetime       # timezone-aware
+    """What a provider returns for a confirmed hold. The expiry is Travelian's own (GROUP_HOLD_MINUTES)."""
+    pnr: str | None
+    supplier_ref: str          # what the provider needs to release or price the hold; stays in the gateway
     cost_per_adult: GroupMoney  # supplier price per adult
 
     def __repr__(self) -> str:
@@ -70,28 +72,49 @@ class SupplierRefused(Exception):
 
 
 class GroupHoldProvider(Protocol):
+    supports_issue: bool
+    issue_unavailable_reason: str
+
     async def hold(self, ticket: GroupTicket, passengers: list[HoldPassenger], contact: HoldContact) -> HeldSeats: ...
     async def price(self, held: HeldRef) -> GroupMoney: ...
     async def release(self, held: HeldRef) -> None: ...
     async def issue(self, held: HeldRef, cost_per_adult: GroupMoney) -> list[str]: ...
 
 
-#: Group source (GroupTicket.vendor) -> provider factory. Add a source only with its supplier's
-#: documented hold, release, price and issue contracts (gateway AGENTS.md). See SUPPORT.
-PROVIDERS: dict[str, Callable[[], GroupHoldProvider]] = {}
+def _skypass() -> GroupHoldProvider | None:
+    from app.vendors.group_ticketing.skypass.holds import SkypassHoldProvider
+    from app.vendors.group_ticketing.skypass.inventory import is_configured
 
-#: What each configured group source supports today (reported, not used for routing).
+    return SkypassHoldProvider() if is_configured() else None
+
+
+#: Group source (GroupTicket.vendor) -> provider factory (None when its credentials are missing).
+#: Add a source only with its supplier's documented hold and release contracts (gateway AGENTS.md).
+PROVIDERS: dict[str, Callable[[], GroupHoldProvider | None]] = {"skypass": _skypass}
+
+#: What each group source supports today (reported, not used for routing).
 SUPPORT = {
-    "dhillu_sahi": "Inventory, read-only availability check, add-booking (kept behind booking authorization) and booking details. "
-                   "No hold expiry, release, price re-check or ticket issuance contract.",
-    "skypass": "Inventory. Its collection lists hold-available-seats, release-seats, submit-booking, cancel-booking and booking "
-               "details, but no response formats, hold expiry or price fields, so no adapter is built.",
+    "skypass": "Inventory; hold and release (hold-available-seats, release-seats; no hold id, expiry or price in the answer); "
+               "price re-check from the ticket detail. No issuing: submit-booking is not built.",
+    "dhillu_sahi": "Inventory and a read-only availability check. No hold, release or issue call: Hold seats is off for its fares.",
+    "al_haider": "No adapter and no credentials.",
 }
+
+NO_ISSUE_REASON = "Issuing is not available for this provider yet"
 
 
 def provider_for(vendor: str | None) -> GroupHoldProvider | None:
     factory = PROVIDERS.get(vendor or "")
     return factory() if factory else None
+
+
+def supports_issue(provider: GroupHoldProvider | None) -> bool:
+    return bool(provider is not None and getattr(provider, "supports_issue", False))
+
+
+def hold_expiry(created_at: datetime) -> datetime:
+    """Travelian's own hold time: creation + GROUP_HOLD_MINUTES. Never a supplier value."""
+    return created_at + timedelta(minutes=settings.group_hold_minutes)
 
 
 # ---------- errors ----------
@@ -113,7 +136,9 @@ def _now() -> datetime:
 
 
 def _markup_configured() -> bool:
-    return selling_price(GroupMoney(amount_minor=100, currency=settings.group_ticketing_default_currency)) is not None
+    from app.services.group_ticketing_view import markup_configured
+
+    return markup_configured()
 
 
 # ---------- read ----------
@@ -147,16 +172,22 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
     due = max(booking.total_minor - booking.paid_minor, 0)
     adults = max(booking.adults, 1)
     open_hold = status == "held"
+    provider = provider_for(booking.provider)
+    issuable = supports_issue(provider)
     view = GroupHoldView(
-        booking_id=booking.reference, pnr=booking.pnr, status=status, hold_expires_at=booking.hold_expires_at, adults=booking.adults,
+        booking_id=booking.reference, status=status, hold_expires_at=booking.hold_expires_at, adults=booking.adults,
         flight=_flight(booking), stock=stock_label(booking.provider or ""),
         price_per_adult=money(booking.total_minor // adults), total=money(booking.total_minor), amount_paid=money(booking.paid_minor),
         amount_due=money(due), payment_status=booking.payment_status if booking.payment_status in ("paid", "part_paid") else "unpaid",
         can_record_payments=open_hold and due > 0 and viewer.can(RECORD_PAYMENTS),
-        can_issue_tickets=open_hold and due == 0 and viewer.can(ISSUE_TICKETS) and booking.issuance_status in issuance_store.ISSUABLE,
+        can_issue_tickets=issuable and open_hold and due == 0 and viewer.can(ISSUE_TICKETS) and booking.issuance_status in issuance_store.ISSUABLE,
+        issue_unavailable_reason=None if issuable else NO_ISSUE_REASON,
     )
-    if viewer.visibility.supplier_names and booking.provider:
-        view.supplier = booking.provider
+    if viewer.visibility.supplier_names:
+        # Supplier name and the supplier's PNR: only with the supplier names permission.
+        view.supplier = booking.provider or None
+        view.pnr = booking.pnr
+        view.supplier_release_failed = booking.release_failed
     if people is not None:
         if people.customer:
             c = people.customer
@@ -281,26 +312,29 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         logger.warning("Group hold failed", extra={"vendor": ticket.vendor})
         raise GroupHoldError(502, "The supplier didn't confirm the hold. Check with the supplier before trying again.", "not_confirmed_hold") from None
     selling = selling_price(held.cost_per_adult)
-    if selling is None or held.expires_at.tzinfo is None:
-        logger.error("Group hold answer unusable", extra={"vendor": ticket.vendor, "pnr": held.pnr})
-        raise GroupHoldError(502, f"The supplier held the seats (PNR {held.pnr}) but its answer can't be used. Release it with the supplier.",
-                             "not_confirmed_hold", pnr=held.pnr)
+    if selling is None:
+        logger.error("Group hold answer unusable", extra={"vendor": ticket.vendor})
+        raise GroupHoldError(502, "The supplier held the seats but no selling price could be worked out. Release them with the supplier.",
+                             "not_confirmed_hold", **({"pnr": held.pnr} if held.pnr else {}))
+    held_at = _now()
+    expires_at = hold_expiry(held_at)
 
     travelers = flight_holds._travelers(resolved, links)
     try:
         reference = await run_in_threadpool(lambda: supplier_bookings.save_hold(
-            provider=ticket.vendor, pnr=held.pnr, supplier_ref=held.supplier_ref, hold_expires_at=held.expires_at, currency=selling.currency,
+            provider=ticket.vendor, pnr=held.pnr or "", supplier_ref=held.supplier_ref, hold_expires_at=expires_at, currency=selling.currency,
             selling_total_minor=selling.amount_minor * request.adults, supplier_total_minor=held.cost_per_adult.amount_minor * request.adults,
-            supplier_response={"adults": request.adults, "ticket": {"updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type}},
+            supplier_response={"adults": request.adults, "held_at": held_at.isoformat(), "hold_minutes": settings.group_hold_minutes,
+                               "ticket": {"updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type}},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
-            audit={"pnr": held.pnr, "time_limit": held.expires_at.isoformat(), "amount_minor": selling.amount_minor * request.adults,
+            audit={"pnr": held.pnr, "time_limit": expires_at.isoformat(), "amount_minor": selling.amount_minor * request.adults,
                    "currency": selling.currency, "pax_count": request.adults},
             product="group", source=None, reference_prefix=REFERENCE_PREFIX,
         ))
     except Exception:  # noqa: BLE001
         logger.error("Group hold created but not saved", extra={"pnr": held.pnr})
-        raise GroupHoldError(500, f"The seats were held at the supplier (PNR {held.pnr}) but couldn't be saved. Record this PNR.",
-                             "not_saved", pnr=held.pnr) from None
+        raise GroupHoldError(500, f"The seats were held at the supplier{f' (PNR {held.pnr})' if held.pnr else ''} but couldn't be saved. Record this.",
+                             "not_saved", **({"pnr": held.pnr} if held.pnr else {})) from None
     document = None
     customer = request.contact
     if customer.document_number and customer.id_type:
@@ -366,12 +400,16 @@ async def release(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
         raise GroupHoldError(409, "Tickets are being issued for this booking. It can't be released.", "issuing")
     try:
         await provider.release(_held_ref(booking))
-    except Exception:  # noqa: BLE001 - never retried; nothing changes here
-        logger.warning("Group release failed", extra={"pnr": booking.pnr})
-        raise GroupHoldError(502, "The supplier didn't confirm the release. The seats may still be held: check with the supplier.",
-                             "not_released") from None
+    except Exception as error:  # noqa: BLE001 - the expiry job retries; the booking reads as expired meanwhile
+        code = getattr(error, "error_code", type(error).__name__)
+        logger.warning("Group release failed; the expiry job will retry", extra={"reference": reference, "error_code": code})
+        try:
+            await run_in_threadpool(store.mark_release_failed_on_request, reference, viewer.user_id, code, _now())
+        except store.GroupHoldRefused as refused:
+            raise _refused(refused) from None
+        return await read(reference, viewer)
     try:
-        await run_in_threadpool(store.mark_released, reference, viewer.user_id)
+        await run_in_threadpool(store.mark_released, reference, viewer.user_id, _now())
     except store.GroupHoldRefused as error:
         raise _refused(error) from None
     return await read(reference, viewer)
@@ -381,6 +419,8 @@ async def issue(reference: str, viewer: BackOfficeUser, accepted_total: GroupMon
     if not viewer.can(ISSUE_TICKETS):
         raise GroupHoldError(403, "Issuing tickets requires the issue tickets permission.", "not_allowed")
     booking, provider = await _open_hold(reference)
+    if not supports_issue(provider):
+        raise GroupHoldError(409, f"{NO_ISSUE_REASON}. Nothing was issued.", "issue_not_supported")
     if booking.paid_minor < booking.total_minor:
         due = booking.total_minor - booking.paid_minor
         raise GroupHoldError(409, f"Record the full payment first: {money_text(due, booking.currency)} is still due. Nothing was issued.", "payment_due")
@@ -430,5 +470,5 @@ async def issue(reference: str, viewer: BackOfficeUser, accepted_total: GroupMon
                             hold=await read(reference, viewer))
 
 
-__all__ = ["GroupHoldError", "GroupHoldProvider", "HeldRef", "HeldSeats", "PROVIDERS", "SUPPORT", "SupplierRefused",
-           "hold", "issue", "price_check", "provider_for", "read", "release"]
+__all__ = ["GroupHoldError", "GroupHoldProvider", "HeldRef", "HeldSeats", "NO_ISSUE_REASON", "PROVIDERS", "SUPPORT", "SupplierRefused",
+           "hold", "hold_expiry", "issue", "price_check", "provider_for", "read", "release", "supports_issue"]
