@@ -69,7 +69,9 @@ Root/group/ticket wrappers contain no added vendor names or per-vendor success/f
 ## Aggregation and failures
 
 - Every configured adapter is called concurrently, within the gateway's fan-out concurrency and timeout settings.
-- Unfiltered inventory retains all returned group/ticket types; it does not apply origin/date/passenger filters. Filtered search remains the separate `POST /v1/group-ticketing/search` operation.
+- Unfiltered inventory retains all returned group/ticket types; it does not apply origin/date/passenger filters. Filtered search remains the separate `POST /v1/group-ticketing/search` operation. Search takes any one of `origin`, `destination` and `departure_date` (the others may be left out, null or empty; none at all is a 422), plus `adults`; it matches a return ticket by its outbound sector and date, and answers in departure date order.
+
+Return tickets: every ticket's `legs` lists its flights, outbound then return (`direction`). Skypass says which is which (`sector_type` Out / In; read live 15 Nov 2026, "Two Way" tickets). Dhillu & Sahi and Al Haider listed no return ticket live (Dhillu & Sahi sector ids 1 to 60 checked: all outbound from Pakistan, ticket_type 1, one subpart); when one of their tickets has more flights and one leaves from the ticket's destination, that flight and the ones after it are the return (`app/vendors/group_ticketing/legs.py`). An Al Haider round-trip sector written out ("LHE-DMM-LHE") lists as its outbound sector. A hold keeps every flight on the booking (Itinerary tab; `flight.legs` on the hold).
 - One failed, timed-out or invalid supplier response does not hide successful suppliers' inventory.
 - A successful empty supplier response is usable: if the successful suppliers have no rows, return HTTP 200 with `{"data":[]}`, even when another supplier fails.
 - No configured supplier, or failure of every configured supplier, produces HTTP 503 with `{"detail":"Group inventory is temporarily unavailable"}`.

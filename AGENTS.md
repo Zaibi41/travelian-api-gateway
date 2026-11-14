@@ -16,7 +16,7 @@
 - Keep supplier integrations isolated under `app/vendors/<product>/<supplier_name>/` and normalize supplier responses at that boundary.
 - Record each vendor's success, failure, or timeout separately. Do not let one vendor failure hide another vendor's successful result.
 - Group Ticketing inventory endpoints return the combined Travelian group JSON only; do not add a public per-vendor success/failure summary. Keep supplier failures in logs and return successful vendors' group records when partial data is available.
-- Keep Group Ticketing's unfiltered inventory route separate from its filtered search route. Search filters combined inventory by one-way origin, destination, departure date, and adult count.
+- Keep Group Ticketing's unfiltered inventory route separate from its filtered search route. Search filters combined inventory (one-way and return tickets) by any of outbound origin, outbound destination and departure date (at least one), plus adult count, sorted by departure date.
 
 ## Supplier accuracy and credentials
 

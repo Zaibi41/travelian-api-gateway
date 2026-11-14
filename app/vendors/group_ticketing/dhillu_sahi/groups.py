@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.group_ticketing import GroupInventory, GroupLeg, GroupTicket
+from app.vendors.group_ticketing.legs import mark_return
 
 
 class DhilluSahiTicket(BaseModel):
@@ -34,9 +35,10 @@ def _codes(sector_name: Any) -> tuple[str | None, str | None]:
     return (parts[0], parts[-1]) if len(parts) >= 2 else (None, None)
 
 
-def _legs(ticket: "DhilluSahiTicket") -> list[GroupLeg]:
-    """Each subpart is one flight of the one-way group (ticket_type 1): departure_* fields and the
-    supplier's misspelt arivval_* fields. There is no return leg in this feed."""
+def _legs(ticket: "DhilluSahiTicket", group_sector: str | None = None) -> list[GroupLeg]:
+    """Each subpart is one flight, in order: departure_* fields and the supplier's misspelt arivval_* fields (the arrival
+    of that same flight). Every live ticket read on 15 Nov 2026 is one-way (ticket_type 1, one subpart). A return comes
+    as more subparts: from the first one leaving the ticket's destination, they are the return flights."""
     legs = []
     for part in ticket.subpart:
         origin, destination = _codes(part.get("departure_sector_name") or ticket.sector)
@@ -48,7 +50,7 @@ def _legs(ticket: "DhilluSahiTicket") -> list[GroupLeg]:
             baggage=_text(part.get("departure_baggage")) or _text(ticket.baggage),
             hand_carry=_text(part.get("departure_handcarry")) or _text(ticket.hand_carry), meal=ticket.meal,
         ))
-    return legs
+    return mark_return(legs, _codes(ticket.sector or group_sector)[1])
 
 
 def _first_subpart(ticket: "DhilluSahiTicket", key: str) -> str | None:
@@ -89,7 +91,7 @@ def normalize_groups(rows: list[dict[str, Any]], vendor_name: str = "dhillu_sahi
                 hand_carry=ticket.hand_carry,
                 meal=ticket.meal,
                 ticket_type=ticket.ticket_type,
-                legs=_legs(ticket),
+                legs=_legs(ticket, group.sector),
                 subparts=ticket.subpart,
                 supplier_group_id=_first_subpart(ticket, "group_id"),
                 supplier_ticket_id=_first_subpart(ticket, "id"),

@@ -2953,6 +2953,7 @@
         "type": "object"
       },
       "GroupHoldFlight": {
+        "description": "The first flight's summary, plus every flight as held (outbound, then return) in `legs`.",
         "properties": {
           "airline": {
             "anyOf": [
@@ -3008,6 +3009,14 @@
               }
             ],
             "title": "Destination"
+          },
+          "legs": {
+            "description": "Every flight as held, outbound then return.",
+            "items": {
+              "$ref": "#/components/schemas/GroupLegView"
+            },
+            "title": "Legs",
+            "type": "array"
           },
           "logo_url": {
             "anyOf": [
@@ -4002,6 +4011,7 @@
         "type": "object"
       },
       "GroupSearchRequest": {
+        "description": "Any one of origin, destination or departure date is enough; the others may be left out (or null).",
         "properties": {
           "adults": {
             "default": 1,
@@ -4011,34 +4021,50 @@
             "type": "integer"
           },
           "departure_date": {
-            "format": "date",
-            "title": "Departure Date",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
           },
           "destination": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "examples": [
               "RUH"
             ],
-            "maxLength": 3,
-            "minLength": 3,
-            "title": "Destination",
-            "type": "string"
+            "title": "Destination"
           },
           "origin": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "examples": [
               "LHE"
             ],
-            "maxLength": 3,
-            "minLength": 3,
-            "title": "Origin",
-            "type": "string"
+            "title": "Origin"
           }
         },
-        "required": [
-          "origin",
-          "destination",
-          "departure_date"
-        ],
         "title": "GroupSearchRequest",
         "type": "object"
       },

@@ -95,23 +95,29 @@ async def fetch_all_group_inventory() -> list[GroupInventory]:
 def filter_group_inventory(
     groups: list[GroupInventory],
     *,
-    origin: str,
-    destination: str,
-    departure_date: date,
-    adults: int,
+    origin: str | None = None,
+    destination: str | None = None,
+    departure_date: date | None = None,
+    adults: int = 1,
 ) -> list[GroupInventory]:
-    """Filter normalized one-way group inventory by sector, date, and known remaining seats."""
-    origin = origin.strip().upper()
-    destination = destination.strip().upper()
+    """Filter normalized group inventory (one-way and return) by any of: outbound origin, outbound destination,
+    departure date; and by known remaining seats. Empty filters match everything. Tickets and groups come back in
+    departure date order (undated last)."""
+    origin = (origin or "").strip().upper() or None
+    destination = (destination or "").strip().upper() or None
     filtered: list[GroupInventory] = []
 
     for group in groups:
         matching_tickets = []
         for ticket in group.tickets:
-            route = [part.strip().upper() for part in (ticket.sector or "").split("-")]
-            if len(route) < 2 or route[0] != origin or route[-1] != destination:
+            codes = sector_codes(ticket.sector)
+            if (origin or destination) and codes is None:
                 continue
-            if ticket.departure_date != departure_date.isoformat():
+            if origin and codes[0] != origin:
+                continue
+            if destination and codes[1] != destination:
+                continue
+            if departure_date and ticket.departure_date != departure_date.isoformat():
                 continue
             # Keep inventory with unknown capacity visible; filter out only known insufficient stock.
             if ticket.remaining is not None and ticket.remaining < adults:
@@ -119,8 +125,14 @@ def filter_group_inventory(
             matching_tickets.append(ticket)
 
         if matching_tickets:
+            matching_tickets.sort(key=_date_key)
             filtered.append(group.model_copy(update={"tickets": matching_tickets}))
+    filtered.sort(key=lambda group: _date_key(group.tickets[0]))
     return filtered
+
+
+def _date_key(ticket: GroupTicket) -> tuple[bool, str]:
+    return (not ticket.departure_date, ticket.departure_date or "")
 
 
 def group_ticket_id(ticket: GroupTicket) -> str:

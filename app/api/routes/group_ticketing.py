@@ -57,19 +57,30 @@ class GroupQuoteAcknowledgement(BaseModel):
 
 
 class GroupSearchRequest(BaseModel):
-    origin: str = Field(min_length=3, max_length=3, examples=["LHE"])
-    destination: str = Field(min_length=3, max_length=3, examples=["RUH"])
-    departure_date: date
+    """Any one of origin, destination or departure date is enough; the others may be left out (or null)."""
+
+    origin: str | None = Field(None, min_length=3, max_length=3, examples=["LHE"])
+    destination: str | None = Field(None, min_length=3, max_length=3, examples=["RUH"])
+    departure_date: date | None = None
     adults: int = Field(default=1, ge=1, le=9)
 
     @field_validator("origin", "destination", mode="before")
     @classmethod
-    def normalize_airport_codes(cls, value: str) -> str:
-        return value.strip().upper() if isinstance(value, str) else value
+    def normalize_airport_codes(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip().upper() or None
+        return value
+
+    @field_validator("departure_date", mode="before")
+    @classmethod
+    def empty_date_is_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
-    def origin_and_destination_must_differ(self):
-        if self.origin == self.destination:
+    def at_least_one_and_different(self):
+        if not (self.origin or self.destination or self.departure_date):
+            raise ValueError("enter a departure airport, an arrival airport or a departure date")
+        if self.origin and self.origin == self.destination:
             raise ValueError("origin and destination must be different")
         return self
 
@@ -253,11 +264,7 @@ async def search_for(request: "GroupSearchRequest", visibility: FieldVisibility)
     except GroupInventoryUnavailable as exc:
         raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
     matches = filter_group_inventory(
-        groups,
-        origin=request.origin,
-        destination=request.destination,
-        departure_date=request.departure_date,
-        adults=request.adults,
+        groups, origin=request.origin, destination=request.destination, departure_date=request.departure_date, adults=request.adults,
     )
     return inventory_view(matches, visibility)
 

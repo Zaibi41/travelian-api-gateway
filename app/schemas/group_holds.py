@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.schemas.saved_people import SaveOutcomeView
 from app.schemas.group_ticketing import GroupSource
-from app.services.group_ticketing_view import GroupMoney
+from app.services.group_ticketing_view import GroupLegView, GroupMoney
 
 MAX_ADULTS = 9
 
@@ -102,6 +102,8 @@ class GroupHoldRequest(BaseModel):
 
 
 class GroupHoldFlight(BaseModel):
+    """The first flight's summary, plus every flight as held (outbound, then return) in `legs`."""
+
     airline: str | None = None
     sector: str | None = None
     origin: str | None = None
@@ -110,6 +112,7 @@ class GroupHoldFlight(BaseModel):
     departure_time: str | None = None
     logo_url: str | None = None
     baggage: str | None = None
+    legs: list[GroupLegView] = Field(default_factory=list, description="Every flight as held, outbound then return.")
 
 
 class GroupHoldCustomer(BaseModel):

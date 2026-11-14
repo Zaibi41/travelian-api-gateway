@@ -45,7 +45,7 @@ from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.services import flight_holds
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
-from app.services.group_ticketing_view import GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
+from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
 from app.services.live_flights import money_text
 from app.services import supplier_logos
 
@@ -302,6 +302,14 @@ def _status(booking: store.GroupBooking, now: datetime) -> str:
     return "held"
 
 
+def _leg_view(segment: dict) -> GroupLegView:
+    departure, arrival = str(segment.get("departure_local") or ""), str(segment.get("arrival_local") or "")
+    return GroupLegView(direction="return" if segment.get("direction") == "return" else "outbound", flight_number=segment.get("flight_number"),
+                        origin=segment.get("origin"), destination=segment.get("destination"),
+                        departure_date=departure[:10] or None, departure_time=departure[11:16] or None,
+                        arrival_date=arrival[:10] or None, arrival_time=arrival[11:16] or None)
+
+
 def _flight(booking: store.GroupBooking) -> GroupHoldFlight:
     segment = booking.itinerary[0] if booking.itinerary else {}
     departure = str(segment.get("departure_local") or "")
@@ -310,6 +318,7 @@ def _flight(booking: store.GroupBooking) -> GroupHoldFlight:
         sector=f"{segment['origin']} - {segment['destination']}" if segment.get("origin") and segment.get("destination") else None,
         departure_date=departure[:10] or None, departure_time=departure[11:16] or None,
         logo_url=supplier_logos.register(segment.get("logo")) if segment.get("logo") else None, baggage=segment.get("baggage"),
+        legs=[_leg_view(item) for item in booking.itinerary if isinstance(item, dict)],
     )
 
 
@@ -486,14 +495,30 @@ def _check_adults(request: GroupHoldRequest, ticket: GroupTicket, passengers: li
 
 
 def _itinerary(ticket: GroupTicket) -> list[dict]:
+    """The flights as held, outbound then return (the booking's Itinerary tab and the held page). The first segment
+    also carries the ticket's departure time, airline and logo as before."""
     codes = sector_codes(ticket.sector)
     time = _departure_time(ticket)
     departure = f"{ticket.departure_date}T{time}" if ticket.departure_date and time else ticket.departure_date
     baggage = baggage_text(ticket.baggage, ticket.hand_carry)
     meal = str(ticket.meal).strip() if ticket.meal not in (None, "") else None
-    return [{"direction": "outbound", "origin": codes[0] if codes else (ticket.sector or "—"), "destination": codes[1] if codes else "—",
-             "airline_name": ticket.airline, "departure_local": departure, "baggage": baggage, "meal": meal,
-             "logo": ticket.airline_logo}]
+    first = {"direction": "outbound", "origin": codes[0] if codes else (ticket.sector or "—"), "destination": codes[1] if codes else "—",
+             "airline_name": ticket.airline, "departure_local": departure, "baggage": baggage, "meal": meal, "logo": ticket.airline_logo}
+    if not ticket.legs:
+        return [first]
+    segments = []
+    for index, leg in enumerate(ticket.legs):
+        when = lambda day, clock: f"{day}T{clock}" if day and clock else day  # noqa: E731
+        segment = {"direction": "return" if leg.direction == "return" else "outbound", "origin": leg.origin or "—", "destination": leg.destination or "—",
+                   "airline_name": ticket.airline, "flight_number": leg.flight_number,
+                   "departure_local": when(leg.departure_date or (ticket.departure_date if index == 0 else None), leg.departure_time),
+                   "arrival_local": when(leg.arrival_date or leg.departure_date, leg.arrival_time),
+                   "baggage": baggage_text(leg.baggage, leg.hand_carry) or (baggage if index == 0 else None),
+                   "meal": str(leg.meal).strip() if leg.meal not in (None, "") else meal}
+        segments.append(segment)
+    segments[0] = {**segments[0], "origin": first["origin"] if segments[0]["origin"] == "—" else segments[0]["origin"],
+                   "departure_local": segments[0]["departure_local"] or departure, "logo": ticket.airline_logo}
+    return segments
 
 
 async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,

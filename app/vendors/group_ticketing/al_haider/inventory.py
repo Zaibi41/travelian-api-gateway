@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.config import settings
 from app.schemas.group_ticketing import GroupInventory, GroupLeg, GroupTicket
+from app.vendors.group_ticketing.legs import mark_return
 from app.vendors.group_ticketing.skypass.inventory import split_baggage
 
 NAME = "al_haider"
@@ -90,6 +91,14 @@ def _flight_number(value: str | None) -> str | None:
     return (value or "").replace("-", "").replace(" ", "").upper() or None
 
 
+def outbound_codes(codes: list[str]) -> list[str]:
+    """The outbound airports: all of them for a one-way sector; for a round trip written out ('LHE-DMM-LHE',
+    'LHE-MCT-JED-MCT-LHE') up to the turning point."""
+    if len(codes) >= 3 and len(codes) % 2 == 1 and codes == codes[::-1]:
+        return codes[: len(codes) // 2 + 1]
+    return codes
+
+
 def _legs(group: AlHaiderGroup, codes: list[str]) -> list[GroupLeg]:
     """Each detail is one flight, in `sr` order. Its origin and destination are city names, so the airport codes come
     from the sector when it names one more airport than there are flights ('ISB-MCT-JED', two flights)."""
@@ -104,7 +113,8 @@ def _legs(group: AlHaiderGroup, codes: list[str]) -> list[GroupLeg]:
             departure_date=leg.flight_date, departure_time=_clock(leg.dept_time), arrival_time=_clock(leg.arv_time),
             baggage=checked, hand_carry=hand, meal=group.meal,
         ))
-    return legs
+    outbound = outbound_codes(codes)
+    return mark_return(legs, outbound[-1] if len(outbound) >= 2 else None)
 
 
 def normalize(rows: list[dict[str, Any]]) -> list[GroupInventory]:
@@ -114,7 +124,7 @@ def normalize(rows: list[dict[str, Any]]) -> list[GroupInventory]:
         codes = _codes(group.sector)
         legs = _legs(group, codes)
         first = legs[0] if legs else None
-        sector = " - ".join(codes) or None
+        sector = " - ".join(outbound_codes(codes)) or None
         details = sorted(group.details, key=lambda leg: leg.sr or 0)
         ticket = GroupTicket(
             vendor=NAME, pnr=group.pnr, departure_date=group.dept_date, sector=sector,
