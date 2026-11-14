@@ -64,8 +64,8 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, acc
             raise PaymentRefused(404, "Booking not found.")
         if booking["booking_status"] in CLOSED_STATUSES:
             raise PaymentRefused(409, "This booking is closed and can't take a payment.")
-        if booking["product"] == "group" and booking["booking_status"] == "held" and booking["hold_over"]:
-            # Group holds can't be held again; an expired one takes no payment (search again).
+        if booking["booking_status"] in ("held", "pending_payment") and booking["hold_over"]:
+            # A hold past its time limit takes no payment, even before the expiry job marks it (Flights and Group).
             raise PaymentRefused(409, "The hold has expired. Search again and hold new seats.")
         if booking["price_change_pending"]:
             raise PaymentRefused(409, "The supplier held the seats at a different price. Confirm the new price with the customer first.")

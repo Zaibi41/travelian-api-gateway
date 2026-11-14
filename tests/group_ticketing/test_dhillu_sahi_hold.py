@@ -338,7 +338,8 @@ def test_release_is_refused_without_a_supplier_call():
 def test_expiry_job_marks_expired_and_calls_no_release():
     seen = {}
     with patch.object(store, "expire_due", lambda now, no_release=frozenset(): seen.setdefault("no_release", no_release) and ["TRV-GRP-AB12CD"]), \
-         patch.object(store, "releases_due", lambda limit: []):
+         patch.object(store, "releases_due", lambda limit: []), \
+         patch("app.db.flight_expiry.expire_due", lambda now: []):
         outcome = asyncio.run(group_hold_expiry.run_once())
     assert "dhillu_sahi" in seen["no_release"] and outcome["released"] == [] and outcome["failed"] == []
 

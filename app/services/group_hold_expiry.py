@@ -1,4 +1,4 @@
-"""Group hold expiry job (started from the app lifespan).
+"""Hold expiry job (started from the app lifespan): Group Ticketing holds and flight holds.
 
 Every GROUP_HOLD_JOB_INTERVAL_SECONDS:
 1. Held group bookings past Travelian's own time limit become 'expired' (logged), with their
@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
+from app.db import flight_expiry
 from app.db import group_holds as store
 from app.services.group_holds import NO_RELEASE_SOURCES, HeldRef, provider_for
 
@@ -33,7 +34,15 @@ def _now() -> datetime:
 async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     """One pass. Returns what happened: expired, released, failed (references), for logs and tests."""
     now = now or _now()
-    outcome: dict[str, list[str]] = {"expired": [], "released": [], "failed": []}
+    outcome: dict[str, list[str]] = {"expired": [], "released": [], "failed": [], "flights_expired": []}
+    # Flights: held past the time limit and not issued -> expired. No supplier call: the hold lapses at the airline.
+    flights = await run_in_threadpool(flight_expiry.expire_due, now)
+    outcome["flights_expired"] = [item.reference for item in flights]
+    logger.info("Flight holds expired", extra={"count": len(flights)})
+    for item in flights:
+        if item.paid_minor:
+            logger.warning("Expired flight booking has a payment recorded: refund by hand",
+                           extra={"reference": item.reference, "amount_minor": item.paid_minor, "currency": item.currency})
     expired = await run_in_threadpool(store.expire_due, now, frozenset(NO_RELEASE_SOURCES))
     outcome["expired"] = expired
     for reference in expired:
