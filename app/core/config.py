@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     dhillu_sahi_timeout_seconds: float = 10.0
     dhillu_sahi_group_sector_id: str | None = None  # legacy single value; merged into the ids below
     # Sector group ids for the listing call (my_sector_id), comma-separated; one listing call per id, merged.
-    # Confirmed live 14 Nov 2026: 9 returns Saudi Arabia routes (Dammam, Riyadh), 29 returns Kuwait. There is no
-    # call that lists the ids.
-    dhillu_sahi_sector_group_ids: str = "9,29"
+    # 9 = KSA, 29 = Kuwait, 26 = not labelled yet (its listing had Lahore and Sialkot to Muscat on 14 Nov 2026).
+    # There is no call that lists the ids.
+    dhillu_sahi_sector_group_ids: str = "9,29,26"
     # Dhillu & Sahi holds (add-booking holds seats unpaid; the supplier ends them after 1 hour; no cancel call).
     # Token and agent id are optional: without them the gateway logs in with the email and password and uses the
     # login's token and agent_id. When both an agent id here and the login's are present they must match.

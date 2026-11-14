@@ -126,7 +126,7 @@ def ds_rows(sector, code, subpart_ids, pnr="PNR1"):
 @pytest.fixture
 def ds_configured():
     with patch.object(settings, "dhillu_sahi_email", "a@example.invalid"), patch.object(settings, "dhillu_sahi_password", SecretStr("synthetic")), \
-         patch.object(settings, "dhillu_sahi_group_sector_id", None), patch.object(settings, "dhillu_sahi_sector_group_ids", "9,29"):
+         patch.object(settings, "dhillu_sahi_group_sector_id", None), patch.object(settings, "dhillu_sahi_sector_group_ids", "9,29,26"):
         yield
 
 
@@ -141,39 +141,40 @@ def ds_client(answers, sent):
     return DhilluSahiAuthClient("https://dhillu.invalid", transport=httpx.MockTransport(supplier))
 
 
-def test_sector_group_ids_default_to_9_and_29_and_merge_the_legacy_value():
+def test_sector_group_ids_default_to_9_29_26_and_merge_the_legacy_value():
     with patch.object(settings, "dhillu_sahi_group_sector_id", None), patch.object(settings, "dhillu_sahi_sector_group_ids",
                                                                                   type(settings).model_fields["dhillu_sahi_sector_group_ids"].default):
-        assert dhillu.sector_group_ids() == ["9", "29"]
+        assert dhillu.sector_group_ids() == ["9", "29", "26"]
     with patch.object(settings, "dhillu_sahi_group_sector_id", "29"), patch.object(settings, "dhillu_sahi_sector_group_ids", " 9, 29 ,,"):
         assert dhillu.sector_group_ids() == ["9", "29"]
 
 
 def test_one_listing_call_per_id_merged_and_deduplicated_by_supplier_ticket_id(ds_configured):
     sent = []
-    answers = {"9": ds_rows("LAHORE - DAMMAM", "DMM", [1, 2]), "29": ds_rows("LAHORE - KUWAIT", "KWI", [3]) + ds_rows("LAHORE - DAMMAM", "DMM", [2])}
+    answers = {"9": ds_rows("LAHORE - DAMMAM", "DMM", [1, 2]), "29": ds_rows("LAHORE - KUWAIT", "KWI", [3]) + ds_rows("LAHORE - DAMMAM", "DMM", [2]),
+               "26": ds_rows("LAHORE - MUSCAT", "MCT", [4, 3])}
     groups = asyncio.run(dhillu.fetch_inventory(ds_client(answers, sent)))
-    assert sorted(body["my_sector_id"] for body in sent) == ["29", "9"]
+    assert sorted(body["my_sector_id"] for body in sent) == ["26", "29", "9"]
     tickets = [t for g in groups for t in g.tickets]
-    assert sorted(t.supplier_ticket_id for t in tickets) == ["1", "2", "3"]  # ticket 2 listed under both ids: kept once
+    assert sorted(t.supplier_ticket_id for t in tickets) == ["1", "2", "3", "4"]  # tickets 2 and 3 listed twice: kept once
     assert len({g.id for g in groups}) == len(groups)  # row positions from different ids don't collide
     # Kuwait routes reach the sector dropdown and suggested routes (both are built from the merged listing).
-    assert {t.sector for t in tickets} == {"LHE - DMM", "LHE - KWI"}
+    assert {t.sector for t in tickets} == {"LHE - DMM", "LHE - KWI", "LHE - MCT"}
     view = inventory_view(groups, NONE)
-    assert {ticket.sector for group in view.data for ticket in group.tickets} == {"LHE - DMM", "LHE - KWI"}
+    assert {ticket.sector for group in view.data for ticket in group.tickets} == {"LHE - DMM", "LHE - KWI", "LHE - MCT"}
 
 
 def test_one_failing_id_still_returns_the_others_and_is_logged(ds_configured, caplog):
     sent = []
-    answers = {"9": ds_rows("LAHORE - DAMMAM", "DMM", [1]), "29": httpx.Response(500, json={})}
+    answers = {"9": ds_rows("LAHORE - DAMMAM", "DMM", [1]), "29": httpx.Response(500, json={}), "26": ds_rows("LAHORE - MUSCAT", "MCT", [5])}
     groups = asyncio.run(dhillu.fetch_inventory(ds_client(answers, sent)))
-    assert [t.supplier_ticket_id for g in groups for t in g.tickets] == ["1"]
+    assert [t.supplier_ticket_id for g in groups for t in g.tickets] == ["1", "5"]
     failure = next(r for r in caplog.records if r.getMessage() == "Dhillu & Sahi listing failed for one sector group")
     assert (failure.sector_group_id, failure.error_code) == ("29", "upstream_http_500")
 
 
 def test_every_id_failing_fails_the_supplier(ds_configured):
-    answers = {"9": httpx.Response(404, json={}), "29": httpx.Response(500, json={})}
+    answers = {"9": httpx.Response(404, json={}), "29": httpx.Response(500, json={}), "26": httpx.Response(500, json={})}
     with pytest.raises(Exception) as raised:
         asyncio.run(dhillu.fetch_inventory(ds_client(answers, [])))
     assert getattr(raised.value, "error_code", "").startswith("upstream_http_")

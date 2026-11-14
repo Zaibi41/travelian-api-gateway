@@ -1,5 +1,5 @@
 """Dhillu & Sahi group inventory: one listing call (POST /api/pnr-respect-to-mysector-user, JSON {"my_sector_id": "<id>"})
-per configured sector group id (DHILLU_SAHI_SECTOR_GROUP_IDS, e.g. 9 = Saudi Arabia, 29 = Kuwait), merged. A ticket
+per configured sector group id (DHILLU_SAHI_SECTOR_GROUP_IDS, default 9,29,26: 9 = KSA, 29 = Kuwait, 26 not labelled yet), merged. A ticket
 listed under more than one id is kept once (by supplier ticket id). One failing id is logged and the others are still
 returned; only when every id fails is the supplier reported as failed."""
 
