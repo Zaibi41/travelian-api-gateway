@@ -420,6 +420,16 @@ def test_price_check_availability_false_searches_again():
 
 # ---------- hold time: hold time + DHILLU_SAHI_HOLD_DEFAULT_MINUTES ----------
 
+def test_note_shows_the_configured_default_minutes(store_ok):
+    stock = normalize_groups(rows())
+    with patch.object(settings, "dhillu_sahi_hold_default_minutes", 30):
+        service_hold(Supplier(), AsyncMock(return_value=stock), request_for(stock))  # no cancel_at: the default applies
+    hold_time = dict(store_ok)["confirm_hold"]["supplier_response"]["hold_time"]
+    assert hold_time == {**hold_time, "source": "default", "minutes": 30}
+    record, now = booking(hold_time=hold_time)
+    assert group_holds.build_view(record, None, ADMIN, now).hold_time_note == "Hold time estimated (30 min default)"
+
+
 def test_hold_time_follows_the_setting_and_other_suppliers_keep_group_hold_minutes(store_ok):
     stock = normalize_groups(rows())
     with patch.object(settings, "dhillu_sahi_hold_default_minutes", 50):

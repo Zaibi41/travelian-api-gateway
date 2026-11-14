@@ -4,7 +4,7 @@ price re-checked -> issue tickets; or release; or the hold expires.
 Each group source plugs in as a GroupHoldProvider (docs/api/group-holds.md). Skypass holds and
 releases seats (no issuing: its submit-booking is not built). Dhillu & Sahi holds through add-booking
 (GROUP_DHILLU_SAHI_HOLD_ENABLED); it has no release call, so nothing is released at our expiry (the
-supplier ends the hold after 1 hour). State-changing supplier calls are never retried here; the expiry
+supplier cancels the hold by itself). State-changing supplier calls are never retried here; the expiry
 job (group_hold_expiry) retries only releases.
 
 Order: our record is written first ('hold_pending'), then the supplier is called, then the record is
@@ -125,7 +125,7 @@ NO_RELEASE_SOURCES = {"dhillu_sahi", "al_haider"}
 SUPPORT = {
     "skypass": "Inventory; hold and release (hold-available-seats, release-seats; no hold id, expiry or price in the answer); "
                "price re-check from the ticket detail. No issuing: submit-booking is not built.",
-    "dhillu_sahi": "Inventory; hold through add-booking (holds unpaid, ends by itself after 1 hour at the supplier; no cancel or "
+    "dhillu_sahi": "Inventory; hold through add-booking (holds unpaid, cancelled by itself at the supplier; no cancel or "
                    "release call) behind GROUP_DHILLU_SAHI_HOLD_ENABLED; booking detail read after the hold. No price re-check, no issuing.",
     "al_haider": "Inventory; hold through create/booking behind GROUP_AL_HAIDER_HOLD_ENABLED (default off until Al Haider confirms "
                  "that an unpaid booking expires). No release (its cancel call is permission based and unused), no price re-check, no issuing.",
@@ -233,7 +233,7 @@ async def _after_refusal(request: GroupHoldRequest, ticket: GroupTicket,
 
 
 #: Shown to viewers with supplier access on a hold the supplier made but Travelian couldn't record.
-NOT_RECORDED_EXPIRES = "Supplier hold not recorded, it expires by itself after 1 hour"
+NOT_RECORDED_EXPIRES = "Supplier hold not recorded. It will cancel by itself at the supplier shortly. Record the PNR and check with the supplier."
 NOT_RELEASED = "Supplier hold not released, release manually"
 NOT_RECORDED_RELEASING = "Supplier hold not recorded, the seats are being released"
 #: Sources without a release call whose supplier expiry isn't confirmed: the unrecorded hold must be released by hand.
@@ -261,7 +261,7 @@ async def _unrecorded(booking_id: str, reference: str, held: HeldSeats, provider
         kept = False
         logger.critical("Supplier hold PNR not kept on any record: release or note it now",
                         extra={"vendor": vendor, "reference": reference, "pnr": held.pnr, "error_type": error_reason(error)})
-    outcome = _unreleasable_notice(vendor) + "."
+    outcome = _unreleasable_notice(vendor).rstrip(".") + "."
     if releasable:
         released, code = True, None
         try:

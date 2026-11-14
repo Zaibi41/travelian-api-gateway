@@ -8,7 +8,7 @@ Every GROUP_HOLD_JOB_INTERVAL_SECONDS:
    logged, attempts + 1, tried again next run, 'failed' after GROUP_HOLD_RELEASE_ATTEMPTS. While a
    failed attempt stands, Admin and Super Admin see "Supplier release failed, release manually".
 Release is the only supplier call this job makes; sources without a release call (Dhillu & Sahi) get none:
-the supplier ends their holds by itself after 1 hour. Nothing here depends on a supplier expiry.
+the supplier cancels their holds by itself. Nothing here depends on a supplier expiry.
 """
 
 from __future__ import annotations

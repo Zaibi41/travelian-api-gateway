@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Sector group ids for the listing call (my_sector_id), comma-separated; one listing call per id, merged.
     # No default and no ids in code: unset or empty means the Dhillu & Sahi listing is not configured.
     dhillu_sahi_sector_group_ids: str | None = None
-    # Dhillu & Sahi holds (add-booking holds seats unpaid; the supplier ends them after 1 hour; no cancel call).
+    # Dhillu & Sahi holds (add-booking holds seats unpaid; the supplier cancels them by itself; no cancel call).
     # Token and agent id are optional: without them the gateway logs in with the email and password and uses the
     # login's token and agent_id. When both an agent id here and the login's are present they must match.
     dhillu_sahi_token: SecretStr | None = None

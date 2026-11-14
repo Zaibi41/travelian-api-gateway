@@ -149,7 +149,7 @@ def test_provider_without_release_keeps_the_pnr_and_says_it_expires_by_itself(fa
         hold(provider)
     assert dict(fakes)["mark_unrecorded"]["release_pending"] is False
     assert not any(isinstance(call, tuple) and call[0] == "release" for call in provider.calls)
-    assert "Supplier hold not recorded, it expires by itself after 1 hour" in raised.value.message
+    assert "Supplier hold not recorded. It will cancel by itself at the supplier shortly. Record the PNR and check with the supplier." in raised.value.message and "1 hour" not in raised.value.message
 
 
 def test_pnr_survives_in_the_log_when_even_the_record_fails(fakes, caplog):
@@ -183,7 +183,7 @@ def test_unrecorded_hold_view_notice_and_staff_cannot_open_it():
                                  0, None, None, [], 1, 0, {}, {}, {"supplier_pnr": "41SDS4"})
     with patch.object(group_holds, "provider_for", lambda vendor: None):
         view = group_holds.build_view(booking, None, ADMIN, now)
-        assert (view.status, view.supplier_notice) == ("not_recorded", "Supplier hold not recorded, it expires by itself after 1 hour")
+        assert (view.status, view.supplier_notice) == ("not_recorded", "Supplier hold not recorded. It will cancel by itself at the supplier shortly. Record the PNR and check with the supplier.")
         assert not view.can_record_payments and not view.can_issue_tickets
         assert group_holds.build_view(booking, None, STAFF, now).supplier_notice is None
         with patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): booking), pytest.raises(GroupHoldError) as raised:

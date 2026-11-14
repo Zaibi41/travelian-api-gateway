@@ -183,8 +183,7 @@ class GroupHoldView(BaseModel):
                                                                    "(being retried, or given up). Only with the supplier names permission.")
     hold_time_note: str | None = Field(None, description="Under the countdown: 'Hold time estimated (45 min default)' or 'Hold time from "
                                                         "supplier'. Only with the supplier names permission.")
-    supplier_notice: str | None = Field(None, description="What happens to the seats at the supplier, e.g. 'Supplier hold not recorded, it expires "
-                                                         "by itself after 1 hour'. Only with the supplier names permission.")
+    supplier_notice: str | None = Field(None, description="What happens to the seats at the supplier, e.g. 'Cancelled at the supplier'. Only with the supplier names permission.")
     saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
 
 

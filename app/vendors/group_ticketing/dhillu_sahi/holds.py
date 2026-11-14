@@ -2,7 +2,7 @@
 
 Contract: Dhillu & Sahi APIs Integration Manual (PDF, not in the repo; read 14 Nov 2026) and the Postman collection.
 Confirmed by Dhillu & Sahi: add-booking only holds the seats (it does not confirm them); an unpaid booking expires by
-itself after 1 hour; there is no cancel or release call.
+itself after 1 hour (observed cancel times differ: no fixed time is assumed); there is no cancel or release call.
 
 1. POST /api/check-availbility (spelled that way) {"pnr", "adult", "child", "price"} -> {"success": true, "data":
    {"status": true|false}, "message"}. `price` is documented as "Current price showing": the supplier's listing price
