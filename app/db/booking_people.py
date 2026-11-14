@@ -23,7 +23,7 @@ from app.db.supplier_bookings import _event
 AUDIT_DETAIL_KEYS = ("label", "pnr", "time_limit", "fare_info", "pax_count", "travelers", "traveler_position", "fields", "reason",
                      "amount_minor", "currency", "method", "received_into", "payer_reference", "payment_status",
                      "note", "previous_status", "reason_code", "supplier_answer", "supplier_error", "pnr_status", "tickets", "outcome",
-                     "total_source", "pnr_info_error", "fare_info_error")
+                     "total_source", "pnr_info_error", "fare_info_error", "previous_amount_minor")
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,8 @@ class Traveler:
     date_of_birth_masked: str
     document_number_masked: str | None
     ticket_number: str | None = None
+    selling_minor: int | None = None  # this traveler's selling price (migration 0021)
+    cost_minor: int | None = None     # this traveler's supplier cost; never sent without cost and margin access
 
 
 @dataclass(frozen=True)
@@ -84,7 +86,7 @@ def read(reference: str) -> People | None:
         ).mappings().one_or_none()
         travelers = connection.execute(
             text("SELECT position, passenger_type, title, first_name, last_name, date_of_birth, id_type,"
-                 " document_number, document_country, nationality, document_expiry, infant_of_position, ticket_number"
+                 " document_number, document_country, nationality, document_expiry, infant_of_position, ticket_number, selling_minor, cost_minor"
                  " FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
             {"b": booking_id},
         ).mappings().all()

@@ -412,7 +412,7 @@ def test_resolve_needs_a_reason_and_one_ticket_per_traveler(monkeypatch):
 
 def test_issue_result_carries_no_supplier_fields(monkeypatch):
     from app.services import issuance
-    async def issue(reference, viewer, client_factory=None):
+    async def issue(reference, viewer, client_factory=None, accepted_cost_minor=None):
         return issuance.Outcome("issued", "issued", "Ticket issued.", {0: "2147483647001"})
     monkeypatch.setattr(issuance, "issue", issue)
     response = client(monkeypatch, viewer=ISSUER).post("/v1/admin/bookings/TRV-2/issuance/issue")

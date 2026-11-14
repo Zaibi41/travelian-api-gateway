@@ -8,6 +8,8 @@ Never retried automatically. There is no cancel call: the hold lapses at time_li
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import logging
 from datetime import date, datetime, timezone
 
@@ -275,13 +277,21 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(error.status, error.message, code=error.code) from None
     except SouthairError:
         raise HoldError(502, "The flight supplier couldn't reprice this fare. Nothing was booked.", code="not_confirmed") from None
-    selling_each = [(kind, number, cost, sell(cost)) for kind, number, cost in priced]
+    # The selling price per passenger type stays what the user confirmed (app.services.pricing). If the airline's
+    # cost moved, the hold goes ahead while every selling price still covers the new cost (the profit changes);
+    # a selling price below the new cost is refused: revalidate and confirm a new total.
+    confirmed_selling = {kind: selling for kind, _, _, selling in quote.passengers}
+    selling_each = [(kind, number, cost, confirmed_selling.get(kind) or sell(cost)) for kind, number, cost in priced]
+    confirmed_selling = {kind: selling for kind, _, _, selling in selling_each}
     if any(selling is None for *_, selling in selling_each):
         raise HoldError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each)
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
-    if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor:
-        raise HoldError(409, f"The price changed to {live_flights.money_text(selling_total, currency)}. Revalidate and confirm the new total. Nothing was booked.", code="price_changed")
+    below_cost = any(selling < cost for _, _, cost, selling in selling_each)  # type: ignore[operator]
+    if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor or below_cost:
+        fresh_selling = sum(number * (sell(cost) or cost) for _, number, cost, _ in selling_each)
+        raise HoldError(409, f"The price changed to {live_flights.money_text(fresh_selling, currency)}. Revalidate and confirm the new total. Nothing was booked.", code="price_changed")
+    costs_each = {kind: cost for kind, _, cost, _ in selling_each}
 
     # 2. Booking (hold). Never retried.
     try:
@@ -343,7 +353,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
                                "pnr_info": pnr_summary, "fare_info": fare_info, "repriced_supplier_total_minor": supplier_total},
-            actor_user_id=viewer.user_id, customer=_customer(request), travelers=_travelers(request, links),
+            actor_user_id=viewer.user_id, customer=_customer(request),
+            travelers=[replace(t, selling_minor=confirmed_selling.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
+                       for t in _travelers(request, links)],
             itinerary=[ref.segment for ref in fresh if ref.segment],
             audit={"provider": NAME, "pnr": pnr, "time_limit": booking.get("time_limit"), "selling_total_minor": selling_total,
                    "currency": currency, "pax_count": pax_count, "fare_info": fare_info_status,
@@ -359,5 +371,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         logger.warning("Southair hold total not verified", extra={"pnr": pnr, "fare_info": fare_info_status})
         raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
                              "Check the total with the supplier before taking any payment.", code="total_unverified", pnr=pnr, booking_id=reference)
-    return HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
+    view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
+    if viewer.visibility.cost_and_margin:
+        view.supplier_cost = FlightMoney(amount_minor=stored_cost, currency=currency)
+        view.profit = FlightMoney(amount_minor=selling_total - stored_cost, currency=currency)
+    return view

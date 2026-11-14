@@ -21,7 +21,7 @@ from app.services.admin_dashboard import (
 )
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
-    BookingListItem, BookingMoney, BookingPassenger, BookingSegment, BookingStatuses, FilterOption, SupplierPayment,
+    BookingListItem, BookingMoney, BookingPassenger, BookingSegment, BookingStatuses, FarePerPassenger, FilterOption, SupplierPayment,
 )
 
 #: Bookings tabs. "group" has no rows in the bookings table yet, but the tab exists.
@@ -260,6 +260,20 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
     if people and people.events:
         detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
                         for e in people.events]
+    if people and people.travelers and all(t.selling_minor is not None for t in people.travelers):
+        per_type: dict[str, list] = {}
+        for traveler in people.travelers:
+            per_type.setdefault(traveler.passenger_type, []).append(traveler)
+        fare.per_passenger = []
+        for kind in ("ADT", "CHD", "INF"):
+            if kind in per_type:
+                group = per_type[kind]
+                item = FarePerPassenger(passenger_type=kind, count=len(group), selling_each=_money(max(t.selling_minor for t in group), booking.currency))
+                if visibility.cost_and_margin and all(t.cost_minor is not None for t in group):
+                    item.supplier_cost_each = _money(max(t.cost_minor for t in group), booking.currency)
+                fare.per_passenger.append(item)
+    detail.can_set_selling_price = (can_record_payments and booking.status in ("held", "pending_payment") and issuance_status(booking) == "not_issued"
+                                    and not (people and people.payments) and bool(fare.per_passenger))
     if visibility.supplier_names and booking.provider:
         detail.provider = booking.provider
     if visibility.cost_and_margin:

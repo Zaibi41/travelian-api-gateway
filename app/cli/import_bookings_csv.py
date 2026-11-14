@@ -99,7 +99,7 @@ def map_row(row: dict[str, str], source: str) -> tuple[dict | None, str | None, 
         pnr = None
     supplier_cost = _minor(pricing.get("supplierCost")) if "supplierCost" in pricing else None
     if supplier_cost is None:
-        notes.append("no supplier cost")
+        notes.append("no supplier cost: cost = total (profit 0)")
     provider = (row.get("provider") or "").strip() or None
     if provider is None:
         notes.append("no provider")
@@ -115,7 +115,7 @@ def map_row(row: dict[str, str], source: str) -> tuple[dict | None, str | None, 
         "hold_expires_at": _timestamp(row.get("holdExpiresAt", "")),
         "currency": currency,
         "total_minor": total,
-        "supplier_cost_minor": supplier_cost,
+        "supplier_cost_minor": supplier_cost if supplier_cost is not None else total,  # required since migration 0021
         "import_source": source,
         "created_at": created_at,
         "updated_at": _timestamp(row.get("updatedAt", "")) or created_at,

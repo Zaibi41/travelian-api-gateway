@@ -90,8 +90,16 @@ class BookingList(BaseModel):
     items: list[BookingListItem]
 
 
+class FarePerPassenger(BaseModel):
+    passenger_type: Literal["ADT", "CHD", "INF"]
+    count: int
+    selling_each: BookingMoney = Field(description="What the customer pays per traveler of this type.")
+    supplier_cost_each: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+
+
 class BookingFare(BaseModel):
     billable_price: BookingMoney
+    per_passenger: list[FarePerPassenger] | None = Field(None, description="Selling price (and cost, with access) per passenger type. Omitted when no travelers were saved.")
     supplier_cost: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
     margin: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
 
@@ -186,6 +194,23 @@ class AddReceivingAccountRequest(BaseModel):
                                                      "Not the full account number.")
 
 
+class SellingPriceItem(BaseModel):
+    passenger_type: Literal["ADT", "CHD", "INF"]
+    selling_each: BookingMoney = Field(description="What the customer pays per traveler of this type: whole rupees, not below that traveler's supplier cost.")
+
+
+class SetSellingPriceRequest(BaseModel):
+    """The selling price (Group Ticketing and Flights): before any payment, while the booking is on hold and not issued."""
+
+    prices: list[SellingPriceItem] = Field(min_length=1, max_length=3)
+
+
+class SellingPriceResult(BaseModel):
+    total: BookingMoney = Field(description="The new selling total: what payments are capped at.")
+    supplier_cost: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+    profit: BookingMoney | None = Field(None, description="total - supplier_cost. Only with the cost and margin permission.")
+
+
 class RecordPaymentRequest(BaseModel):
     amount: BookingMoney
     method: PaymentMethod
@@ -215,6 +240,10 @@ class IssuanceChecklist(BaseModel):
     supplier_amount: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
     supplier_balance: BookingMoney | None = Field(None, description="Only with the cost and margin permission; omitted if the supplier didn't answer.")
     margin: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+
+
+class IssueTicketRequest(BaseModel):
+    accepted_supplier_cost: BookingMoney | None = Field(None, description="After 409 supplier_cost_changed: the airline's new cost, confirmed.")
 
 
 class IssuanceRequest(BaseModel):
@@ -294,6 +323,8 @@ class BookingDetail(BaseModel):
     amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
+    can_set_selling_price: bool = Field(False, description="Whether this viewer may change the selling price now: on hold, not issued, nothing paid, "
+                                                         "Super Admin or record payments (the endpoint still checks).")
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )

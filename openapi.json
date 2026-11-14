@@ -539,6 +539,12 @@
             "title": "Can Reveal Identity",
             "type": "boolean"
           },
+          "can_set_selling_price": {
+            "default": false,
+            "description": "Whether this viewer may change the selling price now: on hold, not issued, nothing paid, Super Admin or record payments (the endpoint still checks).",
+            "title": "Can Set Selling Price",
+            "type": "boolean"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -867,6 +873,21 @@
               }
             ],
             "description": "Omitted without the cost and margin permission, or when unknown."
+          },
+          "per_passenger": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FarePerPassenger"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling price (and cost, with access) per passenger type. Omitted when no travelers were saved.",
+            "title": "Per Passenger"
           },
           "supplier_cost": {
             "anyOf": [
@@ -2034,6 +2055,45 @@
         "title": "DuplicateChoice",
         "type": "object"
       },
+      "FarePerPassenger": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "passenger_type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Passenger Type",
+            "type": "string"
+          },
+          "selling_each": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "What the customer pays per traveler of this type."
+          },
+          "supplier_cost_each": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          }
+        },
+        "required": [
+          "passenger_type",
+          "count",
+          "selling_each"
+        ],
+        "title": "FarePerPassenger",
+        "type": "object"
+      },
       "FareView": {
         "properties": {
           "baggage": {
@@ -2801,25 +2861,65 @@
         "type": "object"
       },
       "GroupHeldPriceChange": {
-        "description": "The supplier held the seats at a different price than shown before the hold. Payments wait until the customer agrees.",
+        "description": "The supplier held the seats at a different cost than shown before the hold. The selling price stays the staff's;\npayments wait until the change is confirmed, which is refused while the selling price is below the new cost.",
         "properties": {
+          "below_cost": {
+            "description": "The selling price is below the new supplier cost: set a higher selling price before confirming.",
+            "title": "Below Cost",
+            "type": "boolean"
+          },
           "difference": {
-            "$ref": "#/components/schemas/GroupMoney",
-            "description": "held_total - shown_total; negative when the price went down."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "held_cost - shown_cost. Only with the cost and margin permission."
           },
-          "held_total": {
-            "$ref": "#/components/schemas/GroupMoney",
-            "description": "The selling total for the price the supplier held at (this booking's total)."
+          "held_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier cost held at. Only with the cost and margin permission."
           },
-          "shown_total": {
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "selling_total - held_cost. Only with the cost and margin permission."
+          },
+          "selling_total": {
             "$ref": "#/components/schemas/GroupMoney",
-            "description": "The selling total shown before the hold."
+            "description": "What the customer pays (unchanged by the supplier's change)."
+          },
+          "shown_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier cost shown before the hold. Only with the cost and margin permission."
           }
         },
         "required": [
-          "shown_total",
-          "held_total",
-          "difference"
+          "selling_total",
+          "below_cost"
         ],
         "title": "GroupHeldPriceChange",
         "type": "object"
@@ -3319,6 +3419,17 @@
             "title": "Passengers",
             "type": "array"
           },
+          "selling_price_per_adult": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the customer pays per adult, in whole rupees, not below the supplier cost. Default: supplier price + the group markup (0 when unset). Changing it needs the record payments permission."
+          },
           "ticket_id": {
             "description": "The group fare (GroupTicketView.id) from the search results.",
             "format": "uuid",
@@ -3463,6 +3574,12 @@
             "title": "Can Release",
             "type": "boolean"
           },
+          "can_set_selling_price": {
+            "default": false,
+            "description": "This viewer may change the selling price now: on hold, nothing paid, Super Admin or record payments (the endpoint still checks).",
+            "title": "Can Set Selling Price",
+            "type": "boolean"
+          },
           "customer": {
             "anyOf": [
               {
@@ -3567,6 +3684,17 @@
             "$ref": "#/components/schemas/GroupMoney",
             "description": "Selling price per adult, from the hold (or the accepted new price)."
           },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total minus supplier cost. Only with the cost and margin permission."
+          },
           "saved_people": {
             "anyOf": [
               {
@@ -3615,6 +3743,17 @@
             ],
             "description": "Only with the supplier names permission.",
             "title": "Supplier"
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier cost total. Only with the cost and margin permission."
           },
           "supplier_notice": {
             "anyOf": [
@@ -4797,6 +4936,17 @@
             "title": "Pnr",
             "type": "string"
           },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "selling_total - supplier_cost. Only with the cost and margin permission."
+          },
           "saved_people": {
             "description": "What happened to the saved customer and travelers (never blocks the hold).",
             "items": {
@@ -4807,6 +4957,17 @@
           },
           "selling_total": {
             "$ref": "#/components/schemas/FlightMoney"
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The airline's cost total. Only with the cost and margin permission."
           },
           "time_limit": {
             "anyOf": [
@@ -5202,6 +5363,23 @@
           "message"
         ],
         "title": "IssuanceResult",
+        "type": "object"
+      },
+      "IssueTicketRequest": {
+        "properties": {
+          "accepted_supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "After 409 supplier_cost_changed: the airline's new cost, confirmed."
+          }
+        },
+        "title": "IssueTicketRequest",
         "type": "object"
       },
       "JourneyView": {
@@ -6648,6 +6826,83 @@
           }
         },
         "title": "SavedPersonUpdate",
+        "type": "object"
+      },
+      "SellingPriceItem": {
+        "properties": {
+          "passenger_type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Passenger Type",
+            "type": "string"
+          },
+          "selling_each": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "What the customer pays per traveler of this type: whole rupees, not below that traveler's supplier cost."
+          }
+        },
+        "required": [
+          "passenger_type",
+          "selling_each"
+        ],
+        "title": "SellingPriceItem",
+        "type": "object"
+      },
+      "SellingPriceResult": {
+        "properties": {
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "total - supplier_cost. Only with the cost and margin permission."
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "total": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "The new selling total: what payments are capped at."
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "SellingPriceResult",
+        "type": "object"
+      },
+      "SetSellingPriceRequest": {
+        "description": "The selling price (Group Ticketing and Flights): before any payment, while the booking is on hold and not issued.",
+        "properties": {
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/SellingPriceItem"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Prices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prices"
+        ],
+        "title": "SetSellingPriceRequest",
         "type": "object"
       },
       "SupplierPayment": {
@@ -8595,7 +8850,7 @@
     },
     "/v1/admin/bookings/{booking_id}/issuance/issue": {
       "post": {
-        "description": "Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown.",
+        "description": "Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown.\nIf the airline's price changed, the answer is 409 supplier_cost_changed (or below_cost); send accepted_supplier_cost\nfrom it to issue at the new cost (the selling price stays).",
         "operationId": "issue_ticket_v1_admin_bookings__booking_id__issuance_issue_post",
         "parameters": [
           {
@@ -8609,6 +8864,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IssueTicketRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -9008,6 +9280,70 @@
         "summary": "Resolve Booking Person",
         "tags": [
           "saved people"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/selling-price": {
+      "post": {
+        "description": "Set what the customer pays (Group Ticketing and Flights): per passenger type, whole rupees, not below cost. Logged.",
+        "operationId": "set_selling_price_v1_admin_bookings__booking_id__selling_price_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSellingPriceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellingPriceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the record_payments permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not on hold, issued, or a payment is already recorded."
+          },
+          "422": {
+            "description": "Not whole rupees, below the supplier cost, a different currency, or a passenger type not on the booking."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Selling Price",
+        "tags": [
+          "admin bookings"
         ]
       }
     },

@@ -23,7 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core.config import settings
 from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
-from app.db import booking_payments, booking_people
+from app.db import booking_payments, booking_people, booking_pricing
 from app.db import issuance as issuance_store
 from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
@@ -31,7 +31,7 @@ from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
     BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceChecklist, IssuanceRequest,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
-    RevealRequest, RevealResponse, TicketNumber,
+    RevealRequest, RevealResponse, TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -96,6 +96,31 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
         people = None  # the tabs stay "not available" rather than failing the whole page
     return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
                                 can_issue_tickets=viewer.can(ISSUE_TICKETS))
+
+
+@router.post(
+    "/{booking_id}/selling-price", response_model=SellingPriceResult, response_model_exclude_none=True,
+    responses={403: {"description": "Needs the record_payments permission."}, 404: {"description": "No such booking."},
+               409: {"description": "Not on hold, issued, or a payment is already recorded."},
+               422: {"description": "Not whole rupees, below the supplier cost, a different currency, or a passenger type not on the booking."}},
+)
+async def set_selling_price(viewer: Viewer, request: SetSellingPriceRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """Set what the customer pays (Group Ticketing and Flights): per passenger type, whole rupees, not below cost. Logged."""
+    if not viewer.can(RECORD_PAYMENTS):
+        raise HTTPException(403, "Changing the selling price needs the record payments permission.")
+    currencies = {item.selling_each.currency.upper() for item in request.prices}
+    if len(currencies) != 1:
+        raise HTTPException(422, "Give every selling price in the booking's currency.")
+    prices = {item.passenger_type: item.selling_each.amount_minor for item in request.prices}
+    try:
+        result = await run_in_threadpool(booking_pricing.set_selling_price, booking_id, prices, viewer.user_id, currencies.pop())
+    except booking_pricing.SellingRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    answer = SellingPriceResult(total=service._money(result.amounts.selling_total_minor, result.currency))
+    if viewer.visibility.cost_and_margin and result.amounts.cost_total_minor is not None:
+        answer.supplier_cost = service._money(result.amounts.cost_total_minor, result.currency)
+        answer.profit = service._money(result.amounts.profit_minor, result.currency)
+    return answer
 
 
 @router.post(
@@ -170,6 +195,10 @@ async def _run(call):
     try:
         return _result(await call)
     except issuance_store.IssuanceRefused as error:
+        if error.code:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)
         raise HTTPException(error.status, error.message) from None
 
 
@@ -210,9 +239,12 @@ async def request_issuance(viewer: Viewer, request: IssuanceRequest, booking_id:
 
 
 @router.post("/{booking_id}/issuance/issue", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
-async def issue_ticket(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
-    """Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown."""
-    return await _run(issuance_service.issue(booking_id, viewer))
+async def issue_ticket(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)], request: IssueTicketRequest | None = None):
+    """Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown.
+    If the airline's price changed, the answer is 409 supplier_cost_changed (or below_cost); send accepted_supplier_cost
+    from it to issue at the new cost (the selling price stays)."""
+    accepted = request.accepted_supplier_cost.amount_minor if request and request.accepted_supplier_cost else None
+    return await _run(issuance_service.issue(booking_id, viewer, accepted_cost_minor=accepted))
 
 
 @router.post("/{booking_id}/issuance/verify", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)

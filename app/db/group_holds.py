@@ -57,7 +57,7 @@ class GroupBooking:
     source: dict[str, Any] = field(default_factory=dict)
     #: Set when the supplier held but the booking couldn't be completed: supplier_pnr, error, at.
     unrecorded: dict[str, Any] = field(default_factory=dict)
-    #: The supplier held at a different price than shown: shown_total_minor, held_total_minor, accepted.
+    #: The supplier held at a different cost than shown: shown_cost_total_minor, held_cost_total_minor, accepted.
     price_change: dict[str, Any] = field(default_factory=dict)
     #: The supplier's own booking amounts and states (Dhillu & Sahi: total_amount, cancel_status, ...), as last read.
     supplier_amounts: dict[str, Any] = field(default_factory=dict)
@@ -265,7 +265,7 @@ def create_pending(*, provider: str, currency: str, selling_total_minor: int, su
              "itinerary": json.dumps(itinerary) if itinerary else None},
         )
         if customer is not None:
-            _save_people(connection, booking_id, customer, travelers)
+            _save_people(connection, booking_id, customer, travelers, selling_total_minor, supplier_total_minor)
         _event(connection, booking_id, actor_user_id, "hold_requested", {"travelers": len(travelers)})
     return booking_id, reference
 
@@ -296,6 +296,12 @@ def confirm_hold(booking_id: str, actor: str, *, pnr: str | None, supplier_ref: 
         ).rowcount
         if updated != 1:
             raise RuntimeError("hold record is no longer pending")
+        # Each traveler's cost follows the cost the supplier held at (their selling price stays).
+        from app.services.pricing import split
+
+        ids = connection.execute(text("SELECT id FROM booking_travelers WHERE booking_id = :b ORDER BY position"), {"b": booking_id}).scalars().all()
+        for traveler_id, cost in zip(ids, split(supplier_total_minor, len(ids))):
+            connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
         _event(connection, booking_id, actor, "hold_created", audit)
 
 
@@ -358,9 +364,11 @@ def accept_held_price(reference: str, actor: str) -> GroupBooking:
             raise GroupHoldRefused(409, "There is no price change to confirm.", "no_price_change")
         if booking.booking_status != "held":
             raise GroupHoldRefused(409, "This booking isn't on hold.", "not_held")
+        if booking.supplier_cost_minor is not None and booking.total_minor < booking.supplier_cost_minor:
+            raise GroupHoldRefused(409, "The selling price is below the new supplier cost. Set a higher selling price first.", "below_cost")
         connection.execute(
             text("UPDATE bookings SET supplier_response = jsonb_set(supplier_response, '{price_change,accepted}', 'true'::jsonb),"
                  " updated_at = now(), revision = revision + 1 WHERE id = :b"), {"b": booking.id})
         _event(connection, booking.id, actor, "held_price_accepted",
-               {"amount_minor": booking.total_minor, "previous_amount_minor": booking.price_change.get("shown_total_minor"), "currency": booking.currency})
+               {"amount_minor": booking.total_minor, "currency": booking.currency})
         return _load(connection, reference, lock=False)

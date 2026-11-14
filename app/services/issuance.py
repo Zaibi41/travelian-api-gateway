@@ -70,16 +70,16 @@ async def request(reference: str, viewer: BackOfficeUser, note: str | None = Non
     return Outcome("requested", "requested", "Issuance requested. An approver can now issue the ticket.")
 
 
-async def issue(reference: str, viewer: BackOfficeUser, client_factory=None) -> Outcome:
+async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, accepted_cost_minor: int | None = None) -> Outcome:
     _require(viewer)
     if not settings.southair_ticketing_enabled:
         raise IssuanceRefused(409, "Ticketing is turned off. Nothing was issued.")
     target = await run_in_threadpool(store.claim, reference, viewer.user_id, _now(), settings.ticketing_deadline_margin_seconds)
     previous = target.issuance_status
 
-    async def abort(status: int, message: str, reason_code: str) -> None:
+    async def abort(status: int, message: str, reason_code: str, **extra) -> None:
         await run_in_threadpool(store.release, target, viewer.user_id, previous, "issuance_aborted", {"reason_code": reason_code})
-        raise IssuanceRefused(status, message)
+        raise IssuanceRefused(status, message, reason_code, **extra)
 
     try:
         client = (client_factory or configured_client)()
@@ -101,8 +101,21 @@ async def issue(reference: str, viewer: BackOfficeUser, client_factory=None) -> 
         return Outcome("unknown", "unknown", "The PNR's ticketing status is unclear, so nothing was sent. Check with the supplier and resolve it.")
     if not state.can_ticketing:
         await abort(409, "The supplier won't ticket this PNR now. Nothing was issued.", "not_ticketable")
-    if state.total is None or target.supplier_cost_minor is None or to_minor(state.total.value) != target.supplier_cost_minor:
+    if state.total is None or target.supplier_cost_minor is None:
         await abort(409, "The supplier's total for this PNR has changed. Nothing was issued.", "total_mismatch")
+    new_cost = to_minor(state.total.value)
+    if new_cost != target.supplier_cost_minor:
+        # The airline's price moved. The selling price stays (app.services.pricing): refused when it is below the
+        # new cost; otherwise the issuer confirms the new cost (profit changes) and issues again.
+        if new_cost > target.total_minor:
+            await abort(409, "The airline's price is now above the selling price. Nothing was issued.", "below_cost")
+        if accepted_cost_minor != new_cost:
+            costs = {"new_supplier_cost": {"amount_minor": new_cost, "currency": target.currency},
+                     "previous_supplier_cost": {"amount_minor": target.supplier_cost_minor, "currency": target.currency},
+                     "profit": {"amount_minor": target.total_minor - new_cost, "currency": target.currency}} if viewer.visibility.cost_and_margin else {}
+            await abort(409, "The airline's price has changed. The selling price stays; confirm the new cost to issue. Nothing was issued.",
+                        "supplier_cost_changed", accepted_supplier_cost={"amount_minor": new_cost, "currency": target.currency}, **costs)
+        target = await run_in_threadpool(store.update_cost, target, viewer.user_id, new_cost)
     try:
         profile = await client.profile()
     except SouthairError:

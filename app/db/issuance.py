@@ -8,7 +8,7 @@ Every step writes a booking_events entry. Ticket numbers are stored per traveler
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -22,10 +22,12 @@ ISSUABLE = ("not_issued", "requested")
 
 
 class IssuanceRefused(Exception):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, code: str | None = None, **extra):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code
+        self.extra = extra
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,22 @@ def _store_response(response: dict[str, Any] | None) -> tuple[str, dict[str, Any
         return "", {}
     return (", supplier_response = COALESCE(supplier_response, '{}'::jsonb) || jsonb_build_object('ticketing', CAST(:response AS jsonb))",
             {"response": json.dumps(response, default=str)})
+
+
+def update_cost(target: Target, actor: str, cost_minor: int) -> Target:
+    """The airline's new total, confirmed by the issuer: the booking's supplier cost (and each traveler's share)
+    becomes it. The selling total doesn't change. Logged."""
+    from app.services.pricing import split
+
+    with agencies.application_engine().begin() as connection:
+        connection.execute(text("UPDATE bookings SET supplier_cost_minor = :c, updated_at = now(), revision = revision + 1 WHERE id = :b"),
+                           {"c": cost_minor, "b": target.id})
+        ids = connection.execute(text("SELECT id FROM booking_travelers WHERE booking_id = :b ORDER BY position"), {"b": target.id}).scalars().all()
+        for traveler_id, cost in zip(ids, split(cost_minor, len(ids))):
+            connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
+        _event(connection, target.id, actor, "supplier_cost_changed",
+               {"amount_minor": cost_minor, "previous_amount_minor": target.supplier_cost_minor, "currency": target.currency})
+    return replace(target, supplier_cost_minor=cost_minor)
 
 
 def release(target: Target, actor: str, status: str, action: str, details: dict[str, Any], response: dict[str, Any] | None = None) -> None:

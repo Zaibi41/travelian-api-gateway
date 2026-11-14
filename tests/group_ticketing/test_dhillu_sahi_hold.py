@@ -247,12 +247,13 @@ def test_hold_stores_the_booking_id_and_supplier_answer_on_our_record(store_ok):
     assert confirmed["supplier_response"]["hold_time"]["source"] == "default" and confirmed["supplier_response"]["hold_time"]["minutes"] == 45
 
 
-def test_held_total_different_from_the_shown_price_needs_the_customer_to_agree(store_ok):
+def test_held_cost_different_from_the_listing_keeps_the_selling_price_and_needs_confirming(store_ok):
     stock = normalize_groups(rows())
     service_hold(Supplier(detail=detail_booking(total="90000")), AsyncMock(return_value=stock), request_for(stock))
     confirmed = dict(store_ok)["confirm_hold"]
-    assert confirmed["selling_total_minor"] == 90_000_00 and confirmed["supplier_total_minor"] == 90_000_00  # the held price
-    assert confirmed["supplier_response"]["price_change"] == {"shown_total_minor": 85_000_00, "held_total_minor": 90_000_00, "accepted": False}
+    assert confirmed["selling_total_minor"] == 85_000_00  # the selling price stays (default: listing + markup 0)
+    assert confirmed["supplier_total_minor"] == 90_000_00  # the cost the supplier held at
+    assert confirmed["supplier_response"]["price_change"] == {"shown_cost_total_minor": 85_000_00, "held_cost_total_minor": 90_000_00, "accepted": False}
 
 
 @pytest.mark.parametrize("available", [False])
@@ -344,14 +345,18 @@ def test_expiry_job_marks_expired_and_calls_no_release():
 
 # ---------- price change, supplier amounts, cancellation ----------
 
-def test_price_change_shows_until_agreed_and_blocks_payments():
-    record, now = booking(paid=0, price_change={"shown_total_minor": 80_000_00, "held_total_minor": 85_000_00, "accepted": False})
+def test_price_change_shows_the_new_profit_until_confirmed_and_blocks_payments():
+    # booking(): selling total 85,000, supplier cost 85,000; the listing said 80,000.
+    change = {"shown_cost_total_minor": 80_000_00, "held_cost_total_minor": 85_000_00}
+    record, now = booking(paid=0, price_change={**change, "accepted": False})
     view = group_holds.build_view(record, None, ADMIN, now)
-    assert view.price_change.model_dump() == {"shown_total": {"amount_minor": 80_000_00, "currency": "PKR"},
-                                              "held_total": {"amount_minor": 85_000_00, "currency": "PKR"},
-                                              "difference": {"amount_minor": 5_000_00, "currency": "PKR"}}
+    pkr = lambda minor: {"amount_minor": minor, "currency": "PKR"}  # noqa: E731
+    assert view.price_change.model_dump() == {"selling_total": pkr(85_000_00), "below_cost": False, "shown_cost": pkr(80_000_00),
+                                              "held_cost": pkr(85_000_00), "difference": pkr(5_000_00), "profit": pkr(0)}
     assert view.can_record_payments is False
-    agreed, now = booking(paid=0, price_change={"shown_total_minor": 80_000_00, "held_total_minor": 85_000_00, "accepted": True})
+    staff = group_holds.build_view(record, None, STAFF, now).price_change.model_dump(exclude_none=True)
+    assert staff == {"selling_total": pkr(85_000_00), "below_cost": False}  # no cost or profit without cost access
+    agreed, now = booking(paid=0, price_change={**change, "accepted": True})
     view = group_holds.build_view(agreed, None, ADMIN, now)
     assert view.price_change is None and view.can_record_payments is True
 

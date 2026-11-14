@@ -23,7 +23,7 @@ def test_maps_booking_fields_only_and_tags_the_source():
     assert record["reference"] == "TRV-AB12CD" and record["pnr"] == "AB12CD"
     assert record["currency"] == "INR" and record["total_minor"] == 4_200_050
     assert record["payment_status"] == "unpaid" and "payment pending -> unpaid" in notes
-    assert record["supplier_cost_minor"] is None and "no supplier cost" in notes
+    assert record["supplier_cost_minor"] == record["total_minor"] and any(note.startswith("no supplier cost") for note in notes)  # cost required (0021)
     assert record["import_source"] == "legacy_test_csv"
     assert not {"passportNumber", "customerEmail", "contact", "email"} & set(record)
 

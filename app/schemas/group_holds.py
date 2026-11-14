@@ -99,6 +99,9 @@ class GroupHoldRequest(BaseModel):
     adults: int = Field(ge=1, le=MAX_ADULTS, description="Adults only; must equal the number of passengers.")
     contact: GroupHoldContact
     passengers: list[GroupHoldPassenger] = Field(min_length=1, max_length=MAX_ADULTS, description="One adult (ADT) per seat.")
+    selling_price_per_adult: GroupMoney | None = Field(None, description="What the customer pays per adult, in whole rupees, not below the "
+                                                                         "supplier cost. Default: supplier price + the group markup (0 when unset). "
+                                                                         "Changing it needs the record payments permission.")
 
 
 class GroupHoldFlight(BaseModel):
@@ -148,11 +151,15 @@ GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued",
 
 
 class GroupHeldPriceChange(BaseModel):
-    """The supplier held the seats at a different price than shown before the hold. Payments wait until the customer agrees."""
+    """The supplier held the seats at a different cost than shown before the hold. The selling price stays the staff's;
+    payments wait until the change is confirmed, which is refused while the selling price is below the new cost."""
 
-    shown_total: GroupMoney = Field(description="The selling total shown before the hold.")
-    held_total: GroupMoney = Field(description="The selling total for the price the supplier held at (this booking's total).")
-    difference: GroupMoney = Field(description="held_total - shown_total; negative when the price went down.")
+    selling_total: GroupMoney = Field(description="What the customer pays (unchanged by the supplier's change).")
+    below_cost: bool = Field(description="The selling price is below the new supplier cost: set a higher selling price before confirming.")
+    shown_cost: GroupMoney | None = Field(None, description="Supplier cost shown before the hold. Only with the cost and margin permission.")
+    held_cost: GroupMoney | None = Field(None, description="Supplier cost held at. Only with the cost and margin permission.")
+    difference: GroupMoney | None = Field(None, description="held_cost - shown_cost. Only with the cost and margin permission.")
+    profit: GroupMoney | None = Field(None, description="selling_total - held_cost. Only with the cost and margin permission.")
 
 
 class GroupHoldView(BaseModel):
@@ -181,6 +188,10 @@ class GroupHoldView(BaseModel):
     issue_unavailable_reason: str | None = Field(None, description="Why Issue tickets is off for this booking's provider, when it is.")
     price_change: GroupHeldPriceChange | None = Field(None, description="Set while the held price differs from the price shown and the customer "
                                                                           "hasn't agreed yet (POST .../accept-held-price).")
+    supplier_cost: GroupMoney | None = Field(None, description="Supplier cost total. Only with the cost and margin permission.")
+    profit: GroupMoney | None = Field(None, description="Total minus supplier cost. Only with the cost and margin permission.")
+    can_set_selling_price: bool = Field(False, description="This viewer may change the selling price now: on hold, nothing paid, "
+                                                         "Super Admin or record payments (the endpoint still checks).")
     can_release: bool = Field(False, description="Release hold can be used now: held, and the provider has a release call (the endpoint still checks).")
     supplier_release_failed: bool | None = Field(None, description="The seats could not be released at the supplier after the hold ended "
                                                                    "(being retried, or given up). Only with the supplier names permission.")

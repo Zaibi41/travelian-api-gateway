@@ -61,12 +61,19 @@ class TravelerRecord:
     infant_of_position: int | None = None  # position of the adult an infant travels with
     person_id: str | None = None           # saved person this copy came from (traveler_id)
     document_id: str | None = None
+    selling_minor: int | None = None       # this traveler's selling price; None: an even share of the booking total
+    cost_minor: int | None = None          # this traveler's supplier cost; None: an even share of the cost total
 
     def __repr__(self) -> str:  # never print identity data
         return f"TravelerRecord(type={self.passenger_type})"
 
 
-def _save_people(connection, booking_id: str, customer: CustomerRecord, travelers: list[TravelerRecord]) -> None:
+def _save_people(connection, booking_id: str, customer: CustomerRecord, travelers: list[TravelerRecord],
+                 selling_total_minor: int = 0, cost_total_minor: int | None = None) -> None:
+    from app.services.pricing import split
+
+    sellings = split(selling_total_minor, len(travelers))
+    costs = split(cost_total_minor if cost_total_minor is not None else selling_total_minor, len(travelers))
     connection.execute(
         text("INSERT INTO booking_customers (booking_id, first_name, last_name, phone_code, phone, email)"
              " VALUES (:b, :first, :last, :code, :phone, :email)"),
@@ -76,13 +83,17 @@ def _save_people(connection, booking_id: str, customer: CustomerRecord, traveler
     for position, traveler in enumerate(travelers):
         connection.execute(
             text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name,"
-                 " date_of_birth, id_type, document_number, document_country, nationality, document_expiry, infant_of_position, person_id, document_id)"
-                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :id_type, :doc, :country, :nationality, :expiry, :infant_of, :person, :document)"),
+                 " date_of_birth, id_type, document_number, document_country, nationality, document_expiry, infant_of_position, person_id, document_id,"
+                 " selling_minor, cost_minor)"
+                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :id_type, :doc, :country, :nationality, :expiry, :infant_of, :person, :document,"
+                 " :selling, :cost)"),
             {"id": str(uuid4()), "b": booking_id, "pos": position, "type": traveler.passenger_type, "title": traveler.title,
              "first": traveler.first_name, "last": traveler.last_name, "dob": traveler.date_of_birth, "id_type": traveler.id_type,
              "doc": (traveler.document_number or "").strip() or None, "country": traveler.document_country,
              "nationality": traveler.nationality, "expiry": traveler.document_expiry, "infant_of": traveler.infant_of_position,
-             "person": traveler.person_id, "document": traveler.document_id},
+             "person": traveler.person_id, "document": traveler.document_id,
+             "selling": traveler.selling_minor if traveler.selling_minor is not None else sellings[position],
+             "cost": traveler.cost_minor if traveler.cost_minor is not None else costs[position]},
         )
 
 
@@ -110,7 +121,7 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
              "itinerary": json.dumps(itinerary) if itinerary else None},
         )
         if customer is not None:
-            _save_people(connection, booking_id, customer, travelers or [])
+            _save_people(connection, booking_id, customer, travelers or [], selling_total_minor, supplier_total_minor)
         _event(connection, booking_id, actor_user_id, "hold_created",
                {**audit, **({"label": "UAT test data"} if source == UAT_SOURCE else {}), "travelers": len(travelers or [])})
     return reference

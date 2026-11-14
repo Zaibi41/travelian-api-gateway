@@ -359,10 +359,11 @@ def test_staff_without_permission_cannot_issue(provider):
     assert error.value.status == 403
 
 
-def test_held_at_a_different_price_payments_wait_for_the_customer(provider, database):
-    provider.supplier_total = 2 * 110_000_00  # the supplier held at 110,000 per adult; 100,000 was shown
+def test_held_at_a_different_cost_payments_wait_for_confirmation(provider, database):
+    provider.supplier_total = 2 * 102_000_00  # the supplier held at 102,000 per adult; 100,000 was listed
     view = place()
-    assert view.price_change is not None and view.total.amount_minor == 2 * 115_500_00  # 110,000 + 5% markup
+    assert view.price_change is not None and view.total.amount_minor == 2 * 105_000_00  # the selling price stays (100,000 + 5%)
+    assert view.profit.amount_minor == 2 * 3_000_00 and view.supplier_cost.amount_minor == 2 * 102_000_00
     assert view.can_record_payments is False
     with pytest.raises(booking_payments.PaymentRefused):
         pay(view.booking_id, 1_000_00)

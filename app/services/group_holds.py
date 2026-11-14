@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
 
@@ -43,7 +43,7 @@ from app.schemas.group_holds import (
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
-from app.services import flight_holds
+from app.services import flight_holds, pricing
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
 from app.services.live_flights import money_text
@@ -421,9 +421,16 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         can_release=open_hold and provider is not None and booking.provider not in NO_RELEASE_SOURCES,
     )
     if booking.price_change_pending and open_hold:
-        shown = int(booking.price_change.get("shown_total_minor") or 0)
-        view.price_change = GroupHeldPriceChange(shown_total=money(shown), held_total=money(booking.total_minor),
-                                                 difference=money(booking.total_minor - shown))
+        held_cost = booking.supplier_cost_minor if booking.supplier_cost_minor is not None else int(booking.price_change.get("held_cost_total_minor") or 0)
+        view.price_change = GroupHeldPriceChange(selling_total=money(booking.total_minor), below_cost=booking.total_minor < held_cost)
+        if viewer.visibility.cost_and_margin:
+            shown = int(booking.price_change.get("shown_cost_total_minor") or 0)
+            view.price_change.shown_cost, view.price_change.held_cost = money(shown), money(held_cost)
+            view.price_change.difference, view.price_change.profit = money(held_cost - shown), money(booking.total_minor - held_cost)
+    if viewer.visibility.cost_and_margin and booking.supplier_cost_minor is not None:
+        view.supplier_cost = money(booking.supplier_cost_minor)
+        view.profit = money(booking.total_minor - booking.supplier_cost_minor)
+    view.can_set_selling_price = open_hold and booking.paid_minor == 0 and viewer.can(RECORD_PAYMENTS)
     if viewer.visibility.supplier_names:
         # Supplier name and the supplier's PNR: only with the supplier names permission.
         view.supplier = booking.provider or None
@@ -569,17 +576,24 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         raise GroupHoldError(422, "This fare needs a passport for every traveler: number and expiry date.", "invalid_passengers",
                              [(["passengers", index, field], "A passport is needed for this fare.") for index, field in missing])
 
-    # 1. Our record first ('hold_pending'), with the customer and travelers. Nothing is sent to the supplier
-    #    unless it is written.
+    # The selling price per adult: the staff's (whole rupees, not below the supplier cost) or the default
+    # (supplier price + the group markup; markup 0 when unset). Shared rule: app.services.pricing.
     listing_cost = supplier_cost(ticket)
     listing_selling = selling_price(listing_cost)
-    currency = (listing_selling or listing_cost).currency if (listing_selling or listing_cost) else settings.group_ticketing_default_currency
-    travelers = flight_holds._travelers(resolved, links)
+    if listing_cost is None or listing_selling is None:
+        raise GroupHoldError(409, "The provider sent no price for this fare. Nothing was held.", "no_price")
+    selling_each = _selling_each(request, listing_cost, listing_selling, viewer)
+    currency = listing_cost.currency
+
+    # 1. Our record first ('hold_pending'), with the customer and travelers. Nothing is sent to the supplier
+    #    unless it is written.
+    travelers = [replace(traveler, selling_minor=selling_each, cost_minor=listing_cost.amount_minor)
+                 for traveler in flight_holds._travelers(resolved, links)]
     try:
         booking_id, reference = await run_in_threadpool(lambda: store.create_pending(
             provider=ticket.vendor, currency=currency,
-            selling_total_minor=(listing_selling.amount_minor if listing_selling else 0) * request.adults,
-            supplier_total_minor=listing_cost.amount_minor * request.adults if listing_cost else None,
+            selling_total_minor=selling_each * request.adults,
+            supplier_total_minor=listing_cost.amount_minor * request.adults,
             supplier_response={"adults": request.adults, "hold_minutes": hold_minutes(provider),
                                "ticket": {"id": str(request.ticket_id), "updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
                                "source": source_record(ticket, None)},
@@ -604,13 +618,12 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         raise GroupHoldError(502, "The supplier didn't confirm the hold. Check with the supplier before trying again.", "not_confirmed_hold") from None
 
     # 3. Complete our record with the supplier's answer. When the supplier says what it held at (Dhillu & Sahi:
-    #    total_amount), that is the price; if it differs from the price shown, the customer must agree before payment.
-    cost_per_adult = held.cost_per_adult
+    #    total_amount), that is the cost. The selling price stays the staff's; if the cost moved, the new profit is
+    #    shown and payments wait until it is confirmed (refused while the selling price is below the new cost).
     supplier_total_minor = held.cost_per_adult.amount_minor * request.adults
     if held.supplier_total is not None:
         supplier_total_minor = held.supplier_total.amount_minor
-        cost_per_adult = GroupMoney(amount_minor=supplier_total_minor // request.adults, currency=held.supplier_total.currency)
-    selling = selling_price(cost_per_adult)
+    selling = GroupMoney(amount_minor=selling_each, currency=currency)
     held_at = _now()
     expires_at = hold_expiry(held_at, provider)
     extra_hold_time: dict = {}
@@ -626,12 +639,10 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         extra["supplier_answer"] = held.supplier_answer
         if isinstance(held.supplier_answer.get("amounts"), dict):
             extra["supplier_amounts"] = {**held.supplier_answer["amounts"], "read_at": held_at.isoformat()}
-    if selling is not None and listing_cost is not None and supplier_total_minor != listing_cost.amount_minor * request.adults:
-        shown = (listing_selling.amount_minor if listing_selling else 0) * request.adults
-        extra["price_change"] = {"shown_total_minor": shown, "held_total_minor": selling.amount_minor * request.adults, "accepted": False}
+    if supplier_total_minor != listing_cost.amount_minor * request.adults:
+        extra["price_change"] = {"shown_cost_total_minor": listing_cost.amount_minor * request.adults,
+                                 "held_cost_total_minor": supplier_total_minor, "accepted": False}
     try:
-        if selling is None:
-            raise ValueError("no selling price for the supplier price")
         await run_in_threadpool(lambda: store.confirm_hold(
             booking_id, viewer.user_id, pnr=held.pnr, supplier_ref=held.supplier_ref, hold_expires_at=expires_at,
             selling_total_minor=selling.amount_minor * request.adults, supplier_total_minor=supplier_total_minor,
@@ -655,6 +666,24 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
 
 
 # ---------- price check, release, issue ----------
+
+def _selling_each(request: GroupHoldRequest, cost: GroupMoney, default: GroupMoney, viewer: BackOfficeUser) -> int:
+    """The selling price per adult in minor units: the default unless the staff set one (Super Admin, or staff with
+    record payments). Whole rupees, not below the supplier cost. Raises GroupHoldError (422) on a field."""
+    chosen = request.selling_price_per_adult
+    if chosen is None or (chosen.amount_minor == default.amount_minor and chosen.currency == default.currency):
+        return default.amount_minor
+    field = ["selling_price_per_adult"]
+    if not viewer.can(RECORD_PAYMENTS):
+        raise GroupHoldError(403, "Changing the selling price needs the record payments permission.", "not_allowed")
+    if chosen.currency != cost.currency:
+        raise GroupHoldError(422, f"The selling price must be in {cost.currency}.", "invalid_selling_price", [(field, "Wrong currency.")])
+    try:
+        pricing.check_selling(chosen.amount_minor, cost.amount_minor)
+    except pricing.PriceRefused as error:
+        raise GroupHoldError(422, error.message, error.code, [(field, error.message)]) from None
+    return chosen.amount_minor
+
 
 def _held_ref(booking: store.GroupBooking) -> HeldRef:
     cost = GroupMoney(amount_minor=booking.supplier_cost_minor // max(booking.adults, 1), currency=booking.currency) \

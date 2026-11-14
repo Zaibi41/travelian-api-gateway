@@ -178,6 +178,8 @@ class HoldView(BaseModel):
     pnr: str
     time_limit: datetime | None = Field(None, description="The hold expires then unless ticketed. There is no cancel call.")
     selling_total: FlightMoney
+    supplier_cost: FlightMoney | None = Field(None, description="The airline's cost total. Only with the cost and margin permission.")
+    profit: FlightMoney | None = Field(None, description="selling_total - supplier_cost. Only with the cost and margin permission.")
     label: Literal["UAT test data"] = "UAT test data"
     warnings: list[str] = Field(default_factory=list, description="Not errors: e.g. passport valid for under 6 months on an international route.")
     saved_people: list[SaveOutcomeView] = Field(default_factory=list, description="What happened to the saved customer and travelers (never blocks the hold).")
