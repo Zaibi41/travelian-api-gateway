@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # Al Haider (Group Ticketing): a permanent access token sent as a Bearer header (no login call).
     al_haider_base_url: str | None = None
     al_haider_access_token: SecretStr | None = None
+    # Al Haider holds (create/booking): off until Al Haider confirms that an unpaid booking expires by itself.
+    # The agency_info sent with each booking is Travelian's own agency (all four are needed to hold).
+    group_al_haider_hold_enabled: bool = False
+    al_haider_agent_name: str | None = None
+    al_haider_agency_name: str | None = None
+    al_haider_agent_email: str | None = None
+    al_haider_agent_mobile: str | None = None
     skypass_endpoint: str | None = None
     skypass_client_id: SecretStr | None = None
     skypass_client_secret: SecretStr | None = None

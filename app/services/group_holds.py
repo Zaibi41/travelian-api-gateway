@@ -94,6 +94,12 @@ def _dhillu_sahi() -> GroupHoldProvider | None:
     return DhilluSahiHoldProvider() if settings.group_dhillu_sahi_hold_enabled and is_configured() else None
 
 
+def _al_haider() -> GroupHoldProvider | None:
+    from app.vendors.group_ticketing.al_haider.holds import AlHaiderHoldProvider, is_configured
+
+    return AlHaiderHoldProvider() if settings.group_al_haider_hold_enabled and is_configured() else None
+
+
 def _skypass() -> GroupHoldProvider | None:
     from app.vendors.group_ticketing.skypass.holds import SkypassHoldProvider
     from app.vendors.group_ticketing.skypass.inventory import is_configured
@@ -103,9 +109,9 @@ def _skypass() -> GroupHoldProvider | None:
 
 #: Group source (GroupTicket.vendor) -> provider factory (None when its credentials are missing).
 #: Add a source only with its supplier's documented hold and release contracts (gateway AGENTS.md).
-PROVIDERS: dict[str, Callable[[], GroupHoldProvider | None]] = {"skypass": _skypass, "dhillu_sahi": _dhillu_sahi}
+PROVIDERS: dict[str, Callable[[], GroupHoldProvider | None]] = {"skypass": _skypass, "dhillu_sahi": _dhillu_sahi, "al_haider": _al_haider}
 #: Sources with no release or cancel call: nothing is sent to the supplier when our hold ends (it ends there by itself).
-NO_RELEASE_SOURCES = {"dhillu_sahi"}
+NO_RELEASE_SOURCES = {"dhillu_sahi", "al_haider"}
 
 #: What each group source supports today (reported, not used for routing).
 SUPPORT = {
@@ -113,7 +119,8 @@ SUPPORT = {
                "price re-check from the ticket detail. No issuing: submit-booking is not built.",
     "dhillu_sahi": "Inventory; hold through add-booking (holds unpaid, ends by itself after 1 hour at the supplier; no cancel or "
                    "release call) behind GROUP_DHILLU_SAHI_HOLD_ENABLED; booking detail read after the hold. No price re-check, no issuing.",
-    "al_haider": "No adapter and no credentials.",
+    "al_haider": "Inventory; hold through create/booking behind GROUP_AL_HAIDER_HOLD_ENABLED (default off until Al Haider confirms "
+                 "that an unpaid booking expires). No release (its cancel call is permission based and unused), no price re-check, no issuing.",
 }
 
 NO_ISSUE_REASON = "Issuing is not available for this provider yet"
@@ -201,6 +208,12 @@ async def _after_refusal(request: GroupHoldRequest, ticket: GroupTicket,
 NOT_RECORDED_EXPIRES = "Supplier hold not recorded, it expires by itself after 1 hour"
 NOT_RELEASED = "Supplier hold not released, release manually"
 NOT_RECORDED_RELEASING = "Supplier hold not recorded, the seats are being released"
+#: Sources without a release call whose supplier expiry isn't confirmed: the unrecorded hold must be released by hand.
+EXPIRY_UNCONFIRMED_SOURCES = {"al_haider"}
+
+
+def _unreleasable_notice(vendor: str | None) -> str:
+    return NOT_RELEASED if vendor in EXPIRY_UNCONFIRMED_SOURCES else NOT_RECORDED_EXPIRES
 
 
 async def _unrecorded(booking_id: str, reference: str, held: HeldSeats, provider: GroupHoldProvider, vendor: str, adults: int,
@@ -220,7 +233,7 @@ async def _unrecorded(booking_id: str, reference: str, held: HeldSeats, provider
         kept = False
         logger.critical("Supplier hold PNR not kept on any record: release or note it now",
                         extra={"vendor": vendor, "reference": reference, "pnr": held.pnr, "error_type": error_reason(error)})
-    outcome = NOT_RECORDED_EXPIRES + "."
+    outcome = _unreleasable_notice(vendor) + "."
     if releasable:
         released, code = True, None
         try:
@@ -277,7 +290,7 @@ def supplier_notice(booking: store.GroupBooking, provider: GroupHoldProvider | N
     if status == "not_recorded":
         if booking.release.get("status") == store.RELEASE_PENDING and not booking.release_failed:
             return NOT_RECORDED_RELEASING
-        return NOT_RELEASED if booking.release_failed else NOT_RECORDED_EXPIRES
+        return NOT_RELEASED if booking.release_failed else _unreleasable_notice(booking.provider)
     return getattr(provider, "supplier_hold_notice", None) if status in ("held", "expired") else None
 
 
