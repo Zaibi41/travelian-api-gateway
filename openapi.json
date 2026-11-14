@@ -3994,7 +3994,7 @@
           },
           "can_hold": {
             "default": false,
-            "description": "Whether Hold seats can be used on this fare: its source holds seats and a selling price exists.",
+            "description": "Whether Hold seats can be used on this fare: its source holds seats and it has a price.",
             "title": "Can Hold",
             "type": "boolean"
           },
@@ -4142,7 +4142,7 @@
                 "type": "null"
               }
             ],
-            "description": "Per adult. Omitted when no markup is configured or the price is unknown."
+            "description": "Per adult: listing price + markup (0 when none is set). Omitted only when the provider sent no usable price."
           },
           "sold": {
             "anyOf": [

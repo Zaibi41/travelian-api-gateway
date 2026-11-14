@@ -39,7 +39,7 @@ from app.schemas.group_ticketing import GroupInventory, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.services import flight_holds
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
-from app.services.group_ticketing_view import GroupMoney, _departure_time, selling_price
+from app.services.group_ticketing_view import GroupMoney, _departure_time, baggage_text, selling_price
 from app.services.live_flights import money_text
 from app.services import supplier_logos
 
@@ -133,12 +133,6 @@ class GroupHoldError(Exception):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _markup_configured() -> bool:
-    from app.services.group_ticketing_view import markup_configured
-
-    return markup_configured()
 
 
 # ---------- read ----------
@@ -251,7 +245,7 @@ def _itinerary(ticket: GroupTicket) -> list[dict]:
     codes = sector_codes(ticket.sector)
     time = _departure_time(ticket)
     departure = f"{ticket.departure_date}T{time}" if ticket.departure_date and time else ticket.departure_date
-    baggage = str(ticket.baggage).strip() if ticket.baggage not in (None, "") else None
+    baggage = baggage_text(ticket.baggage, ticket.hand_carry)
     meal = str(ticket.meal).strip() if ticket.meal not in (None, "") else None
     return [{"direction": "outbound", "origin": codes[0] if codes else (ticket.sector or "—"), "destination": codes[1] if codes else "—",
              "airline_name": ticket.airline, "departure_local": departure, "baggage": baggage, "meal": meal,
@@ -287,8 +281,6 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
     if ticket.remaining is not None and ticket.remaining < request.adults:
         raise GroupHoldError(409, f"Only {ticket.remaining} seat{'s' if ticket.remaining != 1 else ''} left on this fare. Nothing was held.",
                              "not_enough_seats")
-    if not _markup_configured():
-        raise GroupHoldError(409, "No selling price is configured for group fares. Nothing was held.", "no_selling_price")
 
     owner = None  # back-office holds are Travelian's own (saved people are scoped by owner)
     try:

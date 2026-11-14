@@ -62,10 +62,8 @@ class Settings(BaseSettings):
     # Cap on a revalidated price change (selling total, minor units, increase only). Unset: no
     # cap; a changed price only needs the user's explicit acceptance (spec confirmation #18).
     flight_price_change_limit_minor: int | None = Field(None, ge=0)
-    # Group Ticketing selling price = supplier price + percent + fixed amount (D23).
-    # Both unset: no selling price at all, so the supplier price is never passed off as a
-    # selling price by accident (holds are refused: "no_selling_price"). Setting either one,
-    # even to 0, is a deliberate choice: GROUP_TICKETING_MARKUP_PERCENT=0 sells at the listing price.
+    # Group Ticketing selling price = listing price + percent + fixed amount (D23).
+    # Unset (or empty) counts as 0: the fare sells at the listing price per adult.
     group_ticketing_markup_percent: Decimal | None = Field(None, ge=0, le=100)
     group_ticketing_markup_fixed_minor: int | None = Field(None, ge=0)
     # Suppliers that send no currency price in this currency.
@@ -85,7 +83,7 @@ class Settings(BaseSettings):
     @field_validator("group_ticketing_markup_percent", "group_ticketing_markup_fixed_minor", mode="before")
     @classmethod
     def empty_markup_is_unset(cls, value):
-        """GROUP_TICKETING_MARKUP_*= (empty, as in .env.example) means not set, never 0."""
+        """GROUP_TICKETING_MARKUP_*= (empty, as in .env.example) means not set (markup 0)."""
         return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("cors_allowed_origins")

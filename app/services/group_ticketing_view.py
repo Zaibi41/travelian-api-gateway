@@ -1,7 +1,8 @@
 """What each caller receives from Group Ticketing (spec v3.0 D23).
 
 Everyone allowed to search: departure, route, airline, seats, baggage, meal, a
-gateway-served logo and the selling price (supplier price + configured markup).
+gateway-served logo and the selling price (listing price + configured markup; no
+markup set means markup 0, so the listing price).
 Only with "see supplier names": supplier and supplier PNR.
 Raw supplier segments require both permissions because they may contain costs.
 Only with "see cost and margin": supplier cost. Agency roles never get either.
@@ -59,9 +60,9 @@ class GroupTicketView(BaseModel):
     meal: Literal["Yes", "No"] | None = None
     ticket_type: str | int | None = None
     legs: list[GroupLegView] = Field(default_factory=list, description="Every flight, outbound then return.")
-    selling_price: GroupMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the price is unknown.")
+    selling_price: GroupMoney | None = Field(None, description="Per adult: listing price + markup (0 when none is set). Omitted only when the provider sent no usable price.")
     stock: Literal["supplier", "owned"] = Field("supplier", description="Supplier stock or Travelian-owned stock. Never names the supplier.")
-    can_hold: bool = Field(False, description="Whether Hold seats can be used on this fare: its source holds seats and a selling price exists.")
+    can_hold: bool = Field(False, description="Whether Hold seats can be used on this fare: its source holds seats and it has a price.")
     hold_unavailable_reason: str | None = Field(None, description="Why Hold seats is off for this fare, when it is.")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     pnr: str | None = Field(None, description="Supplier PNR. Only with the supplier names permission.")
@@ -95,20 +96,38 @@ def supplier_cost(ticket: GroupTicket) -> GroupMoney | None:
     return GroupMoney(amount_minor=int((amount * 100).quantize(Decimal("1"), ROUND_HALF_UP)), currency=currency)
 
 
-def markup_configured() -> bool:
-    """A group markup was set on purpose (either setting, 0 included). Unset: no selling price."""
-    return settings.group_ticketing_markup_percent is not None or settings.group_ticketing_markup_fixed_minor is not None
-
-
 def selling_price(cost: GroupMoney | None) -> GroupMoney | None:
-    """Cost + percent + fixed, rounded up to a whole unit. None when no markup is configured."""
-    if cost is None or not markup_configured():
+    """Listing price + percent + fixed, rounded up to a whole unit. An unset markup counts as 0.
+    None only when there is no listing price."""
+    if cost is None:
         return None
     percent = settings.group_ticketing_markup_percent or Decimal("0")
     fixed = settings.group_ticketing_markup_fixed_minor or 0
     raw = Decimal(cost.amount_minor) * (1 + percent / 100) + fixed
     whole = (raw / 100).quantize(Decimal("1"), ROUND_CEILING) * 100
     return GroupMoney(amount_minor=int(whole), currency=cost.currency)
+
+
+def _kilos(value: str | int | None) -> Decimal | None:
+    text = str(value if value is not None else "").casefold().replace("kg", "").strip()
+    try:
+        number = Decimal(text) if text else None
+    except InvalidOperation:
+        return None
+    return number if number is not None and number.is_finite() and number >= 0 else None
+
+
+def baggage_text(checked: str | int | None, hand_carry: str | int | None) -> str | None:
+    """Group baggage for display, hand carry first: 7 and 20 -> '7+20 kg'; hand carry only -> '7 kg';
+    checked only -> '20 kg'. None when neither is a number."""
+    bag, hand = _kilos(checked), _kilos(hand_carry)
+    bag = bag if bag else None
+    hand = hand if hand else None
+    if hand is not None and bag is not None:
+        return f"{hand.normalize():f}+{bag.normalize():f} kg"
+    if hand is not None or bag is not None:
+        return f"{(hand or bag).normalize():f} kg"
+    return None
 
 
 def _departure_time(ticket: GroupTicket) -> str | None:
@@ -148,7 +167,7 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         ticket_type=ticket.ticket_type, legs=legs, selling_price=selling_price(cost),
         stock=stock_label(ticket.vendor),
     )
-    view.hold_unavailable_reason = hold_unavailable_reason(ticket.vendor, view.selling_price)
+    view.hold_unavailable_reason = hold_unavailable_reason(ticket.vendor, view.selling_price, visibility)
     view.can_hold = view.hold_unavailable_reason is None
     if visibility.supplier_names:
         view.supplier, view.pnr = ticket.vendor, ticket.pnr
@@ -160,18 +179,21 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
 
 
 NO_HOLD_PROVIDER = "Holding isn't available for this provider"
-NO_MARKUP = "No selling price is configured for group fares"
+# Dhillu & Sahi's documented API (login, groups, check availability, add booking, booking
+# detail) has no hold, release or cancel call. Names the supplier, so only for viewers with
+# the supplier names permission; everyone else gets NO_HOLD_PROVIDER.
+NO_HOLD_API = {"dhillu_sahi": "Dhillu & Sahi has no hold API"}
 NO_PRICE = "The provider sent no price for this fare"
 
 
-def hold_unavailable_reason(vendor: str, price: GroupMoney | None) -> str | None:
+def hold_unavailable_reason(vendor: str, price: GroupMoney | None, visibility: FieldVisibility | None = None) -> str | None:
     """Why Hold seats is off for a fare (None: it can be used). Checked again when the hold is placed."""
     from app.services.group_holds import provider_for  # late import: group_holds imports this module
 
     if provider_for(vendor) is None:
+        if visibility is not None and visibility.supplier_names and vendor in NO_HOLD_API:
+            return NO_HOLD_API[vendor]
         return NO_HOLD_PROVIDER
-    if not markup_configured():
-        return NO_MARKUP
     if price is None:
         return NO_PRICE
     return None

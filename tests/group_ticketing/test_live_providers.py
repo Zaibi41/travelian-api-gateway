@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.field_visibility import ALL, NONE, FieldVisibility
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.services import group_holds
-from app.services.group_ticketing_view import ticket_view
+from app.services.group_ticketing_view import baggage_text, ticket_view
 from app.vendors.group_ticketing.dhillu_sahi.groups import normalize_groups
 from app.vendors.group_ticketing.skypass.holds import SkypassHoldProvider, SkypassRefused
 from app.vendors.group_ticketing.skypass.inventory import SkypassTicket, _normalize_ticket, split_baggage
@@ -103,17 +103,28 @@ def test_provider_and_supplier_pnr_only_with_supplier_access(visibility, sees):
     assert "30345" not in str(ticket_view(skypass_ticket(), ALL).model_dump())
 
 
+@pytest.mark.parametrize("checked, hand, expected", [
+    ("30", "10", "10+30 kg"), ("20", "7", "7+20 kg"), ("20 KG", "07", "7+20 kg"), ("0", "7", "7 kg"), ("", "7", "7 kg"),
+    (None, 7, "7 kg"), ("20", None, "20 kg"), ("", "", None), (None, None, None), ("see supplier", None, None),
+])
+def test_group_baggage_text_puts_hand_carry_first(checked, hand, expected):
+    assert baggage_text(checked, hand) == expected
+
+
 def test_hold_only_where_the_provider_holds_and_a_selling_price_exists():
     skypass = ticket_view(skypass_ticket(), NONE)
     assert skypass.can_hold is True and skypass.hold_unavailable_reason is None
     dhillu = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], NONE)
     assert dhillu.can_hold is False and dhillu.hold_unavailable_reason == "Holding isn't available for this provider"
+    named = ticket_view(normalize_groups(DHILLU_ROWS)[0].tickets[0], ALL)
+    assert named.can_hold is False and named.hold_unavailable_reason == "Dhillu & Sahi has no hold API"
     with patch.object(settings, "skypass_endpoint", None):  # Skypass not configured: no holds either
         assert ticket_view(skypass_ticket(), NONE).can_hold is False
     with patch.object(settings, "group_ticketing_markup_percent", None), patch.object(settings, "group_ticketing_markup_fixed_minor", None):
         unpriced = ticket_view(skypass_ticket(), NONE)
-    assert unpriced.can_hold is False and unpriced.hold_unavailable_reason == "No selling price is configured for group fares"
-    assert unpriced.selling_price is None
+    # No markup set: markup 0, the listing price per adult, and Hold seats stays on.
+    assert unpriced.can_hold is True and unpriced.hold_unavailable_reason is None
+    assert unpriced.selling_price is not None and unpriced.selling_price.amount_minor == 160_000_00
     no_price = skypass_ticket().model_copy(update={"price": "Price on call"})
     assert ticket_view(no_price, NONE).hold_unavailable_reason == "The provider sent no price for this fare"
 

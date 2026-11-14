@@ -78,6 +78,17 @@ def test_staff_and_agency_get_no_supplier_cost_or_raw_fields(role, path):
                            "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price", "stock", "can_hold",
                            "legs", "flight_number", "hand_carry", "hold_unavailable_reason"}
     assert ticket["stock"] == "supplier" and ticket["can_hold"] is False  # Dhillu & Sahi can't hold
+    assert ticket["hold_unavailable_reason"] == "Holding isn't available for this provider"  # never names the supplier
+
+
+@pytest.mark.parametrize("role", ["super_admin", "staff_names"])
+def test_viewers_with_supplier_names_are_told_dhillu_sahi_has_no_hold_api(role):
+    ticket = ticket_of(call(VIEWERS[role]))
+    assert ticket["can_hold"] is False and ticket["hold_unavailable_reason"] == "Dhillu & Sahi has no hold API"
+
+
+def test_staff_without_supplier_names_get_the_general_reason():
+    ticket = ticket_of(call(VIEWERS["staff_cost"]))
     assert ticket["hold_unavailable_reason"] == "Holding isn't available for this provider"
 
 
@@ -102,11 +113,10 @@ def test_single_ticket_follows_the_same_rules():
     assert one.status_code == 200 and one.json() == listing
 
 
-def test_no_markup_means_no_price_at_all():
-    with patch.object(settings, "group_ticketing_markup_fixed_minor", None):
-        ticket = ticket_of(call(VIEWERS["staff"], markup=None, fixed=None))
-    assert "selling_price" not in ticket and "95000" not in json.dumps(ticket)
-    assert ticket["can_hold"] is False
+def test_no_markup_set_sells_at_the_listing_price():
+    ticket = ticket_of(call(VIEWERS["staff"], markup=None, fixed=None))
+    assert ticket["selling_price"] == {"amount_minor": 9_500_000, "currency": "PKR"}
+    assert "No selling price" not in json.dumps(ticket) and "supplier_cost" not in ticket
 
 
 def test_a_markup_set_to_zero_on_purpose_sells_at_the_listing_price():

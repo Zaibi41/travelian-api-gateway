@@ -129,6 +129,20 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
     assert connection.scalar(text("SELECT product FROM bookings WHERE reference = :r"), {"r": view.booking_id}) == "group"
 
 
+def test_no_markup_set_holds_at_the_listing_price(provider):
+    with patch.object(settings, "group_ticketing_markup_percent", None), patch.object(settings, "group_ticketing_markup_fixed_minor", None):
+        view = place()
+    assert view.status == "held" and view.price_per_adult.amount_minor == 100_000_00 and view.total.amount_minor == 200_000_00
+
+
+def test_held_flight_baggage_shows_hand_carry_first(provider):
+    stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "30", "departure_handcarry": "10",
+        "subpart": [{"departure_time": "06:40"}]}]}])
+    req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
+    assert place(req=req, stock=stock).flight.baggage == "10+30 kg"
+
+
 def test_supplier_name_only_for_viewers_allowed_to_see_it(provider):
     view = place()
     assert view.supplier == VENDOR
