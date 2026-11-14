@@ -9134,6 +9134,60 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/itinerary.pdf": {
+      "get": {
+        "description": "The booking's itinerary as a PDF (Flights and Group Ticketing): reference, PNR, status, customer, travelers, every\nflight (outbound then return) and the selling price, paid and due. Never a supplier name, group id, cost or profit;\na group booking's PNR (the supplier's) only with the supplier names permission.",
+        "operationId": "itinerary_pdf_v1_admin_bookings__booking_id__itinerary_pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "The itinerary, named after the booking reference."
+          },
+          "403": {
+            "description": "Back-office users only."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Itinerary Pdf",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/payments": {
       "post": {
         "description": "Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged.",

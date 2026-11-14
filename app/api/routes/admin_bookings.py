@@ -14,6 +14,7 @@ reveal_identity permission and a reason, and every reveal is logged (spec 3.2).
 from typing import Annotated
 
 import logging
+import re
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Path, Query, Response
@@ -35,6 +36,7 @@ from app.schemas.admin_bookings import (
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
+from app.services import itinerary_pdf as itinerary_pdf_service
 
 router = APIRouter(
     prefix="/admin/bookings",
@@ -96,6 +98,37 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
         people = None  # the tabs stay "not available" rather than failing the whole page
     return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
                                 can_issue_tickets=viewer.can(ISSUE_TICKETS))
+
+
+@router.get(
+    "/{booking_id}/itinerary.pdf", response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}, "description": "The itinerary, named after the booking reference."},
+               403: {"description": "Back-office users only."}, 404: {"description": "No such booking."}},
+)
+async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """The booking's itinerary as a PDF (Flights and Group Ticketing): reference, PNR, status, customer, travelers, every
+    flight (outbound then return) and the selling price, paid and due. Never a supplier name, group id, cost or profit;
+    a group booking's PNR (the supplier's) only with the supplier names permission."""
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    try:
+        people = await run_in_threadpool(booking_people.read, booking_id)
+    except SQLAlchemyError:
+        raise HTTPException(503, "Booking details are not available.") from None
+    travelers = [(t.passenger_type, t.title, t.first_name, t.last_name) for t in (people.travelers if people else [])]
+    customer = f"{people.customer.first_name} {people.customer.last_name}".strip() if people and people.customer else booking.customer_name
+    paid = sum(payment.amount_minor for payment in people.payments) if people else None
+    content = itinerary_pdf_service.itinerary(
+        reference=booking.booking_id, product=booking.product, pnr=service.visible_pnr(booking, viewer.visibility), status=booking.status,
+        created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, customer=customer, travelers=travelers,
+        segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)], currency=booking.currency,
+        total_minor=booking.total_minor, paid_minor=paid, now=_now(),
+    )
+    filename = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id) + ".pdf"
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                                                                     "Cache-Control": "no-store"})
 
 
 @router.post(
