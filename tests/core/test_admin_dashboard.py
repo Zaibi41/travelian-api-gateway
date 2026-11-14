@@ -30,7 +30,8 @@ def booking(n, **overrides):
 # ---------- figures ----------
 
 RECORDS = [
-    booking(1, status="confirmed", ticket_status="not_issued", payment_status="paid", created_at=datetime(2025, 1, 10, tzinfo=PKT)),
+    booking(1, status="confirmed", ticket_status="not_issued", payment_status="paid", created_at=datetime(2025, 1, 10, tzinfo=PKT),
+            hold_expires_at=NOW + timedelta(hours=3)),
     booking(2, status="held", ticket_status="not_issued", payment_status="unpaid", hold_expires_at=NOW + timedelta(minutes=90)),
     booking(3, status="held", ticket_status="not_issued", payment_status="unpaid", hold_expires_at=NOW + timedelta(hours=5)),
     booking(4, status="held", ticket_status="not_issued", payment_status="unpaid", hold_expires_at=NOW - timedelta(minutes=5)),
@@ -46,10 +47,10 @@ def test_needs_action_uses_window_setting_and_ignores_date_filter():
     today = figures.build_summary(RECORDS, figures.DashboardQuery(period="today"), NOW, window_hours=2, can_see_margin=True)
     assert two.needs_action == today.needs_action
     assert two.needs_action.pending_issuance == 1
-    assert two.needs_action.payment_pending == 2  # overdue hold excluded
+    assert two.needs_action.payment_pending == 1  # B3; B2 expires within 2 hours (listed there); overdue B4 excluded
     assert two.needs_action.expiring_holds == 1 and two.needs_action.expiring_window_hours == 2
     wide = figures.build_summary(RECORDS, figures.DashboardQuery(), NOW, window_hours=24, can_see_margin=True)
-    assert wide.needs_action.expiring_holds == 2
+    assert wide.needs_action.expiring_holds == 2 and wide.needs_action.payment_pending == 0
 
 
 def test_business_results_follow_filters_and_exclude_retired_products():
@@ -98,7 +99,7 @@ def test_booking_report_has_every_day_of_a_bounded_period():
 def test_attention_queue_dedupes_sorts_and_limits():
     queue = figures.build_attention_queue(RECORDS, figures.DashboardQuery(), NOW, window_hours=2, limit=2)
     assert queue.total == 3
-    assert [(item.type, item.booking_id) for item in queue.items] == [("hold_expiring", "B2"), ("payment_pending", "B3")]
+    assert [(item.type, item.booking_id) for item in queue.items] == [("hold_expiring", "B2"), ("pending_issuance", "B1")]  # soonest due first
 
 
 def test_filter_options():
@@ -191,3 +192,43 @@ def test_bookings_read_failure_logs_error_type_only(monkeypatch, caplog):
         booking_store.list_dashboard_bookings()
     assert "Bookings read failed: ProgrammingError/Boom" in caplog.text
     assert "AB12CD" not in caplog.text and "SELECT" not in caplog.text
+
+
+# ---------- only bookings still ahead of their due time (never past ones) ----------
+
+def _pending(n, due):
+    return booking(n, status="held", payment_status="paid", ticket_status="not_issued", hold_expires_at=due)
+
+
+@pytest.mark.parametrize("due, listed", [(NOW + timedelta(hours=4), True), (NOW - timedelta(minutes=1), False), (NOW, False), (None, False)])
+def test_pending_issuance_only_while_due_is_ahead(due, listed):
+    rows = [_pending(20, due)]
+    queue = figures.build_attention_queue(rows, figures.DashboardQuery(), NOW, window_hours=2, limit=10)
+    cards = figures.build_summary(rows, figures.DashboardQuery(), NOW, 2, True).needs_action
+    assert (queue.total == 1) is listed and cards.pending_issuance == queue.total
+
+
+def test_past_due_is_hidden_whatever_the_status_and_compared_in_utc():
+    # 765A6A-style: held, paid, not issued, hold expired yesterday (stored in Asia/Karachi; compared as instants).
+    past = datetime(2026, 11, 4, 1, 36, tzinfo=PKT)
+    utc_now = NOW.astimezone(ZoneInfo("UTC"))
+    rows = [_pending(21, past), booking(22, status="confirmed", ticket_status="requested", hold_expires_at=past),
+            booking(23, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=past)]
+    assert figures.build_attention_queue(rows, figures.DashboardQuery(), utc_now, 2, 10).total == 0
+    assert figures.build_summary(rows, figures.DashboardQuery(), utc_now, 2, True).needs_action.model_dump(exclude={"expiring_window_hours"}) == {
+        "pending_issuance": 0, "payment_pending": 0, "expiring_holds": 0}
+
+
+def test_each_card_count_equals_its_rows_in_the_queue_soonest_first():
+    rows = [_pending(30, NOW + timedelta(hours=6)), _pending(31, NOW + timedelta(minutes=30)), _pending(32, NOW - timedelta(hours=1)),
+            booking(33, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW + timedelta(hours=8)),
+            booking(34, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW + timedelta(minutes=10)),
+            booking(35, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW - timedelta(minutes=10))]
+    queue = figures.build_attention_queue(rows, figures.DashboardQuery(), NOW, window_hours=2, limit=50)
+    cards = figures.build_summary(rows, figures.DashboardQuery(), NOW, 2, True).needs_action
+    kinds = [item.type for item in queue.items]
+    assert cards.pending_issuance == kinds.count("pending_issuance") == 1  # B30 (B31 expires within 2 hours, B32 is past)
+    assert cards.payment_pending == kinds.count("payment_pending") == 1  # B33
+    assert cards.expiring_holds == kinds.count("hold_expiring") == 2  # B34, B31
+    assert [item.booking_id for item in queue.items] == ["B34", "B31", "B30", "B33"]
+    assert all(item.due_at > NOW for item in queue.items)

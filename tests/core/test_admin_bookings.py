@@ -41,7 +41,8 @@ ROWS = [
     booking(1),
     booking(2, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW + timedelta(minutes=90)),
     booking(3, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW + timedelta(hours=5)),
-    booking(4, status="confirmed", ticket_status="not_issued", provider="AirSial", agency_id="ag-2", agency_name="Lahore Tours"),
+    booking(4, status="confirmed", ticket_status="not_issued", provider="AirSial", agency_id="ag-2", agency_name="Lahore Tours",
+            hold_expires_at=NOW + timedelta(hours=6)),  # awaiting issuance while its due time is ahead
     booking(5, status="cancelled", payment_status="unpaid", ticket_status="not_issued"),
     booking(8, status="expired", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW - timedelta(hours=1)),
     booking(9, status="held", payment_status="unpaid", ticket_status="not_issued"),  # hold without a deadline

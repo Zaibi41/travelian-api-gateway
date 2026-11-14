@@ -17,7 +17,7 @@ from app.core.field_visibility import FieldVisibility
 from app.db.booking_people import People
 from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
-    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
+    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
@@ -139,9 +139,10 @@ def card_rules(now: datetime, window_hours: int):
         "expiring_soon": lambda b: (
             b.status in OPEN_HOLD and b.hold_expires_at is not None and now < b.hold_expires_at <= now + window
         ),
-        "awaiting_issuance": is_pending_issuance,
+        # The dashboard's needs-action cards open these: the same classification, so the numbers agree.
+        "awaiting_issuance": lambda b: attention_kind(b, now, window) == "pending_issuance",
         "hold_deadlines": lambda b: _open_hold(b, now),
-        "payment_pending": lambda b: is_payment_pending(b, now),
+        "payment_pending": lambda b: attention_kind(b, now, window) == "payment_pending",
     }
 
 

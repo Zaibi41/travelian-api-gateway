@@ -11,7 +11,6 @@ import calendar
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from app.schemas.admin_dashboard import (
     AttentionItem, AttentionQueue, BookingReport, BusinessResults, DashboardFilterOptions,
@@ -91,10 +90,16 @@ def _overdue(booking: BookingRow, now: datetime) -> bool:
     return booking.status in OPEN_HOLD and booking.hold_expires_at is not None and booking.hold_expires_at <= now
 
 
-def is_pending_issuance(booking: BookingRow) -> bool:
+def due_ahead(booking: BookingRow, now: datetime) -> bool:
+    """The booking's due time (hold expiry) is still in the future. Needs-action cards and the Attention Queue only
+    list these: a past due time is never listed, whatever the stored status (server time; aware datetimes compare in UTC)."""
+    return booking.hold_expires_at is not None and booking.hold_expires_at > now
+
+
+def is_pending_issuance(booking: BookingRow, now: datetime) -> bool:
     """Paid or confirmed and waiting for a ticket: also a fully paid hold, or one with issuance
-    requested or in progress. Issued and unknown issuance are counted elsewhere."""
-    if booking.product != "flight" or booking.ticket_status in ("issued", "unknown"):
+    requested or in progress, while its due time is ahead. Issued and unknown issuance are counted elsewhere."""
+    if booking.product != "flight" or booking.ticket_status in ("issued", "unknown") or not due_ahead(booking, now):
         return False
     return (booking.status in {"payment_received", "confirmed"} or booking.ticket_status in ("requested", "processing")
             or (booking.status in OPEN_HOLD and booking.payment_status == "paid"))
@@ -103,7 +108,7 @@ def is_pending_issuance(booking: BookingRow) -> bool:
 def is_payment_pending(booking: BookingRow, now: datetime) -> bool:
     return (
         booking.product == "flight" and booking.status in OPEN_HOLD
-        and booking.payment_status != "paid" and not _overdue(booking, now)
+        and booking.payment_status != "paid" and due_ahead(booking, now)
     )
 
 
@@ -112,6 +117,24 @@ def is_expiring_hold(booking: BookingRow, now: datetime, window: timedelta) -> b
         booking.product == "flight" and booking.status in OPEN_HOLD and not _overdue(booking, now)
         and booking.hold_expires_at is not None and booking.hold_expires_at <= now + window
     )
+
+
+#: Most urgent first: each booking is listed once, under the first kind it matches.
+ATTENTION_KINDS = ("hold_expiring", "payment_pending", "pending_issuance")
+
+
+def attention_kind(booking: BookingRow, now: datetime, window: timedelta) -> str | None:
+    """The one Attention Queue kind of a booking (None: not listed). The needs-action cards count exactly these, so a
+    card's number equals its rows in the queue."""
+    if not due_ahead(booking, now):
+        return None
+    if is_expiring_hold(booking, now, window):
+        return "hold_expiring"
+    if is_payment_pending(booking, now):
+        return "payment_pending"
+    if is_pending_issuance(booking, now):
+        return "pending_issuance"
+    return None
 
 
 def is_issued_ticket(booking: BookingRow) -> bool:
@@ -161,9 +184,10 @@ def build_summary(
         # Any imported row anywhere in the table, regardless of filters.
         contains_sample_data=any(booking.import_source for booking in bookings),
         needs_action=NeedsAction(
-            pending_issuance=sum(is_pending_issuance(booking) for booking in selected),
-            payment_pending=sum(is_payment_pending(booking, now) for booking in selected),
-            expiring_holds=sum(is_expiring_hold(booking, now, window) for booking in selected),
+            # The same classification as the Attention Queue: a card's number equals its rows there.
+            pending_issuance=sum(attention_kind(booking, now, window) == "pending_issuance" for booking in selected),
+            payment_pending=sum(attention_kind(booking, now, window) == "payment_pending" for booking in selected),
+            expiring_holds=sum(attention_kind(booking, now, window) == "hold_expiring" for booking in selected),
             expiring_window_hours=window_hours,
         ),
         business=BusinessResults(
@@ -235,27 +259,16 @@ def build_booking_report(bookings: Iterable[BookingRow], period: Period, now: da
 def build_attention_queue(
     bookings: Iterable[BookingRow], query: DashboardQuery, now: datetime, window_hours: int, limit: int,
 ) -> AttentionQueue:
-    """Each booking once, under its most urgent queue; soonest deadline first. Ignores the date filter."""
+    """Each booking once, under its most urgent kind, only while its due time is ahead; soonest due first.
+    Ignores the date filter."""
     window = timedelta(hours=window_hours)
-    rules = (
-        ("hold_expiring", lambda booking: is_expiring_hold(booking, now, window)),
-        ("payment_pending", lambda booking: is_payment_pending(booking, now)),
-        ("pending_issuance", is_pending_issuance),
-    )
-    seen: set[str] = set()
     items: list[AttentionItem] = []
-    selected = scoped(bookings, query)
-    for kind, matches in rules:
-        for booking in selected:
-            if booking.booking_id in seen or not matches(booking):
-                continue
-            seen.add(booking.booking_id)
-            items.append(AttentionItem(
-                booking_id=booking.booking_id, reference=booking.pnr or booking.booking_id,
-                type=kind, due_at=booking.hold_expires_at,
-            ))
-    far_future = datetime.max.replace(tzinfo=ZoneInfo("UTC"))
-    items.sort(key=lambda item: item.due_at or far_future)
+    for booking in scoped(bookings, query):
+        kind = attention_kind(booking, now, window)
+        if kind is not None:
+            items.append(AttentionItem(booking_id=booking.booking_id, reference=booking.pnr or booking.booking_id,
+                                       type=kind, due_at=booking.hold_expires_at))
+    items.sort(key=lambda item: (item.due_at, ATTENTION_KINDS.index(item.type), item.booking_id))
     return AttentionQueue(total=len(items), items=items[:limit])
 
 
