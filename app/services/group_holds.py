@@ -63,6 +63,8 @@ class HeldSeats:
     cost_per_adult: GroupMoney  # supplier price per adult
     supplier_answer: dict | None = None  # what the supplier answered (kept on our record; never returned)
     supplier_total: GroupMoney | None = None  # the booking total the supplier held at, when it says (all travelers)
+    booked_at: datetime | None = None  # when the supplier booking was made (our clock, right after add-booking)
+    supplier_expires_at: datetime | None = None  # the supplier's own expiry, already checked as usable (Dhillu & Sahi cancel_at)
 
     def __repr__(self) -> str:
         return f"HeldSeats(pnr={self.pnr})"
@@ -141,9 +143,24 @@ def supports_issue(provider: GroupHoldProvider | None) -> bool:
     return bool(provider is not None and getattr(provider, "supports_issue", False))
 
 
-def hold_expiry(created_at: datetime) -> datetime:
-    """Travelian's own hold time: creation + GROUP_HOLD_MINUTES. Never a supplier value."""
-    return created_at + timedelta(minutes=settings.group_hold_minutes)
+def hold_minutes(provider: GroupHoldProvider | None = None) -> int:
+    """The provider's own hold time when it has one (Dhillu & Sahi: DHILLU_SAHI_HOLD_DEFAULT_MINUTES), else GROUP_HOLD_MINUTES."""
+    return getattr(provider, "hold_minutes", None) or settings.group_hold_minutes
+
+
+def hold_expiry(created_at: datetime, provider: GroupHoldProvider | None = None) -> datetime:
+    """Travelian's own hold time: creation + hold_minutes(provider). Never a supplier value."""
+    return created_at + timedelta(minutes=hold_minutes(provider))
+
+
+def hold_time_note(booking: store.GroupBooking) -> str | None:
+    """For viewers with supplier access, under the countdown: where the hold time came from."""
+    hold_time = booking.hold_time
+    if hold_time.get("source") == "default":
+        return f"Hold time estimated ({hold_time.get('minutes')} min default)"
+    if hold_time.get("source") == "supplier":
+        return "Hold time from supplier"
+    return None
 
 
 # ---------- errors ----------
@@ -328,7 +345,17 @@ async def refresh_supplier(booking: store.GroupBooking) -> store.GroupBooking:
     cancelled = str(booking_amounts.get("cancel_status", "")).strip() == "1"
     if cancelled:
         logger.warning("Supplier cancelled a held booking", extra={"reference": booking.reference})
-    return await run_in_threadpool(store.save_supplier_amounts, booking.reference, booking_amounts, cancelled, _now())
+    # Still on the default hold time: switch to the supplier's expiry as soon as a read gives a usable one.
+    new_expiry = None
+    expiry_from = getattr(provider, "expiry_from", None)
+    if not cancelled and expiry_from is not None and booking.hold_time.get("source") == "default":
+        try:
+            booked_at = datetime.fromisoformat(str(booking.hold_time.get("from")))
+        except ValueError:
+            booked_at = None
+        if booked_at is not None:
+            new_expiry = expiry_from(booking_amounts, booked_at, booking.supplier_ref)
+    return await run_in_threadpool(store.save_supplier_amounts, booking.reference, booking_amounts, cancelled, _now(), new_expiry)
 
 
 async def refresh_for_payment(reference: str) -> None:
@@ -395,6 +422,7 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         view.supplier_release_failed = booking.release_failed
         view.group_source = booking_source(booking)
         view.supplier_notice = supplier_notice(booking, provider, status)
+        view.hold_time_note = hold_time_note(booking) if status in ("held", "expired") else None
     if people is not None:
         if people.customer:
             c = people.customer
@@ -527,7 +555,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
             provider=ticket.vendor, currency=currency,
             selling_total_minor=(listing_selling.amount_minor if listing_selling else 0) * request.adults,
             supplier_total_minor=listing_cost.amount_minor * request.adults if listing_cost else None,
-            supplier_response={"adults": request.adults, "hold_minutes": settings.group_hold_minutes,
+            supplier_response={"adults": request.adults, "hold_minutes": hold_minutes(provider),
                                "ticket": {"id": str(request.ticket_id), "updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
                                "source": source_record(ticket, None)},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
@@ -559,8 +587,16 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         cost_per_adult = GroupMoney(amount_minor=supplier_total_minor // request.adults, currency=held.supplier_total.currency)
     selling = selling_price(cost_per_adult)
     held_at = _now()
-    expires_at = hold_expiry(held_at)
-    extra: dict = {}
+    expires_at = hold_expiry(held_at, provider)
+    extra_hold_time: dict = {}
+    if held.supplier_expires_at is not None:
+        expires_at = held.supplier_expires_at
+        extra_hold_time = {"hold_time": {"source": "supplier", "from": (held.booked_at or held_at).isoformat()}}
+    elif getattr(provider, "hold_time_source", None):
+        # The supplier gave no usable expiry: hold time (add-booking time) + the provider's default minutes.
+        expires_at = hold_expiry(held.booked_at or held_at, provider)
+        extra_hold_time = {"hold_time": {"source": "default", "minutes": hold_minutes(provider), "from": (held.booked_at or held_at).isoformat()}}
+    extra: dict = dict(extra_hold_time)
     if held.supplier_answer is not None:
         extra["supplier_answer"] = held.supplier_answer
         if isinstance(held.supplier_answer.get("amounts"), dict):

@@ -16,15 +16,23 @@ itself after 1 hour; there is no cancel or release call.
    airline, subpart[]}}, "message"}. total_amount is the booking's total (all travelers), not per adult.
    `confirmed` is not read as paid or ticketed.
 
-The hold is Travelian's own 30 minutes (GROUP_HOLD_MINUTES). Nothing is released at our expiry. add-booking is never
+Our hold expiry: for an active booking (cancel_status 0), agent-booking-detail's cancel_at is the supplier's auto-cancel
+time, "YYYY-MM-DD HH:MM:SS" in Pakistan time (Asia/Karachi; booking_date and groupdata.updated_at are UTC). Example,
+booking 34895: booking_date 2026-11-14 16:10:45 (UTC), cancel_at 2026-11-14 21:50:45 (PKT) = 16:50:45 UTC, 40 minutes
+later. It is used only when it falls 5 minutes to 2 hours after our add-booking time (source "supplier"); otherwise
+hold time + DHILLU_SAHI_HOLD_DEFAULT_MINUTES (45, source "default"), with a warning. Nothing is released at our expiry.
+Amounts and states come as strings in the manual and as numbers live; both are accepted. add-booking is never
 retried: a timeout may have held seats. The token and agent id are never logged or returned.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.schemas.group_ticketing import GroupTicket
@@ -34,8 +42,13 @@ from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient, D
 
 logger = logging.getLogger(__name__)
 NAME = "dhillu_sahi"
-#: For viewers with supplier access on a held or expired Dhillu & Sahi hold.
-SUPPLIER_HOLD_NOTICE = "Supplier hold ends by itself after 1 hour"
+#: cancel_at is Pakistan local time; it is accepted as our expiry only within this window after our add-booking time.
+SUPPLIER_TIME_ZONE = ZoneInfo("Asia/Karachi")
+SUPPLIER_EXPIRY_MIN = timedelta(minutes=5)
+SUPPLIER_EXPIRY_MAX = timedelta(hours=2)
+#: agent-booking-detail is read this many times after add-booking (read-only, so it can be retried).
+DETAIL_ATTEMPTS = 3
+DETAIL_RETRY_SECONDS = 1.0
 #: Supplier answers that clearly mean nothing was booked (stale updated_at, sold out, invalid input).
 REFUSED_HTTP = {400, 404, 409, 410, 422}
 #: Our traveler titles -> the titles add-booking accepts (MR, MRS, MS, MSTR, MISS).
@@ -116,13 +129,43 @@ def is_cancelled(booking_amounts: dict[str, Any]) -> bool:
     return str(booking_amounts.get("cancel_status", "")).strip() == "1"
 
 
+def parse_cancel_at(value: Any) -> datetime | None:
+    """'2026-11-14 21:50:45' (Asia/Karachi) -> 2026-11-14 16:50:45 UTC; None when missing or not that format."""
+    text = str(value).strip() if value is not None else ""
+    try:
+        local = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return local.replace(tzinfo=SUPPLIER_TIME_ZONE).astimezone(timezone.utc)
+
+
+def supplier_expiry(booking_amounts: dict[str, Any] | None, booked_at: datetime, booking_id: Any) -> datetime | None:
+    """The supplier's auto-cancel time (cancel_at of an active booking) when it is 5 minutes to 2 hours after our
+    add-booking time; otherwise None (use the default) and a warning naming the booking id and the values."""
+    raw = (booking_amounts or {}).get("cancel_at")
+    expiry = parse_cancel_at(raw)
+    active = not is_cancelled(booking_amounts or {})
+    if active and expiry is not None and SUPPLIER_EXPIRY_MIN <= expiry - booked_at <= SUPPLIER_EXPIRY_MAX:
+        return expiry
+    logger.warning("Dhillu & Sahi cancel_at not used as the hold expiry; using the default",
+                   extra={"booking_id": booking_id, "cancel_at": raw, "cancel_at_utc": expiry.isoformat() if expiry else None,
+                          "booked_at": booked_at.isoformat(), "cancel_status": (booking_amounts or {}).get("cancel_status"),
+                          "reason": "missing or unparsable" if expiry is None else "cancelled" if not active else "outside 5 minutes to 2 hours"})
+    return None
+
+
 class DhilluSahiHoldProvider:
     """GroupHoldProvider for Dhillu & Sahi. `transport` lets tests answer the HTTP calls."""
 
     supports_issue = False
     issue_unavailable_reason = "Issuing is not available for this provider yet"
     can_release = False
-    supplier_hold_notice = SUPPLIER_HOLD_NOTICE
+    supplier_hold_notice = None
+    hold_time_source = "default"
+
+    @property
+    def hold_minutes(self) -> int:
+        return settings.dhillu_sahi_hold_default_minutes
 
     def __init__(self, transport=None) -> None:
         self.client = DhilluSahiAuthClient(settings.dhillu_sahi_base_url, timeout_seconds=settings.dhillu_sahi_timeout_seconds,
@@ -168,15 +211,27 @@ class DhilluSahiHoldProvider:
                 raise SupplierRefused(error.error_code) from None
             raise
         booking_id = answer["data"]["id"]
+        booked_at = datetime.now(timezone.utc)  # our add-booking time: the supplier expiry is checked against it
         booking_amounts, held_total = None, None
-        try:
-            details = await self.client.fetch_booking_details(token, booking_id)
-            booking_amounts = amounts(details["booking"])
-            held_total = total_money(booking_amounts.get("total_amount"))
-        except Exception as error:  # noqa: BLE001 - the seats are held either way; the listing price stands
-            logger.warning("Dhillu & Sahi booking detail not read after hold", extra={"error_code": getattr(error, "error_code", type(error).__name__)})
+        for attempt in range(1, DETAIL_ATTEMPTS + 1):  # read-only: retried; the booking id is kept whatever happens
+            try:
+                details = await self.client.fetch_booking_details(token, booking_id)
+                booking_amounts = amounts(details["booking"])
+                held_total = total_money(booking_amounts.get("total_amount"))
+                break
+            except Exception as error:  # noqa: BLE001 - the seats are held either way; the listing price stands
+                logger.warning("Dhillu & Sahi booking detail not read after hold",
+                               extra={"booking_id": booking_id, "attempt": attempt, "error_code": getattr(error, "error_code", type(error).__name__)})
+                if attempt < DETAIL_ATTEMPTS:
+                    await asyncio.sleep(DETAIL_RETRY_SECONDS)
+        expiry = supplier_expiry(booking_amounts, booked_at, booking_id) if booking_amounts is not None else None
         return HeldSeats(pnr=ticket.pnr, supplier_ref=str(booking_id), cost_per_adult=cost, supplier_total=held_total,
-                         supplier_answer={"booking_id": booking_id, "add_booking": answer, "amounts": booking_amounts})
+                         supplier_answer={"booking_id": booking_id, "add_booking": answer, "amounts": booking_amounts},
+                         booked_at=booked_at, supplier_expires_at=expiry)
+
+    def expiry_from(self, booking_amounts: dict[str, Any], booked_at: datetime, booking_id: Any) -> datetime | None:
+        """On a later read: the supplier expiry, if it is usable (see supplier_expiry)."""
+        return supplier_expiry(booking_amounts, booked_at, booking_id)
 
     async def refresh(self, held) -> dict[str, Any]:
         """The booking's amounts and states now (agent-booking-detail). Read-only."""

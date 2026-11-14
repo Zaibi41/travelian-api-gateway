@@ -3491,6 +3491,18 @@
             "description": "Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.",
             "title": "Hold Expires At"
           },
+          "hold_time_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Under the countdown: 'Hold time estimated (45 min default)' or 'Hold time from supplier'. Only with the supplier names permission.",
+            "title": "Hold Time Note"
+          },
           "issue_unavailable_reason": {
             "anyOf": [
               {

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     dhillu_sahi_token: SecretStr | None = None
     dhillu_sahi_agent_id: int | None = Field(None, gt=0)
     group_dhillu_sahi_hold_enabled: bool = True
+    # Our Dhillu & Sahi hold time: hold time + this many minutes. agent-booking-detail has no expiry field (checked on
+    # booking 33697, 14 Nov 2026), so this is an estimate; other suppliers keep GROUP_HOLD_MINUTES.
+    dhillu_sahi_hold_default_minutes: int = Field(45, ge=1, le=1440)
     # Al Haider (Group Ticketing): a permanent access token sent as a Bearer header (no login call).
     al_haider_base_url: str | None = None
     al_haider_access_token: SecretStr | None = None

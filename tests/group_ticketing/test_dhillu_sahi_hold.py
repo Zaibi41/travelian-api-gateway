@@ -53,10 +53,10 @@ def adult(first="Test", passport="TEST12345", **kw):
 CONTACT = HoldContact(first_name="Test", last_name="Traveler", email="t@example.invalid", phone_code="92", phone="3001234567")
 
 
-def detail_booking(total="85000", cancel_status="0", confirmed="0", received="0"):
+def detail_booking(total="85000", cancel_status="0", confirmed="0", received="0", cancel_at=None):
     return {"id": 27049, "agent": "41", "pnr": "4FMUAF - 4KOCE5", "booking_date": "2026-11-14 15:09:58", "confirmed": confirmed,
             "added_by": {"id": 1, "name": "Admin"}, "edit_by": None, "cancel_by": None, "total_amount": total, "final_total": total,
-            "received_amount": received, "remaining_amount": total, "cancel_status": cancel_status, "cancel_at": None,
+            "received_amount": received, "remaining_amount": total, "cancel_status": cancel_status, "cancel_at": cancel_at,
             "pdf_download_link": "https://supplier.invalid/api/booking-pdf/27049?id=41", "pdf_view_link": "https://supplier.invalid/api/booking-pdf-view/27049?id=41",
             "booking_sub": [{"id": 4201, "booking_id": "27049", "title": "Mr", "firstname": "TEST", "lastname": "TRAVELER", "dob": "1990-01-01",
                              "passport_no": "TEST12345", "passport_expiry_date": "2031-01-01", "type": "adult", "passport_img": None, "visa_copy": None}],
@@ -101,6 +101,7 @@ def configured():
     with patch.object(settings, "dhillu_sahi_email", "a@example.invalid"), patch.object(settings, "dhillu_sahi_password", SecretStr("synthetic")), \
          patch.object(settings, "dhillu_sahi_token", None), patch.object(settings, "dhillu_sahi_agent_id", None), \
          patch.object(settings, "group_dhillu_sahi_hold_enabled", True), \
+         patch("app.vendors.group_ticketing.dhillu_sahi.holds.DETAIL_RETRY_SECONDS", 0), \
          patch.object(settings, "group_ticketing_markup_percent", Decimal("0")), patch.object(settings, "group_ticketing_markup_fixed_minor", 0):
         yield
 
@@ -241,7 +242,9 @@ def test_hold_stores_the_booking_id_and_supplier_answer_on_our_record(store_ok):
     assert {k: kept[k] for k in ("total_amount", "final_total", "received_amount", "remaining_amount", "cancel_status")} == {
         "total_amount": "85000", "final_total": "85000", "received_amount": "0", "remaining_amount": "85000", "cancel_status": "0"}
     assert "price_change" not in confirmed["supplier_response"] and confirmed["selling_total_minor"] == 85_000_00
-    assert confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=settings.group_hold_minutes)
+    left = confirmed["hold_expires_at"] - datetime.now(timezone.utc)
+    assert timedelta(minutes=44) < left <= timedelta(minutes=45)  # DHILLU_SAHI_HOLD_DEFAULT_MINUTES, not GROUP_HOLD_MINUTES
+    assert confirmed["supplier_response"]["hold_time"]["source"] == "default" and confirmed["supplier_response"]["hold_time"]["minutes"] == 45
 
 
 def test_held_total_different_from_the_shown_price_needs_the_customer_to_agree(store_ok):
@@ -299,23 +302,28 @@ def test_switched_off_keeps_todays_disabled_hold():
 
 # ---------- our expiry, release, notice, issue ----------
 
-def booking(status="held", expires_in=timedelta(minutes=10), release=None, paid=85_000_00, price_change=None, amounts=None, ticket_id=None):
+def booking(status="held", expires_in=timedelta(minutes=10), release=None, paid=85_000_00, price_change=None, amounts=None, ticket_id=None, hold_time=None):
     now = datetime.now(timezone.utc)
     return store.GroupBooking("b-1", "TRV-GRP-AB12CD", "4FMUAF - 4KOCE5", "dhillu_sahi", status, "not_issued", "paid" if paid else "unpaid",
                               now + expires_in, "PKR", 85_000_00, 85_000_00, "27049", [], 1, paid, release or {}, {}, {},
-                              price_change or {}, amounts or {}, ticket_id), now
+                              price_change or {}, amounts or {}, ticket_id, hold_time or {}), now
 
 
-def test_held_view_notice_only_with_supplier_access_no_release_no_issue():
-    record, now = booking()
+DEFAULT_HOLD_TIME = {"source": "default", "minutes": 45, "from": "2026-11-14T15:00:00+00:00"}
+
+
+def test_hold_time_note_only_with_supplier_access_no_release_no_issue():
+    record, now = booking(hold_time=DEFAULT_HOLD_TIME)
     view = group_holds.build_view(record, None, ADMIN, now)
-    assert view.status == "held" and view.supplier_notice == "Supplier hold ends by itself after 1 hour"
+    assert view.status == "held" and view.hold_time_note == "Hold time estimated (45 min default)"
+    assert view.supplier_notice is None  # the old "Supplier hold ends by itself after 1 hour" is gone
     assert view.can_release is False and view.can_issue_tickets is False
     assert view.issue_unavailable_reason == "Issuing is not available for this provider yet"
-    assert group_holds.build_view(record, None, STAFF, now).supplier_notice is None
-    expired, now = booking(expires_in=timedelta(minutes=-1), status="expired", release={"status": store.RELEASE_NOT_AVAILABLE})
+    staff = group_holds.build_view(record, None, STAFF, now)
+    assert staff.hold_time_note is None and staff.supplier_notice is None and staff.hold_expires_at == record.hold_expires_at
+    expired, now = booking(expires_in=timedelta(minutes=-1), status="expired", release={"status": store.RELEASE_NOT_AVAILABLE}, hold_time=DEFAULT_HOLD_TIME)
     view = group_holds.build_view(expired, None, ADMIN, now)
-    assert view.status == "expired" and view.supplier_notice == "Supplier hold ends by itself after 1 hour" and view.supplier_release_failed is False
+    assert view.status == "expired" and view.hold_time_note == "Hold time estimated (45 min default)" and view.supplier_release_failed is False
     assert not view.can_record_payments
 
 
@@ -358,8 +366,8 @@ def refresh_with(detail):
     supplier = Supplier(detail=detail)
     saved = {}
 
-    def save(reference, booking_amounts, cancelled, now):
-        saved.update(amounts=booking_amounts, cancelled=cancelled)
+    def save(reference, booking_amounts, cancelled, now, supplier_expiry=None):
+        saved.update(amounts=booking_amounts, cancelled=cancelled, supplier_expiry=supplier_expiry)
         expired, _ = booking(status="expired" if cancelled else "held", amounts=booking_amounts)
         return expired
 
@@ -403,8 +411,169 @@ def test_price_check_availability_false_searches_again():
     supplier = Supplier(available=False)
     with patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(supplier))}), \
          patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): record), \
-         patch.object(store, "save_supplier_amounts", lambda reference, a, cancelled, now: record), \
+         patch.object(store, "save_supplier_amounts", lambda reference, a, cancelled, now, supplier_expiry=None: record), \
          patch("app.services.group_ticketing.fetch_all_group_inventory", AsyncMock(return_value=normalize_groups(rows(remaining=0)))), \
          pytest.raises(GroupHoldError) as raised:
         run(group_holds.price_check("TRV-GRP-AB12CD", ADMIN))
     assert raised.value.code == "not_enough_seats" and "Nothing was changed" in raised.value.message
+
+
+# ---------- hold time: hold time + DHILLU_SAHI_HOLD_DEFAULT_MINUTES ----------
+
+def test_hold_time_follows_the_setting_and_other_suppliers_keep_group_hold_minutes(store_ok):
+    stock = normalize_groups(rows())
+    with patch.object(settings, "dhillu_sahi_hold_default_minutes", 50):
+        service_hold(Supplier(), AsyncMock(return_value=stock), request_for(stock))
+    confirmed = dict(store_ok)["confirm_hold"]
+    assert timedelta(minutes=49) < confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=50)
+    assert confirmed["supplier_response"]["hold_time"]["minutes"] == 50
+    assert group_holds.hold_minutes(None) == settings.group_hold_minutes == 30
+    assert group_holds.hold_minutes(DhilluSahiHoldProvider()) == 45
+
+
+def test_detail_read_failing_after_add_booking_is_retried_and_keeps_the_booking_id(store_ok):
+    stock = normalize_groups(rows())
+    supplier = Supplier()
+    original = supplier.__call__
+
+    def failing_detail(request):
+        if request.url.path == "/api/agent-booking-detail":
+            supplier.requests.append((request.url.path, None, None))
+            return httpx.Response(500, json={})
+        return original(request)
+
+    with patch("app.vendors.group_ticketing.dhillu_sahi.holds.DETAIL_RETRY_SECONDS", 0), \
+         patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(failing_detail))}):
+        asyncio.run(group_holds.hold(request_for(stock), ADMIN, fetch=AsyncMock(return_value=stock)))
+    assert supplier.paths().count("/api/agent-booking-detail") == 3 and supplier.paths().count("/api/add-booking") == 1
+    confirmed = dict(store_ok)["confirm_hold"]
+    assert confirmed["supplier_ref"] == "27049" and confirmed["supplier_response"]["supplier_answer"]["booking_id"] == 27049
+    assert confirmed["supplier_response"]["hold_time"]["source"] == "default"  # the 45-minute fallback from the hold time
+    assert timedelta(minutes=44) < confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=45)
+    assert confirmed["selling_total_minor"] == 85_000_00 and "price_change" not in confirmed["supplier_response"]
+
+
+def test_detail_read_succeeding_on_a_retry_keeps_its_amounts():
+    supplier = Supplier()
+    original, failures = supplier.__call__, []
+
+    def flaky(request):
+        if request.url.path == "/api/agent-booking-detail" and not failures:
+            failures.append(1)
+            return httpx.Response(502, json={})
+        return original(request)
+
+    with patch("app.vendors.group_ticketing.dhillu_sahi.holds.DETAIL_RETRY_SECONDS", 0):
+        held = run(DhilluSahiHoldProvider(httpx.MockTransport(flaky)).hold(ticket(), [adult()], CONTACT))
+    assert held.supplier_answer["amounts"]["total_amount"] == "85000" and held.supplier_total.amount_minor == 85_000_00
+
+
+def test_amounts_as_numbers_are_accepted():
+    numbers = {**detail_booking(), "total_amount": 90000, "final_total": 90000, "received_amount": 0, "remaining_amount": 90000,
+               "cancel_status": 0, "confirmed": 0, "agent": 4569}
+    held = run(DhilluSahiHoldProvider(httpx.MockTransport(Supplier(detail=numbers))).hold(ticket(), [adult()], CONTACT))
+    assert held.supplier_total.amount_minor == 90_000_00 and held.supplier_answer["amounts"]["cancel_status"] == 0
+    after, saved, _ = refresh_with({**numbers, "cancel_status": 1})
+    assert saved["cancelled"] is True and after.booking_status == "expired"
+    record, now = booking(paid=0, amounts={"confirmed": 1, "cancel_status": 0, "received_amount": 0})
+    view = group_holds.build_view(record, None, ADMIN, now)
+    assert view.payment_status == "unpaid" and view.status == "held"  # confirmed 1 (number) is not paid either
+
+
+def test_expiry_reached_reads_as_expired_with_no_release_and_refuses_payment_and_issuing():
+    record, now = booking(paid=0, expires_in=timedelta(seconds=-1), hold_time=DEFAULT_HOLD_TIME)
+    view = group_holds.build_view(record, None, ADMIN, now)
+    assert view.status == "expired" and not view.can_record_payments and not view.can_issue_tickets and not view.can_release
+    with patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): record), pytest.raises(GroupHoldError) as raised:
+        run(group_holds.issue("TRV-GRP-AB12CD", ADMIN))
+    assert raised.value.code in ("hold_expired", "issue_not_supported")
+    with patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): record), pytest.raises(GroupHoldError) as raised:
+        run(group_holds.price_check("TRV-GRP-AB12CD", ADMIN))
+    assert raised.value.code == "hold_expired"
+
+
+# ---------- hold expiry: cancel_at (Asia/Karachi) when sane, else hold time + 45 minutes ----------
+
+from zoneinfo import ZoneInfo
+
+from app.vendors.group_ticketing.dhillu_sahi.holds import parse_cancel_at, supplier_expiry
+
+PKT = ZoneInfo("Asia/Karachi")
+
+
+def pkt(delta):
+    """cancel_at as the supplier writes it: Pakistan local time, no zone."""
+    return (datetime.now(timezone.utc) + delta).astimezone(PKT).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def test_cancel_at_is_pakistan_time_converted_to_utc():
+    # Booking 34895: booking_date 16:10:45 UTC, cancel_at 21:50:45 PKT = 16:50:45 UTC, 40 minutes later.
+    assert parse_cancel_at("2026-11-14 21:50:45") == datetime(2026, 11, 14, 16, 50, 45, tzinfo=timezone.utc)
+    booked = datetime(2026, 11, 14, 16, 10, 45, tzinfo=timezone.utc)
+    assert supplier_expiry({"cancel_at": "2026-11-14 21:50:45", "cancel_status": 0}, booked, 34895) - booked == timedelta(minutes=40)
+
+
+@pytest.mark.parametrize("cancel_at, why", [
+    (None, "missing"), ("", "missing"), ("14/11/2026 21:50", "unparsable"), ("not a date", "unparsable"),
+    ("PAST", "in the past"), ("SOON", "under 5 minutes"), ("FAR", "over 2 hours"),
+])
+def test_unusable_cancel_at_falls_back_with_a_warning_naming_the_booking(cancel_at, why, caplog):
+    value = {"PAST": pkt(-timedelta(minutes=10)), "SOON": pkt(timedelta(minutes=2)), "FAR": pkt(timedelta(hours=3))}.get(cancel_at, cancel_at)
+    assert supplier_expiry({"cancel_at": value, "cancel_status": "0"}, datetime.now(timezone.utc), 27049) is None
+    warning = next(r for r in caplog.records if r.getMessage().startswith("Dhillu & Sahi cancel_at not used"))
+    assert warning.booking_id == 27049 and warning.cancel_at == value and warning.booked_at
+
+
+def test_cancelled_booking_cancel_at_is_never_an_expiry():
+    assert supplier_expiry({"cancel_at": pkt(timedelta(minutes=40)), "cancel_status": 1}, datetime.now(timezone.utc), 27049) is None
+
+
+def test_sane_supplier_expiry_is_the_hold_expiry(store_ok):
+    stock = normalize_groups(rows())
+    service_hold(Supplier(detail=detail_booking(cancel_at=pkt(timedelta(minutes=40)))), AsyncMock(return_value=stock), request_for(stock))
+    confirmed = dict(store_ok)["confirm_hold"]
+    assert timedelta(minutes=39) < confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=40)
+    assert confirmed["supplier_response"]["hold_time"]["source"] == "supplier"
+
+
+@pytest.mark.parametrize("cancel_at", [None, "garbage", "PAST", "FAR"])
+def test_unusable_supplier_expiry_uses_hold_time_plus_45(store_ok, cancel_at):
+    value = {"PAST": pkt(-timedelta(minutes=10)), "FAR": pkt(timedelta(hours=3))}.get(cancel_at, cancel_at)
+    stock = normalize_groups(rows())
+    service_hold(Supplier(detail=detail_booking(cancel_at=value)), AsyncMock(return_value=stock), request_for(stock))
+    confirmed = dict(store_ok)["confirm_hold"]
+    assert timedelta(minutes=44) < confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=45)
+    assert confirmed["supplier_response"]["hold_time"]["source"] == "default" and confirmed["supplier_response"]["hold_time"]["minutes"] == 45
+
+
+def test_supplier_time_note_for_supplier_access_only():
+    record, now = booking(hold_time={"source": "supplier", "from": "2026-11-14T15:00:00+00:00"})
+    assert group_holds.build_view(record, None, ADMIN, now).hold_time_note == "Hold time from supplier"
+    assert group_holds.build_view(record, None, STAFF, now).hold_time_note is None
+
+
+def test_a_later_read_switches_a_default_hold_to_the_supplier_expiry():
+    booked = datetime.now(timezone.utc) - timedelta(minutes=5)
+    detail = detail_booking(cancel_at=pkt(timedelta(minutes=35)))
+    supplier, saved = Supplier(detail=detail), {}
+    record, _ = booking(paid=0, hold_time={"source": "default", "minutes": 45, "from": booked.isoformat()})
+
+    def save(reference, booking_amounts, cancelled, now, supplier_expiry=None):
+        saved.update(supplier_expiry=supplier_expiry)
+        return record
+
+    with patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(supplier))}), \
+         patch.object(store, "save_supplier_amounts", save):
+        run(group_holds.refresh_supplier(record))
+    assert timedelta(minutes=34) < saved["supplier_expiry"] - datetime.now(timezone.utc) <= timedelta(minutes=35)
+
+
+def test_a_supplier_hold_time_is_not_switched_again():
+    record, _ = booking(paid=0, hold_time={"source": "supplier", "from": datetime.now(timezone.utc).isoformat()})
+    _, saved, _ = refresh_with(detail_booking(cancel_at=pkt(timedelta(minutes=20))))
+    assert saved["supplier_expiry"] is None  # refresh_with's booking has no hold_time: nothing to switch
+    supplier, seen = Supplier(detail=detail_booking(cancel_at=pkt(timedelta(minutes=20)))), {}
+    with patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(supplier))}), \
+         patch.object(store, "save_supplier_amounts", lambda reference, a, c, now, supplier_expiry=None: seen.update(e=supplier_expiry) or record):
+        run(group_holds.refresh_supplier(record))
+    assert seen["e"] is None

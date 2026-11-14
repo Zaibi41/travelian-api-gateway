@@ -378,3 +378,17 @@ def test_supplier_cancellation_expires_ours_and_refuses_payment(provider, databa
     assert after.booking_status == "expired" and after.supplier_cancelled
     with pytest.raises(booking_payments.PaymentRefused):
         pay(view.booking_id, 1_000_00)
+
+
+def test_a_default_hold_time_switches_to_the_supplier_expiry_once(provider, database):
+    from app.db import group_holds as store_
+
+    connection, _, _ = database
+    view = place()
+    connection.execute(text("UPDATE bookings SET supplier_response = supplier_response || CAST(:h AS jsonb) WHERE reference = :r"),
+                       {"h": '{"hold_time": {"source": "default", "minutes": 45, "from": "2026-11-14T15:00:00+00:00"}}', "r": view.booking_id})
+    supplier_time = datetime.now(timezone.utc) + timedelta(minutes=33)
+    after = store_.save_supplier_amounts(view.booking_id, {"cancel_status": 0}, False, datetime.now(timezone.utc), supplier_time)
+    assert after.hold_expires_at == supplier_time and after.hold_time["source"] == "supplier"
+    again = store_.save_supplier_amounts(view.booking_id, {"cancel_status": 0}, False, datetime.now(timezone.utc), supplier_time + timedelta(minutes=5))
+    assert again.hold_expires_at == supplier_time  # only a default hold time is switched

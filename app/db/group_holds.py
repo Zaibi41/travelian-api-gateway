@@ -63,6 +63,8 @@ class GroupBooking:
     supplier_amounts: dict[str, Any] = field(default_factory=dict)
     #: Our ticket id (GroupTicketView.id) the hold was made on, to search again.
     ticket_id: str | None = None
+    #: Where the hold time came from: {"source": "default", "minutes": 45, "from": ...}; {} for GROUP_HOLD_MINUTES holds.
+    hold_time: dict[str, Any] = field(default_factory=dict)
 
     @property
     def price_change_pending(self) -> bool:
@@ -87,7 +89,8 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
              " total_minor, supplier_cost_minor, supplier_ref, itinerary, supplier_response -> 'adults' AS adults,"
              " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source,"
              " supplier_response -> 'unrecorded' AS unrecorded, supplier_response -> 'price_change' AS price_change,"
-             " supplier_response -> 'supplier_amounts' AS supplier_amounts, supplier_response -> 'ticket' ->> 'id' AS ticket_id"
+             " supplier_response -> 'supplier_amounts' AS supplier_amounts, supplier_response -> 'ticket' ->> 'id' AS ticket_id,"
+             " supplier_response -> 'hold_time' AS hold_time"
              " FROM bookings WHERE reference = :r AND product = 'group'" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
@@ -103,7 +106,8 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
                         row["source"] if isinstance(row["source"], dict) else {},
                         row["unrecorded"] if isinstance(row["unrecorded"], dict) else {},
                         row["price_change"] if isinstance(row["price_change"], dict) else {},
-                        row["supplier_amounts"] if isinstance(row["supplier_amounts"], dict) else {}, row["ticket_id"])
+                        row["supplier_amounts"] if isinstance(row["supplier_amounts"], dict) else {}, row["ticket_id"],
+                        row["hold_time"] if isinstance(row["hold_time"], dict) else {})
 
 
 def load(reference: str) -> GroupBooking:
@@ -320,9 +324,11 @@ def mark_unrecorded_released(reference: str, actor: str | None) -> None:
                                 " WHERE reference = :r AND booking_status = :s"), {"r": reference, "s": HOLD_UNRECORDED})
 
 
-def save_supplier_amounts(reference: str, booking_amounts: dict[str, Any], cancelled: bool, now: datetime) -> GroupBooking:
+def save_supplier_amounts(reference: str, booking_amounts: dict[str, Any], cancelled: bool, now: datetime,
+                          supplier_expiry: datetime | None = None) -> GroupBooking:
     """The supplier's amounts as just read. Cancelled at the supplier (cancel_status '1'): a held booking becomes expired
-    (nothing to release), so payments and issuing are refused."""
+    (nothing to release), so payments and issuing are refused. supplier_expiry: a usable supplier expiry read for a hold
+    still on the default time; it becomes the hold's expiry (source 'supplier')."""
     with agencies.application_engine().begin() as connection:
         booking = _load(connection, reference, lock=True)
         connection.execute(
@@ -330,6 +336,12 @@ def save_supplier_amounts(reference: str, booking_amounts: dict[str, Any], cance
                  " || jsonb_build_object('supplier_amounts', CAST(:a AS jsonb)), updated_at = now(), revision = revision + 1 WHERE id = :b"),
             {"a": json.dumps({**booking_amounts, "read_at": now.isoformat()}, default=str), "b": booking.id},
         )
+        if supplier_expiry is not None and not cancelled and booking.booking_status == "held" and booking.hold_time.get("source") == "default":
+            connection.execute(
+                text("UPDATE bookings SET hold_expires_at = :e, supplier_response = jsonb_set(supplier_response, '{hold_time,source}', '\"supplier\"'::jsonb),"
+                     " updated_at = now(), revision = revision + 1 WHERE id = :b"), {"e": supplier_expiry, "b": booking.id})
+            _event(connection, booking.id, None, "hold_time_from_supplier",
+                   {"time_limit": supplier_expiry.isoformat(), "previous_time_limit": booking.hold_expires_at.isoformat() if booking.hold_expires_at else None})
         if cancelled and booking.booking_status == "held" and booking.issuance_status in ("not_issued", "requested"):
             connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
                                {"b": booking.id})
