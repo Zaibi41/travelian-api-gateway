@@ -1,7 +1,9 @@
-"""Dhillu & Sahi hold through add-booking, with the supplier's HTTP mocked (no live call). Shapes: add-booking
-{"success": true, "data": {"id": <int>}}; agent-booking-detail {"success": true, "data": {"data": {...booking},
-"groupdata": {...group}}, "message": ...}. Payload: pnr and updated_at from the fresh listing, agent, remarks "",
-equal-length traveler arrays, type "adult" only. No release call exists: nothing is released at our expiry."""
+"""Dhillu & Sahi hold, with the supplier's HTTP mocked (no live call). Shapes from the Dhillu & Sahi APIs Integration
+Manual: login {"success": {"token", "agent_id", "user_id", ...}}; check-availbility {"success": true, "data": {"status":
+bool}, "message"}; add-booking {"success": true, "data": {"id": <int>}, "message"}; agent-booking-detail {"success": true,
+"data": {"data": {id, agent, pnr, booking_date, confirmed, total_amount, final_total, received_amount, remaining_amount,
+cancel_status, cancel_at, booking_sub[], payments[]}, "groupdata": {id, pnr, price, airline, subpart[]}}, "message"}.
+No release call exists: nothing is released at our expiry."""
 
 import asyncio
 import json
@@ -51,27 +53,43 @@ def adult(first="Test", passport="TEST12345", **kw):
 CONTACT = HoldContact(first_name="Test", last_name="Traveler", email="t@example.invalid", phone_code="92", phone="3001234567")
 
 
-class Supplier:
-    """Answers login, add-booking and agent-booking-detail; records every request (path, JSON body, auth header)."""
+def detail_booking(total="85000", cancel_status="0", confirmed="0", received="0"):
+    return {"id": 27049, "agent": "41", "pnr": "4FMUAF - 4KOCE5", "booking_date": "2026-11-14 15:09:58", "confirmed": confirmed,
+            "added_by": {"id": 1, "name": "Admin"}, "edit_by": None, "cancel_by": None, "total_amount": total, "final_total": total,
+            "received_amount": received, "remaining_amount": total, "cancel_status": cancel_status, "cancel_at": None,
+            "pdf_download_link": "https://supplier.invalid/api/booking-pdf/27049?id=41", "pdf_view_link": "https://supplier.invalid/api/booking-pdf-view/27049?id=41",
+            "booking_sub": [{"id": 4201, "booking_id": "27049", "title": "Mr", "firstname": "TEST", "lastname": "TRAVELER", "dob": "1990-01-01",
+                             "passport_no": "TEST12345", "passport_expiry_date": "2031-01-01", "type": "adult", "passport_img": None, "visa_copy": None}],
+            "payments": []}
 
-    def __init__(self, add_status=200, add_body=None, add_error=None):
+
+class Supplier:
+    """Answers login, check-availbility, add-booking and agent-booking-detail with the documented shapes; records every
+    request (path, JSON body, auth header)."""
+
+    def __init__(self, add_status=200, add_body=None, add_error=None, available=True, detail=None):
         self.requests = []
-        self.add_status, self.add_error = add_status, add_error
-        self.add_body = add_body if add_body is not None else {"success": True, "data": {"id": 27049}}
+        self.add_status, self.add_error, self.available = add_status, add_error, available
+        self.add_body = add_body if add_body is not None else {"success": True, "link": None, "data": {"id": 27049}, "message": "Booking Added Successful"}
+        self.detail = detail or detail_booking()
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.url.path, body, request.headers.get("authorization")))
         if request.url.path == "/api/login":
-            return httpx.Response(200, json={"success": {"token": "login-token", "agent_id": 41}})
+            return httpx.Response(200, json={"success": {"token": "login-token", "name": "Travelian", "username": "travelian", "email": "a@example.invalid",
+                                                         "image": None, "role": "agent", "agent_id": 41, "user_id": 5454545,
+                                                         "change_password": False, "w_verified": False}})
+        if request.url.path == "/api/check-availbility":
+            return httpx.Response(200, json={"success": True, "link": None, "data": {"status": self.available}, "message": "Check availbility"})
         if request.url.path == "/api/add-booking":
             if self.add_error:
                 raise self.add_error
             return httpx.Response(self.add_status, json=self.add_body)
         if request.url.path == "/api/agent-booking-detail":
-            return httpx.Response(200, json={"success": True, "message": "Booking Details Fetch Successful", "data": {
-                "data": {"id": 27049, "status": "hold", "booking_sub": [{"firstname": "Test", "passport_no": "TEST12345"}]},
-                "groupdata": {"id": 3056, "pnr": "4FMUAF - 4KOCE5", "price": "85000", "subpart": []}}})
+            return httpx.Response(200, json={"success": True, "link": None, "message": "Booking Details Fetch Successful", "data": {
+                "data": self.detail,
+                "groupdata": {"id": 3056, "pnr": "4FMUAF - 4KOCE5", "price": "85000", "airline": {"id": 20, "short_name": "PF", "logo": None}, "subpart": []}}})
         return httpx.Response(404, json={})
 
     def paths(self):
@@ -111,40 +129,62 @@ def test_every_traveler_needs_a_passport():
     assert missing_traveler_details([adult(), adult(id_type="NATI", document_number="3520112345671", document_country="PAK")]) == [(1, "document_number")]
 
 
+def test_titles_map_to_the_documented_ones():
+    body = booking_payload(ticket(), [adult(title="MR"), adult(title="MRS"), adult(title="MISS"), adult(title="MASTER")], agent=41)
+    assert body["titles"] == ["MR", "MRS", "MISS", "MSTR"]
+    assert set(body["titles"]) <= {"MR", "MRS", "MS", "MSTR", "MISS"}
+
+
+def test_a_title_add_booking_does_not_take_is_a_field_error():
+    odd = adult().model_copy(update={"title": "DR"})
+    assert missing_traveler_details([adult(), odd]) == [(1, "title")]
+    with pytest.raises(ValueError):
+        booking_payload(ticket(), [odd], agent=41)
+
+
 # ---------- provider ----------
 
 def run(coro):
     return asyncio.run(coro)
 
 
-def test_hold_sends_one_add_booking_then_reads_the_detail_and_keeps_both():
+def test_hold_checks_availability_books_once_then_reads_the_detail():
     supplier = Supplier()
     held = run(DhilluSahiHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
-    assert supplier.paths() == ["/api/login", "/api/add-booking", "/api/agent-booking-detail"]
-    _, sent, auth = supplier.requests[1]
-    assert sent["pnr"] == "4FMUAF - 4KOCE5" and sent["updated_at"] == UPDATED and sent["agent"] == 41 and auth == "Bearer login-token"
-    assert supplier.requests[2][1] == {"booking_id": 27049}
+    assert supplier.paths() == ["/api/login", "/api/check-availbility", "/api/add-booking", "/api/agent-booking-detail"]
+    assert supplier.requests[1][1] == {"pnr": "4FMUAF - 4KOCE5", "adult": 1, "child": 0, "price": 85000}  # the listing price per seat
+    _, sent, auth = supplier.requests[2]
+    assert sent["pnr"] == "4FMUAF - 4KOCE5" and sent["updated_at"] == UPDATED and auth == "Bearer login-token"
+    assert sent["agent"] == 41  # the login's agent_id, never its user_id (5454545)
+    assert supplier.requests[3][1] == {"booking_id": 27049}
     assert (held.pnr, held.supplier_ref, held.cost_per_adult.amount_minor) == ("4FMUAF - 4KOCE5", "27049", 85_000_00)
-    assert held.supplier_answer["booking_id"] == 27049 and held.supplier_answer["add_booking"]["data"]["id"] == 27049
-    detail = held.supplier_answer["detail"]
-    assert detail["booking"] == {"id": 27049, "status": "hold"}  # traveler arrays echoed back are not kept twice
-    assert detail["group"] == {"id": 3056, "pnr": "4FMUAF - 4KOCE5", "price": "85000"}
+    assert held.supplier_total.amount_minor == 85_000_00  # total_amount, PKR
+    assert held.supplier_answer["amounts"] == {"total_amount": "85000", "final_total": "85000", "received_amount": "0", "remaining_amount": "85000",
+                                               "cancel_status": "0", "confirmed": "0", "cancel_at": None, "booking_date": "2026-11-14 15:09:58"}
+    assert "TEST12345" not in json.dumps(held.supplier_answer)  # traveler arrays echoed back are not kept twice
+
+
+def test_availability_false_books_nothing():
+    supplier = Supplier(available=False)
+    with pytest.raises(group_holds.PriceOrSeatsChanged):
+        run(DhilluSahiHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
+    assert "/api/add-booking" not in supplier.paths()
 
 
 def test_token_and_agent_from_env_skip_the_login_and_are_never_in_the_answer():
     supplier = Supplier()
     with patch.object(settings, "dhillu_sahi_token", SecretStr("env-token")), patch.object(settings, "dhillu_sahi_agent_id", 77):
         held = run(DhilluSahiHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
-    assert supplier.paths() == ["/api/add-booking", "/api/agent-booking-detail"]
-    assert supplier.requests[0][1]["agent"] == 77 and supplier.requests[0][2] == "Bearer env-token"
+    assert supplier.paths() == ["/api/check-availbility", "/api/add-booking", "/api/agent-booking-detail"]
+    assert supplier.requests[1][1]["agent"] == 77 and supplier.requests[1][2] == "Bearer env-token"
     assert "env-token" not in json.dumps(held.supplier_answer) and "env-token" not in repr(held)
 
 
-def test_env_agent_that_differs_from_the_login_books_nothing():
+def test_env_agent_id_is_used_when_set_otherwise_the_logins():
     supplier = Supplier()
-    with patch.object(settings, "dhillu_sahi_agent_id", 99), pytest.raises(Exception) as raised:
+    with patch.object(settings, "dhillu_sahi_agent_id", 99):
         run(DhilluSahiHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
-    assert raised.value.error_code == "agent_identity_mismatch" and supplier.paths() == ["/api/login"]
+    assert next(body for path, body, _ in supplier.requests if path == "/api/add-booking")["agent"] == 99
 
 
 @pytest.mark.parametrize("status, body", [(200, {"success": False, "message": "Record has been updated"}), (422, {"message": "sold out"})])
@@ -197,7 +237,30 @@ def test_hold_stores_the_booking_id_and_supplier_answer_on_our_record(store_ok):
     assert confirmed["pnr"] == "4FMUAF - 4KOCE5" and confirmed["supplier_ref"] == "27049"
     assert confirmed["supplier_response"]["supplier_answer"]["booking_id"] == 27049
     assert confirmed["supplier_response"]["source"]["supplier_group_id"] == "3056"
+    kept = confirmed["supplier_response"]["supplier_amounts"]
+    assert {k: kept[k] for k in ("total_amount", "final_total", "received_amount", "remaining_amount", "cancel_status")} == {
+        "total_amount": "85000", "final_total": "85000", "received_amount": "0", "remaining_amount": "85000", "cancel_status": "0"}
+    assert "price_change" not in confirmed["supplier_response"] and confirmed["selling_total_minor"] == 85_000_00
     assert confirmed["hold_expires_at"] - datetime.now(timezone.utc) <= timedelta(minutes=settings.group_hold_minutes)
+
+
+def test_held_total_different_from_the_shown_price_needs_the_customer_to_agree(store_ok):
+    stock = normalize_groups(rows())
+    service_hold(Supplier(detail=detail_booking(total="90000")), AsyncMock(return_value=stock), request_for(stock))
+    confirmed = dict(store_ok)["confirm_hold"]
+    assert confirmed["selling_total_minor"] == 90_000_00 and confirmed["supplier_total_minor"] == 90_000_00  # the held price
+    assert confirmed["supplier_response"]["price_change"] == {"shown_total_minor": 85_000_00, "held_total_minor": 90_000_00, "accepted": False}
+
+
+@pytest.mark.parametrize("available", [False])
+def test_availability_false_searches_again_with_the_existing_messages(store_ok, available):
+    stock = normalize_groups(rows())
+    fetch = AsyncMock(side_effect=[stock, normalize_groups(rows(price="90000", updated_at="2026-11-14T15:20:00.000000Z"))])
+    supplier = Supplier(available=available)
+    with pytest.raises(GroupHoldError) as raised:
+        service_hold(supplier, fetch, request_for(stock))
+    assert raised.value.code == "price_changed" and "/api/add-booking" not in supplier.paths()
+    assert [name for name, _ in store_ok] == ["create_pending", "mark_hold_failed"]
 
 
 def test_cnic_traveler_is_refused_before_anything_is_written_or_sent(store_ok):
@@ -236,10 +299,11 @@ def test_switched_off_keeps_todays_disabled_hold():
 
 # ---------- our expiry, release, notice, issue ----------
 
-def booking(status="held", expires_in=timedelta(minutes=10), release=None):
+def booking(status="held", expires_in=timedelta(minutes=10), release=None, paid=85_000_00, price_change=None, amounts=None, ticket_id=None):
     now = datetime.now(timezone.utc)
-    return store.GroupBooking("b-1", "TRV-GRP-AB12CD", "4FMUAF - 4KOCE5", "dhillu_sahi", status, "not_issued", "paid", now + expires_in, "PKR",
-                              85_000_00, 85_000_00, "27049", [], 1, 85_000_00, release or {}, {}), now
+    return store.GroupBooking("b-1", "TRV-GRP-AB12CD", "4FMUAF - 4KOCE5", "dhillu_sahi", status, "not_issued", "paid" if paid else "unpaid",
+                              now + expires_in, "PKR", 85_000_00, 85_000_00, "27049", [], 1, paid, release or {}, {}, {},
+                              price_change or {}, amounts or {}, ticket_id), now
 
 
 def test_held_view_notice_only_with_supplier_access_no_release_no_issue():
@@ -268,3 +332,79 @@ def test_expiry_job_marks_expired_and_calls_no_release():
          patch.object(store, "releases_due", lambda limit: []):
         outcome = asyncio.run(group_hold_expiry.run_once())
     assert "dhillu_sahi" in seen["no_release"] and outcome["released"] == [] and outcome["failed"] == []
+
+
+# ---------- price change, supplier amounts, cancellation ----------
+
+def test_price_change_shows_until_agreed_and_blocks_payments():
+    record, now = booking(paid=0, price_change={"shown_total_minor": 80_000_00, "held_total_minor": 85_000_00, "accepted": False})
+    view = group_holds.build_view(record, None, ADMIN, now)
+    assert view.price_change.model_dump() == {"shown_total": {"amount_minor": 80_000_00, "currency": "PKR"},
+                                              "held_total": {"amount_minor": 85_000_00, "currency": "PKR"},
+                                              "difference": {"amount_minor": 5_000_00, "currency": "PKR"}}
+    assert view.can_record_payments is False
+    agreed, now = booking(paid=0, price_change={"shown_total_minor": 80_000_00, "held_total_minor": 85_000_00, "accepted": True})
+    view = group_holds.build_view(agreed, None, ADMIN, now)
+    assert view.price_change is None and view.can_record_payments is True
+
+
+def test_confirmed_1_is_not_read_as_paid_or_ticketed():
+    record, now = booking(paid=0, amounts={"confirmed": "1", "cancel_status": "0", "received_amount": "0"})
+    view = group_holds.build_view(record, None, ADMIN, now)
+    assert view.payment_status == "unpaid" and view.status == "held" and view.can_issue_tickets is False
+
+
+def refresh_with(detail):
+    supplier = Supplier(detail=detail)
+    saved = {}
+
+    def save(reference, booking_amounts, cancelled, now):
+        saved.update(amounts=booking_amounts, cancelled=cancelled)
+        expired, _ = booking(status="expired" if cancelled else "held", amounts=booking_amounts)
+        return expired
+
+    record, _ = booking(paid=0)
+    with patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(supplier))}), \
+         patch.object(store, "save_supplier_amounts", save):
+        after = run(group_holds.refresh_supplier(record))
+    return after, saved, supplier
+
+
+def test_cancel_status_1_on_a_later_read_expires_ours_and_blocks_payment_and_issuing():
+    after, saved, supplier = refresh_with(detail_booking(cancel_status="1"))
+    assert supplier.paths()[-1] == "/api/agent-booking-detail" and saved["cancelled"] is True
+    assert saved["amounts"]["cancel_status"] == "1"
+    view = group_holds.build_view(after, None, ADMIN, datetime.now(timezone.utc))
+    assert view.status == "expired" and not view.can_record_payments and not view.can_issue_tickets
+    assert view.supplier_notice == "Cancelled at the supplier"
+    assert group_holds.build_view(after, None, STAFF, datetime.now(timezone.utc)).supplier_notice is None
+    with patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): after), pytest.raises(GroupHoldError) as raised:
+        run(group_holds.price_check("TRV-GRP-AB12CD", ADMIN))
+    assert raised.value.code in ("hold_expired", "supplier_cancelled")
+
+
+def test_active_booking_on_a_later_read_keeps_the_amounts_only():
+    after, saved, _ = refresh_with(detail_booking(cancel_status="0", received="10000"))
+    assert saved["cancelled"] is False and saved["amounts"]["received_amount"] == "10000" and after.booking_status == "held"
+
+
+def test_price_check_before_issue_checks_availability_then_the_held_total():
+    supplier = Supplier(detail=detail_booking(total="90000"))
+    held = group_holds.HeldRef("4FMUAF - 4KOCE5", "27049", 1, group_holds.GroupMoney(amount_minor=85_000_00, currency="PKR"))
+    cost = run(DhilluSahiHoldProvider(httpx.MockTransport(supplier)).price(held))
+    assert cost.amount_minor == 90_000_00
+    assert supplier.requests[1][1] == {"pnr": "4FMUAF - 4KOCE5", "adult": 1, "child": 0, "price": 85000}
+    with pytest.raises(group_holds.PriceOrSeatsChanged):
+        run(DhilluSahiHoldProvider(httpx.MockTransport(Supplier(available=False))).price(held))
+
+
+def test_price_check_availability_false_searches_again():
+    record, _ = booking(paid=0, ticket_id=group_ticket_id(ticket()))
+    supplier = Supplier(available=False)
+    with patch.dict(group_holds.PROVIDERS, {"dhillu_sahi": lambda: DhilluSahiHoldProvider(httpx.MockTransport(supplier))}), \
+         patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): record), \
+         patch.object(store, "save_supplier_amounts", lambda reference, a, cancelled, now: record), \
+         patch("app.services.group_ticketing.fetch_all_group_inventory", AsyncMock(return_value=normalize_groups(rows(remaining=0)))), \
+         pytest.raises(GroupHoldError) as raised:
+        run(group_holds.price_check("TRV-GRP-AB12CD", ADMIN))
+    assert raised.value.code == "not_enough_seats" and "Nothing was changed" in raised.value.message

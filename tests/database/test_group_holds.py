@@ -56,7 +56,9 @@ class FakeProvider:
         self.calls.append(("hold", len(passengers)))
         if self.hold_error:
             raise self.hold_error
-        return HeldSeats(getattr(self, "pnr", "K7P2QX"), SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"))
+        total = getattr(self, "supplier_total", None)
+        return HeldSeats(getattr(self, "pnr", "K7P2QX"), SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"),
+                         supplier_total=GroupMoney(amount_minor=total, currency="PKR") if total else None)
 
     async def price(self, held):
         self.calls.append("price")
@@ -355,3 +357,24 @@ def test_staff_without_permission_cannot_issue(provider):
     with pytest.raises(GroupHoldError) as error:
         run(group_holds.issue(view.booking_id, STAFF))
     assert error.value.status == 403
+
+
+def test_held_at_a_different_price_payments_wait_for_the_customer(provider, database):
+    provider.supplier_total = 2 * 110_000_00  # the supplier held at 110,000 per adult; 100,000 was shown
+    view = place()
+    assert view.price_change is not None and view.total.amount_minor == 2 * 115_500_00  # 110,000 + 5% markup
+    assert view.can_record_payments is False
+    with pytest.raises(booking_payments.PaymentRefused):
+        pay(view.booking_id, 1_000_00)
+    accepted = run(group_holds.accept_held_price(view.booking_id, ADMIN))
+    assert accepted.price_change is None and accepted.can_record_payments is True
+    pay(view.booking_id, 1_000_00)
+
+
+def test_supplier_cancellation_expires_ours_and_refuses_payment(provider, database):
+    view = place()
+    from app.db import group_holds as store_
+    after = store_.save_supplier_amounts(view.booking_id, {"cancel_status": "1", "total_amount": "200000"}, True, datetime.now(timezone.utc))
+    assert after.booking_status == "expired" and after.supplier_cancelled
+    with pytest.raises(booking_payments.PaymentRefused):
+        pay(view.booking_id, 1_000_00)

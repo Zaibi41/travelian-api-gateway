@@ -64,6 +64,16 @@ async def check_group_price(booking_id: Reference, viewer: Staff):
         return _error(error)
 
 
+@router.post("/{booking_id}/accept-held-price", response_model=GroupHoldView, response_model_exclude_none=True,
+             responses={403: {"description": "Needs the record_payments permission."}, 409: {"description": "No price change to confirm, or not on hold."}})
+async def accept_held_price(booking_id: Reference, viewer: Staff):
+    """The customer agreed to the price the supplier held at (it differed from the price shown). Payments can then be recorded."""
+    try:
+        return await group_holds.accept_held_price(booking_id, viewer)
+    except group_holds.GroupHoldError as error:
+        return _error(error)
+
+
 @router.post("/{booking_id}/release", response_model=GroupHoldView, response_model_exclude_none=True,
              responses={409: {"description": "Not on hold, expired, or being issued."}, 502: {"description": "The supplier didn't confirm."}})
 async def release_group_hold(booking_id: Reference, viewer: Staff):

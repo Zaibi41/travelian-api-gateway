@@ -57,6 +57,20 @@ class GroupBooking:
     source: dict[str, Any] = field(default_factory=dict)
     #: Set when the supplier held but the booking couldn't be completed: supplier_pnr, error, at.
     unrecorded: dict[str, Any] = field(default_factory=dict)
+    #: The supplier held at a different price than shown: shown_total_minor, held_total_minor, accepted.
+    price_change: dict[str, Any] = field(default_factory=dict)
+    #: The supplier's own booking amounts and states (Dhillu & Sahi: total_amount, cancel_status, ...), as last read.
+    supplier_amounts: dict[str, Any] = field(default_factory=dict)
+    #: Our ticket id (GroupTicketView.id) the hold was made on, to search again.
+    ticket_id: str | None = None
+
+    @property
+    def price_change_pending(self) -> bool:
+        return bool(self.price_change) and not self.price_change.get("accepted")
+
+    @property
+    def supplier_cancelled(self) -> bool:
+        return str(self.supplier_amounts.get("cancel_status", "")).strip() == "1"
 
     def __repr__(self) -> str:  # never print the supplier reference
         return f"GroupBooking({self.reference}, {self.booking_status})"
@@ -72,7 +86,8 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
         text("SELECT id, reference, pnr, provider_id, booking_status, issuance_status, payment_status, hold_expires_at, currency,"
              " total_minor, supplier_cost_minor, supplier_ref, itinerary, supplier_response -> 'adults' AS adults,"
              " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source,"
-             " supplier_response -> 'unrecorded' AS unrecorded"
+             " supplier_response -> 'unrecorded' AS unrecorded, supplier_response -> 'price_change' AS price_change,"
+             " supplier_response -> 'supplier_amounts' AS supplier_amounts, supplier_response -> 'ticket' ->> 'id' AS ticket_id"
              " FROM bookings WHERE reference = :r AND product = 'group'" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
@@ -86,7 +101,9 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
                         row["supplier_ref"], row["itinerary"] if isinstance(row["itinerary"], list) else [], int(adults or 0), int(paid),
                         row["release"] if isinstance(row["release"], dict) else {},
                         row["source"] if isinstance(row["source"], dict) else {},
-                        row["unrecorded"] if isinstance(row["unrecorded"], dict) else {})
+                        row["unrecorded"] if isinstance(row["unrecorded"], dict) else {},
+                        row["price_change"] if isinstance(row["price_change"], dict) else {},
+                        row["supplier_amounts"] if isinstance(row["supplier_amounts"], dict) else {}, row["ticket_id"])
 
 
 def load(reference: str) -> GroupBooking:
@@ -301,3 +318,37 @@ def mark_unrecorded_released(reference: str, actor: str | None) -> None:
     with agencies.application_engine().begin() as connection:
         connection.execute(text("UPDATE bookings SET booking_status = 'cancelled', updated_at = now(), revision = revision + 1"
                                 " WHERE reference = :r AND booking_status = :s"), {"r": reference, "s": HOLD_UNRECORDED})
+
+
+def save_supplier_amounts(reference: str, booking_amounts: dict[str, Any], cancelled: bool, now: datetime) -> GroupBooking:
+    """The supplier's amounts as just read. Cancelled at the supplier (cancel_status '1'): a held booking becomes expired
+    (nothing to release), so payments and issuing are refused."""
+    with agencies.application_engine().begin() as connection:
+        booking = _load(connection, reference, lock=True)
+        connection.execute(
+            text("UPDATE bookings SET supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
+                 " || jsonb_build_object('supplier_amounts', CAST(:a AS jsonb)), updated_at = now(), revision = revision + 1 WHERE id = :b"),
+            {"a": json.dumps({**booking_amounts, "read_at": now.isoformat()}, default=str), "b": booking.id},
+        )
+        if cancelled and booking.booking_status == "held" and booking.issuance_status in ("not_issued", "requested"):
+            connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
+                               {"b": booking.id})
+            _set_release(connection, booking.id, {"status": RELEASE_NOT_AVAILABLE, "attempts": 0, "updated_at": now.isoformat()})
+            _event(connection, booking.id, None, "supplier_cancelled", {"pnr": booking.pnr, "reason_code": "cancel_status_1"})
+        return _load(connection, reference, lock=False)
+
+
+def accept_held_price(reference: str, actor: str) -> GroupBooking:
+    """The customer agreed to the price the supplier held at (shown before the hold was different)."""
+    with agencies.application_engine().begin() as connection:
+        booking = _load(connection, reference, lock=True)
+        if not booking.price_change_pending:
+            raise GroupHoldRefused(409, "There is no price change to confirm.", "no_price_change")
+        if booking.booking_status != "held":
+            raise GroupHoldRefused(409, "This booking isn't on hold.", "not_held")
+        connection.execute(
+            text("UPDATE bookings SET supplier_response = jsonb_set(supplier_response, '{price_change,accepted}', 'true'::jsonb),"
+                 " updated_at = now(), revision = revision + 1 WHERE id = :b"), {"b": booking.id})
+        _event(connection, booking.id, actor, "held_price_accepted",
+               {"amount_minor": booking.total_minor, "previous_amount_minor": booking.price_change.get("shown_total_minor"), "currency": booking.currency})
+        return _load(connection, reference, lock=False)

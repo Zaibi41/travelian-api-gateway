@@ -144,6 +144,14 @@ class GroupHoldPayment(BaseModel):
 GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued", "unknown", "not_recorded"]
 
 
+class GroupHeldPriceChange(BaseModel):
+    """The supplier held the seats at a different price than shown before the hold. Payments wait until the customer agrees."""
+
+    shown_total: GroupMoney = Field(description="The selling total shown before the hold.")
+    held_total: GroupMoney = Field(description="The selling total for the price the supplier held at (this booking's total).")
+    difference: GroupMoney = Field(description="held_total - shown_total; negative when the price went down.")
+
+
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
     pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
@@ -168,6 +176,8 @@ class GroupHoldView(BaseModel):
     can_record_payments: bool = Field(False, description="This viewer may record a payment now (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due, provider supports it (the endpoint still checks).")
     issue_unavailable_reason: str | None = Field(None, description="Why Issue tickets is off for this booking's provider, when it is.")
+    price_change: GroupHeldPriceChange | None = Field(None, description="Set while the held price differs from the price shown and the customer "
+                                                                          "hasn't agreed yet (POST .../accept-held-price).")
     can_release: bool = Field(False, description="Release hold can be used now: held, and the provider has a release call (the endpoint still checks).")
     supplier_release_failed: bool | None = Field(None, description="The seats could not be released at the supplier after the hold ended "
                                                                    "(being retried, or given up). Only with the supplier names permission.")

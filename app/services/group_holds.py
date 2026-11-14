@@ -38,7 +38,7 @@ from app.core.field_visibility import BACK_OFFICE_ROLES, ISSUE_TICKETS, RECORD_P
 from app.db import booking_people, group_holds as store, saved_people
 from app.db import issuance as issuance_store
 from app.schemas.group_holds import (
-    ContactError, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
+    ContactError, GroupHeldPriceChange, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
     GroupIssueResult, GroupPriceCheck, age_on,
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
@@ -62,6 +62,7 @@ class HeldSeats:
     supplier_ref: str          # what the provider needs to release or price the hold; stays in the gateway
     cost_per_adult: GroupMoney  # supplier price per adult
     supplier_answer: dict | None = None  # what the supplier answered (kept on our record; never returned)
+    supplier_total: GroupMoney | None = None  # the booking total the supplier held at, when it says (all travelers)
 
     def __repr__(self) -> str:
         return f"HeldSeats(pnr={self.pnr})"
@@ -72,10 +73,15 @@ class HeldRef:
     pnr: str | None
     supplier_ref: str
     adults: int
+    cost_per_adult: GroupMoney | None = None  # the supplier price per adult the booking holds at
 
 
 class SupplierRefused(Exception):
     """The supplier answered clearly that it did nothing (no hold, nothing released, nothing issued)."""
+
+
+class PriceOrSeatsChanged(SupplierRefused):
+    """The supplier's availability check said the price or the seats changed (nothing was done): search again."""
 
 
 class GroupHoldProvider(Protocol):
@@ -180,28 +186,33 @@ async def _mark_failed(booking_id: str, viewer: BackOfficeUser, reason_code: str
         logger.error("Group hold not marked failed", extra={"booking_id": booking_id, "error_type": error_reason(error)})
 
 
+async def _research(ticket_id: str | None, adults: int, old_cost: GroupMoney | None,
+                    fetch: Callable[[], Awaitable[list[GroupInventory]]] | None, nothing: str) -> GroupHoldError | None:
+    """Search again after the supplier refused or said the price or seats changed, and answer with the same messages
+    as before a hold: gone, not enough seats, or the new price. None when none of them applies."""
+    if not ticket_id:
+        return None
+    try:
+        fresh = await find_ticket(ticket_id, fetch)
+    except TicketNotFound as error:
+        return None if error.status == 503 else GroupHoldError(409, f"This group fare is no longer available. Search again. {nothing}", "fare_gone")
+    if fresh.remaining is not None and fresh.remaining < adults:
+        return GroupHoldError(409, f"Only {fresh.remaining} seat{'s' if fresh.remaining != 1 else ''} left on this fare. {nothing}", "not_enough_seats")
+    old, new = selling_price(old_cost), selling_price(supplier_cost(fresh))
+    if new is not None and old is not None and new != old:
+        return GroupHoldError(409, f"The price has changed to {money_text(new.amount_minor, new.currency)} per adult. {nothing} "
+                                   "Search again to hold at the new price.", "price_changed",
+                              held_total=old.model_copy(update={"amount_minor": old.amount_minor * adults}).model_dump(),
+                              new_total=new.model_copy(update={"amount_minor": new.amount_minor * adults}).model_dump(),
+                              difference=GroupMoney(amount_minor=(new.amount_minor - old.amount_minor) * adults, currency=new.currency).model_dump())
+    return None
+
+
 async def _after_refusal(request: GroupHoldRequest, ticket: GroupTicket,
                          fetch: Callable[[], Awaitable[list[GroupInventory]]] | None) -> GroupHoldError:
-    """The supplier refused (e.g. the ticket changed since the listing, or sold out): search again and answer with the
-    same messages as before a hold: gone, not enough seats, or the new price."""
-    try:
-        fresh = await find_ticket(str(request.ticket_id), fetch)
-    except TicketNotFound as error:
-        if error.status == 503:
-            return GroupHoldError(409, "The supplier didn't hold the seats. Nothing was held.", "not_held")
-        return GroupHoldError(409, "This group fare is no longer available. Search again.", "fare_gone")
-    if fresh.remaining is not None and fresh.remaining < request.adults:
-        return GroupHoldError(409, f"Only {fresh.remaining} seat{'s' if fresh.remaining != 1 else ''} left on this fare. Nothing was held.",
-                              "not_enough_seats")
-    old, new = selling_price(supplier_cost(ticket)), selling_price(supplier_cost(fresh))
-    if new is not None and old is not None and new != old:
-        return GroupHoldError(409, f"The price has changed to {money_text(new.amount_minor, new.currency)} per adult. Nothing was held. "
-                                   "Search again to hold at the new price.", "price_changed",
-                              held_total=old.model_copy(update={"amount_minor": old.amount_minor * request.adults}).model_dump(),
-                              new_total=new.model_copy(update={"amount_minor": new.amount_minor * request.adults}).model_dump(),
-                              difference=GroupMoney(amount_minor=(new.amount_minor - old.amount_minor) * request.adults,
-                                                    currency=new.currency).model_dump())
-    return GroupHoldError(409, "The supplier didn't hold the seats. Nothing was held.", "not_held")
+    """The supplier refused (e.g. the ticket changed since the listing, or sold out): search again."""
+    return await _research(str(request.ticket_id), request.adults, supplier_cost(ticket), fetch, "Nothing was held.") \
+        or GroupHoldError(409, "The supplier didn't hold the seats. Nothing was held.", "not_held")
 
 
 #: Shown to viewers with supplier access on a hold the supplier made but Travelian couldn't record.
@@ -291,7 +302,55 @@ def supplier_notice(booking: store.GroupBooking, provider: GroupHoldProvider | N
         if booking.release.get("status") == store.RELEASE_PENDING and not booking.release_failed:
             return NOT_RECORDED_RELEASING
         return NOT_RELEASED if booking.release_failed else _unreleasable_notice(booking.provider)
+    if booking.supplier_cancelled:
+        return SUPPLIER_CANCELLED
     return getattr(provider, "supplier_hold_notice", None) if status in ("held", "expired") else None
+
+
+#: For viewers with supplier access when the supplier cancelled the booking (Dhillu & Sahi cancel_status '1').
+SUPPLIER_CANCELLED = "Cancelled at the supplier"
+
+
+async def refresh_supplier(booking: store.GroupBooking) -> store.GroupBooking:
+    """Read the supplier's booking again where the provider can (Dhillu & Sahi agent-booking-detail) for an open hold:
+    keeps its amounts and, when it says cancelled, marks ours expired. A failed read changes nothing."""
+    if booking.booking_status != "held" or not booking.supplier_ref:
+        return booking
+    provider = provider_for(booking.provider)
+    refresh = getattr(provider, "refresh", None)
+    if refresh is None:
+        return booking
+    try:
+        booking_amounts = await refresh(_held_ref(booking))
+    except Exception as error:  # noqa: BLE001 - informational; the hold stands
+        logger.warning("Supplier booking not read", extra={"reference": booking.reference, "error_code": getattr(error, "error_code", type(error).__name__)})
+        return booking
+    cancelled = str(booking_amounts.get("cancel_status", "")).strip() == "1"
+    if cancelled:
+        logger.warning("Supplier cancelled a held booking", extra={"reference": booking.reference})
+    return await run_in_threadpool(store.save_supplier_amounts, booking.reference, booking_amounts, cancelled, _now())
+
+
+async def refresh_for_payment(reference: str) -> None:
+    """Before a payment on a group booking: read the supplier again, so a supplier cancellation blocks the payment."""
+    try:
+        booking = await run_in_threadpool(store.load, reference)
+        await refresh_supplier(booking)
+    except store.GroupHoldRefused:
+        return  # not a group booking
+    except Exception as error:  # noqa: BLE001 - best effort; the payment's own checks still run
+        logger.warning("Supplier booking not read before a payment", extra={"reference": reference, "error_type": error_reason(error)})
+
+
+async def accept_held_price(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
+    """The customer agreed to the price the supplier held at."""
+    if not viewer.can(RECORD_PAYMENTS):
+        raise GroupHoldError(403, "Confirming the new price requires the record payments permission.", "not_allowed")
+    try:
+        await run_in_threadpool(store.accept_held_price, reference, viewer.user_id)
+    except store.GroupHoldRefused as error:
+        raise _refused(error) from None
+    return await read(reference, viewer)
 
 
 def booking_source(booking: store.GroupBooking) -> GroupSource | None:
@@ -320,11 +379,15 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         flight=_flight(booking), stock=stock_label(booking.provider or ""),
         price_per_adult=money(booking.total_minor // adults), total=money(booking.total_minor), amount_paid=money(booking.paid_minor),
         amount_due=money(due), payment_status=booking.payment_status if booking.payment_status in ("paid", "part_paid") else "unpaid",
-        can_record_payments=open_hold and due > 0 and viewer.can(RECORD_PAYMENTS),
+        can_record_payments=open_hold and due > 0 and viewer.can(RECORD_PAYMENTS) and not booking.price_change_pending,
         can_issue_tickets=issuable and open_hold and due == 0 and viewer.can(ISSUE_TICKETS) and booking.issuance_status in issuance_store.ISSUABLE,
         issue_unavailable_reason=None if issuable else NO_ISSUE_REASON,
         can_release=open_hold and provider is not None and booking.provider not in NO_RELEASE_SOURCES,
     )
+    if booking.price_change_pending and open_hold:
+        shown = int(booking.price_change.get("shown_total_minor") or 0)
+        view.price_change = GroupHeldPriceChange(shown_total=money(shown), held_total=money(booking.total_minor),
+                                                 difference=money(booking.total_minor - shown))
     if viewer.visibility.supplier_names:
         # Supplier name and the supplier's PNR: only with the supplier names permission.
         view.supplier = booking.provider or None
@@ -359,6 +422,7 @@ async def read(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
         raise _refused(error) from None
     if booking.booking_status == store.HOLD_UNRECORDED and not viewer.visibility.supplier_names:
         raise GroupHoldError(404, "Group booking not found.", "not_found")
+    booking = await refresh_supplier(booking)
     people = await run_in_threadpool(booking_people.read, reference)
     return build_view(booking, people, viewer, now)
 
@@ -464,7 +528,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
             selling_total_minor=(listing_selling.amount_minor if listing_selling else 0) * request.adults,
             supplier_total_minor=listing_cost.amount_minor * request.adults if listing_cost else None,
             supplier_response={"adults": request.adults, "hold_minutes": settings.group_hold_minutes,
-                               "ticket": {"updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
+                               "ticket": {"id": str(request.ticket_id), "updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
                                "source": source_record(ticket, None)},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
             reference_prefix=REFERENCE_PREFIX,
@@ -486,18 +550,31 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         await _mark_failed(booking_id, viewer, "not_confirmed")
         raise GroupHoldError(502, "The supplier didn't confirm the hold. Check with the supplier before trying again.", "not_confirmed_hold") from None
 
-    # 3. Complete our record with the supplier's answer.
-    selling = selling_price(held.cost_per_adult)
+    # 3. Complete our record with the supplier's answer. When the supplier says what it held at (Dhillu & Sahi:
+    #    total_amount), that is the price; if it differs from the price shown, the customer must agree before payment.
+    cost_per_adult = held.cost_per_adult
+    supplier_total_minor = held.cost_per_adult.amount_minor * request.adults
+    if held.supplier_total is not None:
+        supplier_total_minor = held.supplier_total.amount_minor
+        cost_per_adult = GroupMoney(amount_minor=supplier_total_minor // request.adults, currency=held.supplier_total.currency)
+    selling = selling_price(cost_per_adult)
     held_at = _now()
     expires_at = hold_expiry(held_at)
+    extra: dict = {}
+    if held.supplier_answer is not None:
+        extra["supplier_answer"] = held.supplier_answer
+        if isinstance(held.supplier_answer.get("amounts"), dict):
+            extra["supplier_amounts"] = {**held.supplier_answer["amounts"], "read_at": held_at.isoformat()}
+    if selling is not None and listing_cost is not None and supplier_total_minor != listing_cost.amount_minor * request.adults:
+        shown = (listing_selling.amount_minor if listing_selling else 0) * request.adults
+        extra["price_change"] = {"shown_total_minor": shown, "held_total_minor": selling.amount_minor * request.adults, "accepted": False}
     try:
         if selling is None:
             raise ValueError("no selling price for the supplier price")
         await run_in_threadpool(lambda: store.confirm_hold(
             booking_id, viewer.user_id, pnr=held.pnr, supplier_ref=held.supplier_ref, hold_expires_at=expires_at,
-            selling_total_minor=selling.amount_minor * request.adults, supplier_total_minor=held.cost_per_adult.amount_minor * request.adults,
-            supplier_response={"held_at": held_at.isoformat(), "source": source_record(ticket, held.pnr),
-                               **({"supplier_answer": held.supplier_answer} if held.supplier_answer is not None else {})},
+            selling_total_minor=selling.amount_minor * request.adults, supplier_total_minor=supplier_total_minor,
+            supplier_response={"held_at": held_at.isoformat(), "source": source_record(ticket, held.pnr), **extra},
             audit={"pnr": held.pnr, "time_limit": expires_at.isoformat(), "amount_minor": selling.amount_minor * request.adults,
                    "currency": selling.currency, "pax_count": request.adults},
         ))
@@ -519,7 +596,9 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
 # ---------- price check, release, issue ----------
 
 def _held_ref(booking: store.GroupBooking) -> HeldRef:
-    return HeldRef(booking.pnr, booking.supplier_ref or "", booking.adults)
+    cost = GroupMoney(amount_minor=booking.supplier_cost_minor // max(booking.adults, 1), currency=booking.currency) \
+        if booking.supplier_cost_minor else None
+    return HeldRef(booking.pnr, booking.supplier_ref or "", booking.adults, cost)
 
 
 async def _open_hold(reference: str) -> tuple[store.GroupBooking, GroupHoldProvider]:
@@ -527,6 +606,9 @@ async def _open_hold(reference: str) -> tuple[store.GroupBooking, GroupHoldProvi
         booking = await run_in_threadpool(store.expire_if_over, reference, _now(), frozenset(NO_RELEASE_SOURCES))
     except store.GroupHoldRefused as error:
         raise _refused(error) from None
+    booking = await refresh_supplier(booking)
+    if booking.supplier_cancelled:
+        raise GroupHoldError(409, "The supplier cancelled this booking. Search again and hold new seats.", "supplier_cancelled")
     status = _status(booking, _now())
     if status == "expired":
         raise GroupHoldError(409, "The hold has expired. Search again and hold new seats.", "hold_expired")
@@ -542,6 +624,10 @@ async def _new_price(booking: store.GroupBooking, provider: GroupHoldProvider) -
     """(new selling per adult, supplier cost per adult, new total). Read-only at the supplier."""
     try:
         cost = await provider.price(_held_ref(booking))
+    except PriceOrSeatsChanged:
+        held = _held_ref(booking)
+        raise (await _research(booking.ticket_id, booking.adults, held.cost_per_adult, None, "Nothing was changed.")
+               or GroupHoldError(409, "The supplier says the price or the seats changed. Nothing was changed.", "price_changed")) from None
     except Exception:  # noqa: BLE001
         raise GroupHoldError(502, "The price couldn't be checked with the supplier. Nothing was changed.", "price_check_failed") from None
     selling = selling_price(cost)

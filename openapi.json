@@ -2800,6 +2800,30 @@
         "title": "GroupBookingResponse",
         "type": "object"
       },
+      "GroupHeldPriceChange": {
+        "description": "The supplier held the seats at a different price than shown before the hold. Payments wait until the customer agrees.",
+        "properties": {
+          "difference": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "held_total - shown_total; negative when the price went down."
+          },
+          "held_total": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "The selling total for the price the supplier held at (this booking's total)."
+          },
+          "shown_total": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "The selling total shown before the hold."
+          }
+        },
+        "required": [
+          "shown_total",
+          "held_total",
+          "difference"
+        ],
+        "title": "GroupHeldPriceChange",
+        "type": "object"
+      },
       "GroupHoldContact": {
         "description": "The customer card, typed per booking (or a saved customer by customer_id).",
         "properties": {
@@ -3506,6 +3530,17 @@
             ],
             "description": "The supplier's PNR. Only with the supplier names permission.",
             "title": "Pnr"
+          },
+          "price_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupHeldPriceChange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set while the held price differs from the price shown and the customer hasn't agreed yet (POST .../accept-held-price)."
           },
           "price_per_adult": {
             "$ref": "#/components/schemas/GroupMoney",
@@ -11160,6 +11195,67 @@
           }
         ],
         "summary": "Group Hold",
+        "tags": [
+          "group ticketing holds"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds/{booking_id}/accept-held-price": {
+      "post": {
+        "description": "The customer agreed to the price the supplier held at (it differed from the price shown). Payments can then be recorded.",
+        "operationId": "accept_held_price_v1_group_ticketing_holds__booking_id__accept_held_price_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupHoldView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Needs the record_payments permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "409": {
+            "description": "No price change to confirm, or not on hold."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accept Held Price",
         "tags": [
           "group ticketing holds"
         ]

@@ -115,6 +115,9 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
         raise HTTPException(422, "The payment can't be received in the future.")
     if request.amount.amount_minor <= 0:
         raise HTTPException(422, "The amount must be more than zero.")
+    # A group hold: read the supplier's booking first, so a cancellation there refuses the payment.
+    from app.services.group_holds import refresh_for_payment
+    await refresh_for_payment(booking_id)
     try:
         payment, status = await run_in_threadpool(
             booking_payments.record, booking_id, amount_minor=request.amount.amount_minor, currency=request.amount.currency,

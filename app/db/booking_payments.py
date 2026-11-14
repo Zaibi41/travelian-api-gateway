@@ -56,7 +56,8 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, acc
     none) a gateway reference "TRV-PAY-<8 chars>" is stored. Returns (payment, the booking's new payment status)."""
     with agencies.application_engine().begin() as connection:
         booking = connection.execute(
-            text("SELECT id, product, currency, total_minor, booking_status, hold_expires_at <= now() AS hold_over"
+            text("SELECT id, product, currency, total_minor, booking_status, hold_expires_at <= now() AS hold_over,"
+                 " COALESCE(supplier_response -> 'price_change' ->> 'accepted', 'true') = 'false' AS price_change_pending"
                  " FROM bookings WHERE reference = :r FOR UPDATE"), {"r": reference},
         ).mappings().one_or_none()
         if booking is None:
@@ -66,6 +67,8 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, acc
         if booking["product"] == "group" and booking["booking_status"] == "held" and booking["hold_over"]:
             # Group holds can't be held again; an expired one takes no payment (search again).
             raise PaymentRefused(409, "The hold has expired. Search again and hold new seats.")
+        if booking["price_change_pending"]:
+            raise PaymentRefused(409, "The supplier held the seats at a different price. Confirm the new price with the customer first.")
         if currency.upper() != booking["currency"]:
             raise PaymentRefused(422, f"Payments for this booking are in {booking['currency']}.")
         account = payment_accounts.active_for_payment(connection, account_id, method)
