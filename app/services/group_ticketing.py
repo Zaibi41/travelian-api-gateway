@@ -18,6 +18,43 @@ class GroupInventoryUnavailable(RuntimeError):
     """No configured group inventory supplier returned a usable response."""
 
 
+#: Group stock Travelian owns would come from this source; every configured vendor today is a supplier.
+OWNED_SOURCE = "travelian"
+
+
+def sector_codes(sector: str | None) -> tuple[str, str] | None:
+    """'LHE - DMM' -> ('LHE', 'DMM'): first and last airport of a sector."""
+    parts = [part.strip().upper() for part in (sector or "").split("-") if part.strip()]
+    return (parts[0], parts[-1]) if len(parts) >= 2 and all(len(part) == 3 and part.isalpha() for part in (parts[0], parts[-1])) else None
+
+
+def stock_label(vendor: str) -> str:
+    """'owned' for Travelian's own group stock, 'supplier' otherwise. Safe for every viewer: it never names the supplier."""
+    return "owned" if vendor == OWNED_SOURCE else "supplier"
+
+
+class TicketNotFound(LookupError):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+async def find_ticket(ticket_id: str, fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None) -> GroupTicket:
+    """One ticket from refreshed combined inventory by its opaque ID (no supplier detail endpoint is
+    called). 503 inventory down, 404 gone, 409 ambiguous."""
+    try:
+        groups = await (fetch or fetch_all_group_inventory)()
+    except GroupInventoryUnavailable as exc:
+        raise TicketNotFound(503, "Group inventory is temporarily unavailable") from exc
+    matches = [ticket for group in groups for ticket in group.tickets if group_ticket_id(ticket) == ticket_id]
+    if not matches:
+        raise TicketNotFound(404, "Ticket is not available in current inventory")
+    if len(matches) != 1:
+        raise TicketNotFound(409, "Ticket selection is ambiguous; refresh inventory")
+    return matches[0]
+
+
 def get_group_inventory_vendors() -> list[tuple[str, Callable[[], Awaitable[list[GroupInventory]]]]]:
     """Registry of configured group inventory suppliers; add vendors only with their API contracts."""
     vendors: list[tuple[str, Callable[[], Awaitable[list[GroupInventory]]]]] = []

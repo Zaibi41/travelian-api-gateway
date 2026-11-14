@@ -181,11 +181,12 @@ def resolve_saved(request: HoldRequest, owner: str | None) -> tuple[HoldRequest,
 
 
 def _save_people(request: HoldRequest, reference: str, actor: str, owner: str | None,
-                 links: dict[int, tuple[str, str | None]]) -> list[SaveOutcomeView]:
-    """Create or link saved people after the hold. Any failure is reported, never raised."""
+                 links: dict[int, tuple[str, str | None]], customer_document: saved_people.DocumentInput | None = None) -> list[SaveOutcomeView]:
+    """Create or link saved people after the hold. Any failure is reported, never raised.
+    customer_document: the customer's own document (Group Ticketing), saved with a new saved customer."""
     contact = request.contact
     customer = saved_people.HoldCustomer(contact.first_name, contact.last_name, contact.phone_code, contact.phone, contact.email,
-                                         person_id=contact.customer_id, save=contact.save_for_next_time)
+                                         person_id=contact.customer_id, save=contact.save_for_next_time, document=customer_document)
     travelers = []
     for index, passenger in enumerate(request.passengers):
         document = None

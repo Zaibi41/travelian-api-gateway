@@ -1,0 +1,189 @@
+"""Group Ticketing holds (admin): hold seats, read the hold, re-check the price, release, issue.
+
+Adults only. The price is not known before the hold: the hold answers with it, and it is checked
+again before issuing. Supplier names are only in `supplier`, for viewers with the supplier names
+permission; `stock` ("supplier" or "owned") is for everyone.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import date, datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.live_flights import HoldContact, HoldPassenger
+from app.schemas.saved_people import SaveOutcomeView
+from app.services.group_ticketing_view import GroupMoney
+
+MAX_ADULTS = 9
+
+
+class ContactError(ValueError):
+    """A customer field that can't be read: `field` is the request field to point at."""
+
+    def __init__(self, field: str, message: str):
+        super().__init__(message)
+        self.field = field
+        self.message = message
+
+
+def split_name(full_name: str) -> tuple[str, str]:
+    """'Ali Raza' -> ('Ali', 'Raza'); the last word is the surname."""
+    words = full_name.split()
+    if len(words) < 2:
+        raise ContactError("full_name", "Enter the customer's full name: given name and surname.")
+    return " ".join(words[:-1]), words[-1]
+
+
+def split_phone(text: str) -> tuple[str, str]:
+    """'+92 300 1234567', '0092 300 1234567' or '0300 1234567' (Pakistan) -> ('92', '3001234567');
+    '+971 50 123 4567' -> ('971', '501234567'): the country code is what follows '+' up to the first space."""
+    raw = text.strip()
+    compact = re.sub(r"[\s\-().]", "", raw)
+    if compact.startswith("00"):
+        compact, raw = "+" + compact[2:], "+" + raw.lstrip()[2:].lstrip()
+    if compact.startswith("+92"):
+        return "92", compact[3:].lstrip("0")
+    if re.fullmatch(r"0\d{9,10}", compact):
+        return "92", compact[1:]
+    if compact.startswith("+") and " " in raw:
+        code, rest = raw.lstrip("+").split(None, 1)
+        return code, re.sub(r"\D", "", rest)
+    raise ContactError("phone", "Enter the phone number with its country code, e.g. +92 300 1234567.")
+
+
+class GroupHoldContact(BaseModel):
+    """The customer card, typed per booking (or a saved customer by customer_id)."""
+
+    full_name: str | None = Field(None, max_length=60, description="Given name(s) and surname; the last word is the surname.")
+    phone: str | None = Field(None, max_length=24, description="With country code, e.g. +92 300 1234567. A Pakistani number may start with 0.")
+    email: str | None = Field(None, max_length=50)
+    id_type: Literal["PSPT", "NATI"] | None = Field(None, description="The customer's document: passport or CNIC.")
+    document_number: str | None = Field(None, max_length=20)
+    customer_id: str | None = Field(None, min_length=8, max_length=36, description="A saved customer; typed values override for this booking.")
+    save_for_next_time: bool = Field(True, description="Save or update the customer after the hold. Never blocks the hold.")
+
+    @field_validator("document_number")
+    @classmethod
+    def compact_document(cls, value: str | None) -> str | None:
+        value = re.sub(r"[\s-]", "", value or "").upper()
+        return value or None
+
+    def to_hold_contact(self) -> HoldContact:
+        """The Flights contact shape (first/last name, phone code and number). Raises ContactError."""
+        values: dict[str, object] = {"customer_id": self.customer_id, "save_for_next_time": self.save_for_next_time,
+                                     "email": (self.email or "").strip() or None}
+        if self.full_name and self.full_name.strip():
+            values["first_name"], values["last_name"] = split_name(self.full_name)
+        elif self.customer_id is None:
+            raise ContactError("full_name", "Enter the customer's full name.")
+        if self.phone and self.phone.strip():
+            values["phone_code"], values["phone"] = split_phone(self.phone)
+        elif self.customer_id is None:
+            raise ContactError("phone", "Enter the customer's phone number.")
+        return HoldContact.model_validate(values)
+
+
+class GroupHoldPassenger(HoldPassenger):
+    """A Flights passenger plus the traveler card's gender (checked against the title; not stored)."""
+
+    gender: Literal["M", "F"] | None = Field(None, description="M or F; must agree with the title (Mr: M; Mrs or Miss: F).")
+
+
+class GroupHoldRequest(BaseModel):
+    ticket_id: UUID = Field(description="The group fare (GroupTicketView.id) from the search results.")
+    adults: int = Field(ge=1, le=MAX_ADULTS, description="Adults only; must equal the number of passengers.")
+    contact: GroupHoldContact
+    passengers: list[GroupHoldPassenger] = Field(min_length=1, max_length=MAX_ADULTS, description="One adult (ADT) per seat.")
+
+
+class GroupHoldFlight(BaseModel):
+    airline: str | None = None
+    sector: str | None = None
+    origin: str | None = None
+    destination: str | None = None
+    departure_date: str | None = None
+    departure_time: str | None = None
+    logo_url: str | None = None
+    baggage: str | None = None
+
+
+class GroupHoldCustomer(BaseModel):
+    name: str
+    phone: str | None = None
+    email: str | None = None
+
+
+class GroupHoldTraveler(BaseModel):
+    position: int
+    title: str
+    first_name: str
+    last_name: str
+    id_type: str
+    document_number_masked: str | None = None
+    date_of_birth_masked: str
+    nationality: str | None = None
+    document_country: str | None = None
+    document_expiry_masked: str | None = None
+    ticket_number: str | None = None
+
+
+class GroupHoldPayment(BaseModel):
+    id: str
+    method: Literal["bank_transfer", "jazzcash", "1link"]
+    received_into: str
+    amount: GroupMoney
+    reference: str
+    received_at: datetime
+
+
+GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued", "unknown"]
+
+
+class GroupHoldView(BaseModel):
+    booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
+    pnr: str | None = None
+    status: GroupHoldStatus = Field(description="held; expired (time limit passed, can't be held again: search again); released; "
+                                                "processing (issuing); issued; unknown (issuing outcome unclear).")
+    hold_expires_at: datetime | None = None
+    adults: int
+    flight: GroupHoldFlight
+    stock: Literal["supplier", "owned"]
+    supplier: str | None = Field(None, description="Only with the supplier names permission.")
+    price_per_adult: GroupMoney = Field(description="Selling price per adult, from the hold (or the accepted new price).")
+    total: GroupMoney
+    amount_paid: GroupMoney
+    amount_due: GroupMoney
+    payment_status: Literal["unpaid", "part_paid", "paid"]
+    customer: GroupHoldCustomer | None = None
+    travelers: list[GroupHoldTraveler] = Field(default_factory=list, description="Masked documents and dates of birth.")
+    payments: list[GroupHoldPayment] = Field(default_factory=list)
+    can_record_payments: bool = Field(False, description="This viewer may record a payment now (the endpoint still checks).")
+    can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due (the endpoint still checks).")
+    saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
+
+
+class GroupPriceCheck(BaseModel):
+    changed: bool
+    held_total: GroupMoney
+    new_total: GroupMoney
+    difference: GroupMoney = Field(description="new_total - held_total; negative when the price went down.")
+    new_price_per_adult: GroupMoney
+
+
+class GroupIssueRequest(BaseModel):
+    accepted_total: GroupMoney | None = Field(
+        None, description="After 'The price has changed': the new total the customer agreed to. Issuing is refused if the price moved again.")
+
+
+class GroupIssueResult(BaseModel):
+    result: Literal["issued", "not_issued", "unknown"]
+    message: str
+    hold: GroupHoldView
+
+
+def age_on(birth: date, on: date) -> int:
+    return on.year - birth.year - ((on.month, on.day) < (birth.month, birth.day))

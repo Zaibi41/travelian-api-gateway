@@ -68,10 +68,11 @@ def load(reference: str) -> Target:
         return _load(connection, reference, lock=False)
 
 
-def blockers(target: Target, now: datetime, margin_seconds: int) -> list[str]:
-    """Why this booking can't be issued now (empty when it can). Same rules for request and issue."""
+def blockers(target: Target, now: datetime, margin_seconds: int, products: tuple[str, ...] = ("flight",)) -> list[str]:
+    """Why this booking can't be issued now (empty when it can). Same rules for request and issue.
+    `products`: the products the caller's issuing path handles (Southair: flight; Group Ticketing: group)."""
     reasons = []
-    if target.product != "flight" or not target.pnr or not target.supplier_ref:
+    if target.product not in products or not target.pnr or not target.supplier_ref:
         reasons.append("This booking has no supplier hold to issue.")
     if target.booking_status != "held":
         reasons.append("The booking isn't on hold.")
@@ -105,12 +106,12 @@ def request(reference: str, actor: str, now: datetime, margin_seconds: int, note
     return target
 
 
-def claim(reference: str, actor: str, now: datetime, margin_seconds: int) -> Target:
+def claim(reference: str, actor: str, now: datetime, margin_seconds: int, products: tuple[str, ...] = ("flight",)) -> Target:
     """Move to 'processing' (the only way a ticketing call may start). Returns the target as it was."""
     with agencies.application_engine().begin() as connection:
         target = _load(connection, reference, lock=True)
         _refuse_by_status(target.issuance_status)
-        reasons = blockers(target, now, margin_seconds)
+        reasons = blockers(target, now, margin_seconds, products)
         if reasons:
             raise IssuanceRefused(409, " ".join(reasons))
         _set(connection, target.id, "processing")

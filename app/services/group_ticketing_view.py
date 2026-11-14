@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.field_visibility import FieldVisibility
 from app.schemas.group_ticketing import GroupInventory, GroupTicket
 from app.services import supplier_logos
-from app.services.group_ticketing import group_ticket_id
+from app.services.group_ticketing import group_ticket_id, stock_label
 
 from uuid import NAMESPACE_URL, uuid5
 
@@ -43,6 +43,8 @@ class GroupTicketView(BaseModel):
     meal: str | int | None = None
     ticket_type: str | int | None = None
     selling_price: GroupMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the price is unknown.")
+    stock: Literal["supplier", "owned"] = Field("supplier", description="Supplier stock or Travelian-owned stock. Never names the supplier.")
+    can_hold: bool = Field(False, description="Whether the gateway can hold seats on this fare (its source supports holds).")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     pnr: str | None = Field(None, description="Supplier PNR. Only with the supplier names permission.")
     subparts: list[dict[str, Any]] | None = Field(None, description="Raw supplier segments. Requires both supplier names and cost and margin permissions.")
@@ -100,6 +102,7 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         departure_date=ticket.departure_date, departure_time=_departure_time(ticket), sector=ticket.sector,
         airline=ticket.airline, logo_url=supplier_logos.register(ticket.airline_logo), remaining=ticket.remaining,
         baggage=ticket.baggage, meal=ticket.meal, ticket_type=ticket.ticket_type, selling_price=selling_price(cost),
+        stock=stock_label(ticket.vendor), can_hold=_can_hold(ticket.vendor),
     )
     if visibility.supplier_names:
         view.supplier, view.pnr = ticket.vendor, ticket.pnr
@@ -108,6 +111,12 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
     if visibility.cost_and_margin:
         view.supplier_cost = cost
     return view
+
+
+def _can_hold(vendor: str) -> bool:
+    from app.services.group_holds import provider_for  # late import: group_holds imports this module
+
+    return provider_for(vendor) is not None
 
 
 def inventory_view(groups: list[GroupInventory], visibility: FieldVisibility) -> GroupInventoryView:

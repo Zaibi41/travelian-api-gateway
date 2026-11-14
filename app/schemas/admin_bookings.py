@@ -190,8 +190,9 @@ class RecordPaymentRequest(BaseModel):
     amount: BookingMoney
     method: PaymentMethod
     account_id: str = Field(min_length=8, max_length=36, description="The receiving account (GET /v1/admin/payment-accounts); active and of this method.")
-    reference: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*$")
-    received_at: datetime = Field(description="When the money was received. Not in the future.")
+    reference: str | None = Field(None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*$",
+                                  description="The payer's transaction reference. Left out (Group Ticketing payments): the gateway records a reference of its own.")
+    received_at: datetime | None = Field(None, description="When the money was received. Not in the future. Left out: now.")
 
 
 class RecordPaymentResponse(BaseModel):

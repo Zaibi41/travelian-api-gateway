@@ -108,17 +108,18 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
     """Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged."""
     if not viewer.can(RECORD_PAYMENTS):
         raise HTTPException(403, "Recording payments requires the record payments permission.")
-    if request.received_at.tzinfo is None:
+    received_at = request.received_at or _now()
+    if received_at.tzinfo is None:
         raise HTTPException(422, "received_at needs a time zone.")
-    if request.received_at > _now() + timedelta(minutes=5):
+    if received_at > _now() + timedelta(minutes=5):
         raise HTTPException(422, "The payment can't be received in the future.")
     if request.amount.amount_minor <= 0:
         raise HTTPException(422, "The amount must be more than zero.")
     try:
         payment, status = await run_in_threadpool(
             booking_payments.record, booking_id, amount_minor=request.amount.amount_minor, currency=request.amount.currency,
-            method=request.method, account_id=request.account_id, payer_reference=request.reference.strip(),
-            received_at=request.received_at, actor_user_id=viewer.user_id,
+            method=request.method, account_id=request.account_id, payer_reference=(request.reference or "").strip() or None,
+            received_at=received_at, actor_user_id=viewer.user_id,
         )
     except booking_payments.PaymentRefused as error:
         raise HTTPException(error.status, error.message) from None

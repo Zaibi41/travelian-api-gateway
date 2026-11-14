@@ -14,9 +14,10 @@ from app.services.group_ticketing_view import GroupInventoryView, GroupTicketVie
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
+    TicketNotFound,
     fetch_all_group_inventory,
     filter_group_inventory,
-    group_ticket_id,
+    find_ticket,
 )
 from app.schemas.flights import VendorIssue, VendorResult
 from app.services.vendor_fanout import gather_vendor_calls
@@ -277,18 +278,10 @@ async def search_group_inventory(request: GroupSearchRequest, viewer: Viewer) ->
 async def fetch_group_ticket(ticket_id: UUID, viewer: Viewer) -> GroupTicketView:
     """Select one record from refreshed inventory; no invented supplier endpoint."""
     try:
-        groups = await fetch_all_group_inventory()
-    except GroupInventoryUnavailable as exc:
-        raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
-    matches = [
-        ticket for group in groups for ticket in group.tickets
-        if group_ticket_id(ticket) == str(ticket_id)
-    ]
-    if not matches:
-        raise HTTPException(status_code=404, detail="Ticket is not available in current inventory")
-    if len(matches) != 1:
-        raise HTTPException(status_code=409, detail="Ticket selection is ambiguous; refresh inventory")
-    return ticket_view(matches[0], viewer.visibility)
+        ticket = await find_ticket(str(ticket_id), fetch_all_group_inventory)
+    except TicketNotFound as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    return ticket_view(ticket, viewer.visibility)
 
 
 @router.post("/check-availability", response_model=GroupAvailabilityResponse, response_model_exclude_unset=True)

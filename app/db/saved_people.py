@@ -533,6 +533,7 @@ class HoldCustomer:
     email: str
     person_id: str | None = None      # contact.customer_id
     save: bool = True
+    document: DocumentInput | None = None  # the customer's own document (Group Ticketing customer card)
 
 
 @dataclass
@@ -602,6 +603,8 @@ def _save_customer(connection, owner: str | None, actor: str, reference: str, bo
                           and _same_name(traveler.first_name, customer.first_name) and _same_name(traveler.last_name, customer.last_name)), None)
     if person_id is None:
         person_id = _insert_person(connection, owner, actor, {"first_name": customer.first_name, "last_name": customer.last_name, **contact})
+        if customer.document is not None and find_document(connection, owner, customer.document) is None:
+            _insert_document(connection, owner, actor, person_id, customer.document)
         status = "saved"
         _event(connection, person_id, actor, "created", {"source": "hold", "booking_id": reference, "role": "customer"})
     else:

@@ -7,6 +7,7 @@ from app.api.routes.agencies import router as agencies_router
 from app.api.routes.agency_applications import router as agency_applications_router
 from app.api.routes.agency_integrations import router as agency_integrations_router
 from app.api.routes.auth_sessions import router as auth_sessions_router
+from app.api.routes.group_holds import router as group_holds_router
 from app.api.routes.group_ticketing import router as group_ticketing_router
 from app.api.routes.hotels import router as hotels_router
 from app.api.routes.identity import router as identity_router
@@ -25,6 +26,7 @@ router = APIRouter()
 router.include_router(operations_router)
 router.include_router(identity_router)
 router.include_router(live_ticketing_router)
+router.include_router(group_holds_router)
 router.include_router(group_ticketing_router)
 router.include_router(hotels_router)
 

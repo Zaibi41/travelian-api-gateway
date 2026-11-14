@@ -49,18 +49,23 @@ def payment_status(paid_minor: int, total_minor: int) -> str:
     return "paid" if paid_minor >= total_minor else "part_paid"
 
 
-def record(reference: str, *, amount_minor: int, currency: str, method: str, account_id: str, payer_reference: str,
+def record(reference: str, *, amount_minor: int, currency: str, method: str, account_id: str, payer_reference: str | None,
            received_at: datetime, actor_user_id: str) -> tuple[Payment, str]:
     """Record one payment into one of Travelian's active receiving accounts of that method (migration
-    0019; its name is kept as received_into). Returns (payment, the booking's new payment status)."""
+    0019; its name is kept as received_into). Without a payer reference (Group Ticketing payments carry
+    none) a gateway reference "TRV-PAY-<8 chars>" is stored. Returns (payment, the booking's new payment status)."""
     with agencies.application_engine().begin() as connection:
         booking = connection.execute(
-            text("SELECT id, currency, total_minor, booking_status FROM bookings WHERE reference = :r FOR UPDATE"), {"r": reference},
+            text("SELECT id, product, currency, total_minor, booking_status, hold_expires_at <= now() AS hold_over"
+                 " FROM bookings WHERE reference = :r FOR UPDATE"), {"r": reference},
         ).mappings().one_or_none()
         if booking is None:
             raise PaymentRefused(404, "Booking not found.")
         if booking["booking_status"] in CLOSED_STATUSES:
             raise PaymentRefused(409, "This booking is closed and can't take a payment.")
+        if booking["product"] == "group" and booking["booking_status"] == "held" and booking["hold_over"]:
+            # Group holds can't be held again; an expired one takes no payment (search again).
+            raise PaymentRefused(409, "The hold has expired. Search again and hold new seats.")
         if currency.upper() != booking["currency"]:
             raise PaymentRefused(422, f"Payments for this booking are in {booking['currency']}.")
         account = payment_accounts.active_for_payment(connection, account_id, method)
@@ -71,6 +76,7 @@ def record(reference: str, *, amount_minor: int, currency: str, method: str, acc
         if paid + amount_minor > booking["total_minor"]:
             raise PaymentRefused(409, "This is more than the amount due on the booking.")
         payment_id = str(uuid4())
+        payer_reference = payer_reference or f"TRV-PAY-{payment_id[:8].upper()}"
         try:
             with connection.begin_nested():
                 connection.execute(

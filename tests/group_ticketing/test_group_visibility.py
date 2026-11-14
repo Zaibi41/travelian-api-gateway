@@ -67,14 +67,16 @@ def ticket_of(response):
 def test_staff_and_agency_get_no_supplier_cost_or_raw_fields(role, path):
     response = call(VIEWERS[role], path)
     assert response.status_code == 200
-    raw = response.text
+    # The stock label's value "supplier" is for everyone; only supplier fields (keys) and supplier values must be absent.
+    raw = response.text.replace('"stock":"supplier"', "")
     for leak in ("supplier", "SUPPNR1", "subparts", "ticket_airline_id", "airline_logo", "95000", "9500000", "cdn.", "dhillu", "skypass"):
         assert leak not in raw, leak
     ticket = ticket_of(response)
     assert ticket["selling_price"] == {"amount_minor": 9_975_000, "currency": "PKR"}  # 95,000 + 5% = 99,750
     assert ticket["logo_url"].startswith("/v1/logos/") and ticket["departure_time"] == "09:45"
     assert set(ticket) <= {"id", "updated_at", "sold", "departure_date", "departure_time", "sector", "airline",
-                           "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price"}
+                           "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price", "stock", "can_hold"}
+    assert ticket["stock"] == "supplier" and ticket["can_hold"] is False  # no group source supports holds yet
 
 
 def test_super_admin_gets_supplier_cost_and_raw_fields():

@@ -24,8 +24,8 @@ UAT_SOURCE = "southair_uat"
 _REF_ALPHABET = string.ascii_uppercase + string.digits
 
 
-def new_reference() -> str:
-    return "TRV-" + "".join(secrets.choice(_REF_ALPHABET) for _ in range(6))
+def new_reference(prefix: str = "TRV-") -> str:
+    return prefix + "".join(secrets.choice(_REF_ALPHABET) for _ in range(6))
 
 
 def _event(connection, booking_id: str, actor: str | None, action: str, details: dict[str, Any]) -> None:
@@ -90,25 +90,27 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
               selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any],
               actor_user_id: str, audit: dict[str, Any],
               customer: CustomerRecord | None = None, travelers: list[TravelerRecord] | None = None,
-              itinerary: list[dict[str, Any]] | None = None) -> str:
-    """Insert a held, unpaid, not-issued UAT booking, its customer and travelers, and the audit
-    entry, in one transaction. Returns the reference."""
+              itinerary: list[dict[str, Any]] | None = None, product: str = "flight", source: str | None = UAT_SOURCE,
+              reference_prefix: str = "TRV-") -> str:
+    """Insert a held, unpaid, not-issued booking (Southair: UAT test data; Group Ticketing: product
+    'group', no import source), its customer and travelers, and the audit entry, in one
+    transaction. Returns the reference."""
     with agencies.application_engine().begin() as connection:
-        booking_id, reference = str(uuid4()), new_reference()
+        booking_id, reference = str(uuid4()), new_reference(reference_prefix)
         connection.execute(
             text(
                 "INSERT INTO bookings (id, reference, pnr, product, provider_id, created_by_user_id, booking_status, payment_status,"
                 " issuance_status, hold_expires_at, currency, total_minor, supplier_cost_minor, import_source, supplier_ref, supplier_response, itinerary)"
-                " VALUES (:id, :ref, :pnr, 'flight', :provider, :actor, 'held', 'unpaid', 'not_issued', :expires, :currency, :total,"
+                " VALUES (:id, :ref, :pnr, :product, :provider, :actor, 'held', 'unpaid', 'not_issued', :expires, :currency, :total,"
                 " :cost, :source, :supplier_ref, CAST(:response AS jsonb), CAST(:itinerary AS jsonb))"
             ),
             {"id": booking_id, "ref": reference, "pnr": pnr, "provider": provider, "actor": actor_user_id, "expires": hold_expires_at,
-             "currency": currency, "total": selling_total_minor, "cost": supplier_total_minor, "source": UAT_SOURCE,
+             "currency": currency, "total": selling_total_minor, "cost": supplier_total_minor, "source": source, "product": product,
              "supplier_ref": supplier_ref, "response": json.dumps(supplier_response),
              "itinerary": json.dumps(itinerary) if itinerary else None},
         )
         if customer is not None:
             _save_people(connection, booking_id, customer, travelers or [])
         _event(connection, booking_id, actor_user_id, "hold_created",
-               {**audit, "label": "UAT test data", "travelers": len(travelers or [])})
+               {**audit, **({"label": "UAT test data"} if source == UAT_SOURCE else {}), "travelers": len(travelers or [])})
     return reference

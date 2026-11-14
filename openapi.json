@@ -2799,6 +2799,761 @@
         "title": "GroupBookingResponse",
         "type": "object"
       },
+      "GroupHoldContact": {
+        "description": "The customer card, typed per booking (or a saved customer by customer_id).",
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved customer; typed values override for this booking.",
+            "title": "Customer Id"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Given name(s) and surname; the last word is the surname.",
+            "title": "Full Name"
+          },
+          "id_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PSPT",
+                  "NATI"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The customer's document: passport or CNIC.",
+            "title": "Id Type"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 24,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With country code, e.g. +92 300 1234567. A Pakistani number may start with 0.",
+            "title": "Phone"
+          },
+          "save_for_next_time": {
+            "default": true,
+            "description": "Save or update the customer after the hold. Never blocks the hold.",
+            "title": "Save For Next Time",
+            "type": "boolean"
+          }
+        },
+        "title": "GroupHoldContact",
+        "type": "object"
+      },
+      "GroupHoldCustomer": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "GroupHoldCustomer",
+        "type": "object"
+      },
+      "GroupHoldFlight": {
+        "properties": {
+          "airline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline"
+          },
+          "baggage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baggage"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "departure_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Time"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          }
+        },
+        "title": "GroupHoldFlight",
+        "type": "object"
+      },
+      "GroupHoldPassenger": {
+        "description": "A Flights passenger plus the traveler card's gender (checked against the title; not stored).",
+        "properties": {
+          "date_of_birth": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Of Birth"
+          },
+          "document_country": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Country"
+          },
+          "document_expiry": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With traveler_id: which saved document (needed when the person has several).",
+            "title": "Document Id"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]{1,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "enum": [
+                  "M",
+                  "F"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "M or F; must agree with the title (Mr: M; Mrs or Miss: F).",
+            "title": "Gender"
+          },
+          "id_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PSPT",
+                  "NATI"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Type"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "nationality": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nationality"
+          },
+          "save_for_next_time": {
+            "default": true,
+            "description": "Create or update the saved person after the hold. Never blocks the hold.",
+            "title": "Save For Next Time",
+            "type": "boolean"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MR",
+                  "MRS",
+                  "MISS",
+                  "MASTER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "traveler_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved person; identity fields are then loaded by the gateway.",
+            "title": "Traveler Id"
+          },
+          "travels_with": {
+            "anyOf": [
+              {
+                "maximum": 8.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Infants only: the adult it travels with, counted among adults from 0 (Adult 1 = 0). Default: infant n with adult n.",
+            "title": "Travels With"
+          },
+          "type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "GroupHoldPassenger",
+        "type": "object"
+      },
+      "GroupHoldPayment": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "received_into": {
+            "title": "Received Into",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "received_into",
+          "amount",
+          "reference",
+          "received_at"
+        ],
+        "title": "GroupHoldPayment",
+        "type": "object"
+      },
+      "GroupHoldRequest": {
+        "properties": {
+          "adults": {
+            "description": "Adults only; must equal the number of passengers.",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "contact": {
+            "$ref": "#/components/schemas/GroupHoldContact"
+          },
+          "passengers": {
+            "description": "One adult (ADT) per seat.",
+            "items": {
+              "$ref": "#/components/schemas/GroupHoldPassenger"
+            },
+            "maxItems": 9,
+            "minItems": 1,
+            "title": "Passengers",
+            "type": "array"
+          },
+          "ticket_id": {
+            "description": "The group fare (GroupTicketView.id) from the search results.",
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "adults",
+          "contact",
+          "passengers"
+        ],
+        "title": "GroupHoldRequest",
+        "type": "object"
+      },
+      "GroupHoldTraveler": {
+        "properties": {
+          "date_of_birth_masked": {
+            "title": "Date Of Birth Masked",
+            "type": "string"
+          },
+          "document_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Country"
+          },
+          "document_expiry_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry Masked"
+          },
+          "document_number_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number Masked"
+          },
+          "first_name": {
+            "title": "First Name",
+            "type": "string"
+          },
+          "id_type": {
+            "title": "Id Type",
+            "type": "string"
+          },
+          "last_name": {
+            "title": "Last Name",
+            "type": "string"
+          },
+          "nationality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nationality"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "ticket_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "title",
+          "first_name",
+          "last_name",
+          "id_type",
+          "date_of_birth_masked"
+        ],
+        "title": "GroupHoldTraveler",
+        "type": "object"
+      },
+      "GroupHoldView": {
+        "properties": {
+          "adults": {
+            "title": "Adults",
+            "type": "integer"
+          },
+          "amount_due": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "amount_paid": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "booking_id": {
+            "description": "Travelian reference, e.g. TRV-GRP-AB12CD.",
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "can_issue_tickets": {
+            "default": false,
+            "description": "This viewer may issue now: held, not expired, nothing due (the endpoint still checks).",
+            "title": "Can Issue Tickets",
+            "type": "boolean"
+          },
+          "can_record_payments": {
+            "default": false,
+            "description": "This viewer may record a payment now (the endpoint still checks).",
+            "title": "Can Record Payments",
+            "type": "boolean"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupHoldCustomer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flight": {
+            "$ref": "#/components/schemas/GroupHoldFlight"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "payment_status": {
+            "enum": [
+              "unpaid",
+              "part_paid",
+              "paid"
+            ],
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/GroupHoldPayment"
+            },
+            "title": "Payments",
+            "type": "array"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "price_per_adult": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "Selling price per adult, from the hold (or the accepted new price)."
+          },
+          "saved_people": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SaveOutcomeView"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only in the hold answer: what happened to the saved customer and travelers.",
+            "title": "Saved People"
+          },
+          "status": {
+            "description": "held; expired (time limit passed, can't be held again: search again); released; processing (issuing); issued; unknown (issuing outcome unclear).",
+            "enum": [
+              "held",
+              "expired",
+              "released",
+              "processing",
+              "issued",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stock": {
+            "enum": [
+              "supplier",
+              "owned"
+            ],
+            "title": "Stock",
+            "type": "string"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the supplier names permission.",
+            "title": "Supplier"
+          },
+          "total": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "travelers": {
+            "description": "Masked documents and dates of birth.",
+            "items": {
+              "$ref": "#/components/schemas/GroupHoldTraveler"
+            },
+            "title": "Travelers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "booking_id",
+          "status",
+          "adults",
+          "flight",
+          "stock",
+          "price_per_adult",
+          "total",
+          "amount_paid",
+          "amount_due",
+          "payment_status"
+        ],
+        "title": "GroupHoldView",
+        "type": "object"
+      },
       "GroupInventoryView": {
         "properties": {
           "data": {
@@ -2813,6 +3568,50 @@
           "data"
         ],
         "title": "GroupInventoryView",
+        "type": "object"
+      },
+      "GroupIssueRequest": {
+        "properties": {
+          "accepted_total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "After 'The price has changed': the new total the customer agreed to. Issuing is refused if the price moved again."
+          }
+        },
+        "title": "GroupIssueRequest",
+        "type": "object"
+      },
+      "GroupIssueResult": {
+        "properties": {
+          "hold": {
+            "$ref": "#/components/schemas/GroupHoldView"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "issued",
+              "not_issued",
+              "unknown"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "message",
+          "hold"
+        ],
+        "title": "GroupIssueResult",
         "type": "object"
       },
       "GroupMoney": {
@@ -2832,6 +3631,36 @@
           "currency"
         ],
         "title": "GroupMoney",
+        "type": "object"
+      },
+      "GroupPriceCheck": {
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "difference": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "new_total - held_total; negative when the price went down."
+          },
+          "held_total": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "new_price_per_adult": {
+            "$ref": "#/components/schemas/GroupMoney"
+          },
+          "new_total": {
+            "$ref": "#/components/schemas/GroupMoney"
+          }
+        },
+        "required": [
+          "changed",
+          "held_total",
+          "new_total",
+          "difference",
+          "new_price_per_adult"
+        ],
+        "title": "GroupPriceCheck",
         "type": "object"
       },
       "GroupQuoteAcknowledgement": {
@@ -3003,6 +3832,12 @@
             ],
             "title": "Baggage"
           },
+          "can_hold": {
+            "default": false,
+            "description": "Whether the gateway can hold seats on this fare (its source supports holds).",
+            "title": "Can Hold",
+            "type": "boolean"
+          },
           "departure_date": {
             "anyOf": [
               {
@@ -3114,6 +3949,16 @@
               }
             ],
             "title": "Sold"
+          },
+          "stock": {
+            "default": "supplier",
+            "description": "Supplier stock or Travelian-owned stock. Never names the supplier.",
+            "enum": [
+              "supplier",
+              "owned"
+            ],
+            "title": "Stock",
+            "type": "string"
           },
           "subparts": {
             "anyOf": [
@@ -4295,25 +5140,38 @@
             "type": "string"
           },
           "received_at": {
-            "description": "When the money was received. Not in the future.",
-            "format": "date-time",
-            "title": "Received At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the money was received. Not in the future. Left out: now.",
+            "title": "Received At"
           },
           "reference": {
-            "maxLength": 64,
-            "minLength": 3,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ./_-]*$",
-            "title": "Reference",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ./_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The payer's transaction reference. Left out (Group Ticketing payments): the gateway records a reference of its own.",
+            "title": "Reference"
           }
         },
         "required": [
           "amount",
           "method",
-          "account_id",
-          "reference",
-          "received_at"
+          "account_id"
         ],
         "title": "RecordPaymentRequest",
         "type": "object"
@@ -9886,6 +10744,321 @@
         "summary": "Request Group Quote",
         "tags": [
           "group ticketing"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds": {
+      "post": {
+        "description": "Hold the seats with the supplier (never retried). The answer carries the price per adult and total.",
+        "operationId": "hold_group_seats_v1_group_ticketing_holds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupHoldRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupHoldView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "409": {
+            "description": "Fare gone, not enough seats, holds not supported for this fare, or no selling price. Nothing held."
+          },
+          "422": {
+            "description": "Adults only; passengers must match the adults searched."
+          },
+          "502": {
+            "description": "The supplier didn't confirm the hold."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hold Group Seats",
+        "tags": [
+          "group ticketing holds"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds/{booking_id}": {
+      "get": {
+        "description": "The hold with its countdown, price, payments and masked travelers. A hold past its time limit reads as expired.",
+        "operationId": "group_hold_v1_group_ticketing_holds__booking_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupHoldView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Group Hold",
+        "tags": [
+          "group ticketing holds"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds/{booking_id}/issue": {
+      "post": {
+        "description": "Check the price again; if it moved, refuse with price_changed unless accepted_total equals the new total.\nNeeds full payment and the issue tickets permission. One issue call, never retried.",
+        "operationId": "issue_group_tickets_v1_group_ticketing_holds__booking_id__issue_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupIssueResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "409": {
+            "description": "price_changed (held_total, new_total, difference), payment_due, hold_expired, or not issuable."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The price couldn't be checked. Nothing was issued."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Issue Group Tickets",
+        "tags": [
+          "group ticketing holds"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds/{booking_id}/price-check": {
+      "post": {
+        "description": "Ask the supplier for the current price (read-only). Nothing changes.",
+        "operationId": "check_group_price_v1_group_ticketing_holds__booking_id__price_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupPriceCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "409": {
+            "description": "Not on hold or expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier couldn't be asked."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Check Group Price",
+        "tags": [
+          "group ticketing holds"
+        ]
+      }
+    },
+    "/v1/group-ticketing/holds/{booking_id}/release": {
+      "post": {
+        "description": "Release the seats at the supplier, then mark the booking released (logged).",
+        "operationId": "release_group_hold_v1_group_ticketing_holds__booking_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupHoldView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such group booking."
+          },
+          "409": {
+            "description": "Not on hold, expired, or being issued."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The supplier didn't confirm."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Release Group Hold",
+        "tags": [
+          "group ticketing holds"
         ]
       }
     },
