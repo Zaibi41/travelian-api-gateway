@@ -1,5 +1,6 @@
 """Al Haider hold through create/booking, mocked only (never called live). Assumed shapes (the collection documents
-the create answer only as "status" and "booking_id"): create/booking -> {"status": true, "booking_id": <int>};
+the create answer only as "status" and "booking_id"): user -> {id, name, email, mobile_no, city} (read live);
+create/booking -> {"status": true, "booking_id": <int>};
 show/booking -> the documented booking object (id, group_id, adults, fares, status, auto_cancel_after, passengers, ...)."""
 
 import asyncio
@@ -22,13 +23,16 @@ from app.services import flight_holds, group_holds
 from app.services.group_holds import GroupHoldError, SupplierRefused
 from app.services.group_ticketing import group_ticket_id
 from app.services.group_ticketing_view import ticket_view
-from app.vendors.group_ticketing.al_haider.holds import AlHaiderHoldProvider, booking_id_of, booking_payload
+from app.vendors.group_ticketing.al_haider.holds import AlHaiderHoldProvider, agency_from_profile, booking_id_of, booking_payload
 from app.vendors.group_ticketing.al_haider.inventory import normalize
 from tests.group_ticketing.test_al_haider_and_sectors import al_group
 
 ADMIN = BackOfficeUser("u-1", "super_admin", ALL, resolve_actions("super_admin", set()))
 STAFF = BackOfficeUser("u-2", "staff", NONE)
 TOKEN = "synthetic-permanent-token-0123456789"
+PROFILE = {"id": 3047, "name": "Travelian (Private) Limited", "email": "ops@example.invalid", "mobile_no": "03000000000", "city": "Lahore",
+           "email_verified_at": None}
+AGENCY = {"agent_name": "Travelian (Private) Limited", "agency_name": "Travelian (Private) Limited", "email": "ops@example.invalid", "mobile": "03000000000"}
 CONTACT = HoldContact(first_name="Test", last_name="Traveler", email="t@example.invalid", phone_code="92", phone="3001234567")
 SHOWN = {"id": 21319, "group_id": 3437, "agency_id": 9, "agency_name": "Travelian (Private) Limited", "agent_name": "Ops Desk", "email": "ops@example.invalid",
          "mobile": "03000000000", "adults": 1, "child": 0, "infant": 0, "fares": "98000", "status": 1, "auto_cancel_after": "2026-11-14 18:00:00",
@@ -46,8 +50,6 @@ def adult(**kw):
 @pytest.fixture(autouse=True)
 def configured():
     with patch.object(settings, "al_haider_base_url", "https://al-haider.invalid"), patch.object(settings, "al_haider_access_token", SecretStr(TOKEN)), \
-         patch.object(settings, "al_haider_agent_name", "Ops Desk"), patch.object(settings, "al_haider_agency_name", "Travelian (Private) Limited"), \
-         patch.object(settings, "al_haider_agent_email", "ops@example.invalid"), patch.object(settings, "al_haider_agent_mobile", "03000000000"), \
          patch.object(settings, "group_al_haider_hold_enabled", True), \
          patch.object(settings, "group_ticketing_markup_percent", Decimal("0")), patch.object(settings, "group_ticketing_markup_fixed_minor", 0):
         yield
@@ -58,12 +60,15 @@ def ticket():
 
 
 class Supplier:
-    def __init__(self, status=200, body=None, error=None):
+    def __init__(self, status=200, body=None, error=None, profile=None):
         self.status, self.error, self.requests = status, error, []
+        self.profile = PROFILE if profile is None else profile
         self.body = body if body is not None else {"status": True, "booking_id": 21319}
 
     def __call__(self, request):
         self.requests.append((request.method, request.url.path, json.loads(request.content) if request.content else None, request.headers.get("authorization")))
+        if request.url.path == "/api/user":
+            return self.profile if isinstance(self.profile, httpx.Response) else httpx.Response(200, json=self.profile)
         if request.url.path == "/api/create/booking":
             if self.error:
                 raise self.error
@@ -83,10 +88,10 @@ def run(coro):
 # ---------- payload ----------
 
 def test_payload_group_id_agency_info_and_adults():
-    body = booking_payload(ticket(), [adult(), adult(title="MISS", first_name="Sana", document_number="CD7654321", date_of_birth="1995-02-03")])
+    body = booking_payload(ticket(), [adult(), adult(title="MISS", first_name="Sana", document_number="CD7654321", date_of_birth="1995-02-03")], AGENCY)
     assert body == {
         "group_id": 3437,
-        "agency_info": {"group_id": 3437, "agent_name": "Ops Desk", "agency_name": "Travelian (Private) Limited", "email": "ops@example.invalid",
+        "agency_info": {"group_id": 3437, "agent_name": "Travelian (Private) Limited", "agency_name": "Travelian (Private) Limited", "email": "ops@example.invalid",
                         "mobile": "03000000000", "adults": 2, "child": 0, "infant": 0, "agent_notes": None},
         "booking_details": [
             {"type": "Adult", "surname": "Traveler", "given_name": "Test", "title": "MR", "passport_no": "TEST12345", "dob": "1990-01-01", "doe": "2031-01-01"},
@@ -97,9 +102,18 @@ def test_payload_group_id_agency_info_and_adults():
 
 def test_payload_refuses_children_and_missing_passport():
     with pytest.raises(ValueError):
-        booking_payload(ticket(), [adult(type="CHD")])
+        booking_payload(ticket(), [adult(type="CHD")], AGENCY)
     with pytest.raises(ValueError):
-        booking_payload(ticket(), [adult(document_expiry=None)])
+        booking_payload(ticket(), [adult(document_expiry=None)], AGENCY)
+
+
+def test_agency_info_from_the_account_profile():
+    assert agency_from_profile(PROFILE) == AGENCY
+    assert agency_from_profile({"data": PROFILE}) == AGENCY
+    for missing in ("name", "email", "mobile_no"):
+        with pytest.raises(Exception) as raised:
+            agency_from_profile({**PROFILE, missing: ""})
+        assert raised.value.error_code == "profile_incomplete"
 
 
 @pytest.mark.parametrize("answer, booking_id", [({"status": True, "booking_id": 21319}, 21319), ({"status": "success", "data": {"booking_id": "21319"}}, 21319),
@@ -113,9 +127,9 @@ def test_booking_id_read_from_the_assumed_shapes(answer, booking_id):
 def test_hold_posts_once_with_the_bearer_token_then_reads_the_booking():
     supplier = Supplier()
     held = run(AlHaiderHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
-    assert supplier.calls() == [("POST", "/api/create/booking"), ("GET", "/api/show/booking/21319")]
+    assert supplier.calls() == [("GET", "/api/user"), ("POST", "/api/create/booking"), ("GET", "/api/show/booking/21319")]
     assert all(auth == f"Bearer {TOKEN}" for _, _, _, auth in supplier.requests)
-    assert supplier.requests[0][2]["group_id"] == 3437
+    assert supplier.requests[1][2]["group_id"] == 3437 and supplier.requests[1][2]["agency_info"]["mobile"] == "03000000000"
     assert (held.pnr, held.supplier_ref, held.cost_per_adult.amount_minor) == ("4UD1CN-49Z0AJ", "21319", 98_000_00)
     detail = held.supplier_answer["detail"]
     assert detail["auto_cancel_after"] == "2026-11-14 18:00:00" and detail["fares"] == "98000" and detail["status"] == 1
@@ -129,7 +143,16 @@ def test_clear_rejection_is_a_refusal_and_sent_once(status, body):
     supplier = Supplier(status=status, body=body)
     with pytest.raises(SupplierRefused):
         run(AlHaiderHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
-    assert supplier.calls() == [("POST", "/api/create/booking")]
+    assert supplier.calls() == [("GET", "/api/user"), ("POST", "/api/create/booking")]
+
+
+@pytest.mark.parametrize("profile", [{**PROFILE, "mobile_no": None}, httpx.Response(401, json={"message": "Unauthenticated."})])
+def test_incomplete_or_unreadable_profile_books_nothing(profile):
+    supplier = Supplier(profile=profile)
+    with pytest.raises(Exception) as raised:
+        run(AlHaiderHoldProvider(httpx.MockTransport(supplier)).hold(ticket(), [adult()], CONTACT))
+    assert raised.value.error_code in ("profile_incomplete", "profile_unavailable") and not isinstance(raised.value, SupplierRefused)
+    assert supplier.calls() == [("GET", "/api/user")]
 
 
 @pytest.mark.parametrize("supplier", [Supplier(error=httpx.ReadTimeout("synthetic")), Supplier(status=500, body={}), Supplier(body={"status": True})])
@@ -150,9 +173,9 @@ def test_flag_off_keeps_hold_disabled_with_the_reason():
         assert ticket_view(ticket(), NONE).hold_unavailable_reason == "Holding isn't available for this provider"
 
 
-def test_flag_on_needs_travelian_agency_details():
+def test_flag_on_needs_only_the_token_and_url():
     assert ticket_view(ticket(), ALL).can_hold is True
-    with patch.object(settings, "al_haider_agent_mobile", None):
+    with patch.object(settings, "al_haider_access_token", None):
         assert group_holds.provider_for("al_haider") is None
         assert ticket_view(ticket(), ALL).hold_unavailable_reason == "Holding is not wired for Al Haider yet"
 

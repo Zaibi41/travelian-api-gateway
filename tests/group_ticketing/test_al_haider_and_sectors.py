@@ -71,6 +71,7 @@ def test_al_haider_connecting_flights_take_codes_from_the_sector_in_order():
     assert ticket.supplier_ticket_id == "71510"
 
 
+@patch.object(settings, "group_al_haider_hold_enabled", False)
 def test_al_haider_hold_is_off_with_its_reason_named_only_with_supplier_access():
     ticket = al_haider.normalize([al_group()])[0].tickets[0]
     for visibility in (ALL, STAFF_NAMES):

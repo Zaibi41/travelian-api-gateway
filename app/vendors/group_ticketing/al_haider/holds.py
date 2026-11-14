@@ -2,6 +2,9 @@
 GROUP_AL_HAIDER_HOLD_ENABLED is true: Al Haider hasn't yet confirmed that an unpaid booking expires by itself.
 
 Contract: docs/postman/Al Haider Travel.postman_collection.json, permanent Bearer token (AL_HAIDER_ACCESS_TOKEN).
+- GET /api/user: the token's own account (read live 14 Nov 2026: {id, name, email, mobile_no, city, email_verified_at},
+  not wrapped). Read before each booking for agency_info: agent_name and agency_name = name (the profile has no separate
+  agent name), email = email, mobile = mobile_no. Incomplete profile: nothing is booked.
 - POST /api/create/booking, JSON:
     {"group_id": <int>, "agency_info": {"group_id", "agent_name", "agency_name", "email", "mobile", "adults", "child": 0,
      "infant": 0, "agent_notes": null}, "booking_details": [{"type": "Adult", "surname", "given_name", "title" (MR, MRS, MS),
@@ -37,16 +40,22 @@ REFUSED_HTTP = {400, 404, 409, 410, 422}
 DETAIL_KEYS = ("id", "group_id", "adults", "child", "infant", "fares", "status", "auto_cancel_after", "sold_at", "canceled_at", "created_at")
 
 
-def agency_info_configured() -> bool:
-    return all((settings.al_haider_agent_name, settings.al_haider_agency_name, settings.al_haider_agent_email, settings.al_haider_agent_mobile))
-
-
 def is_configured() -> bool:
-    return listing_configured() and agency_info_configured()
+    return listing_configured()
 
 
-def booking_payload(ticket: GroupTicket, passengers: list[HoldPassenger]) -> dict[str, Any]:
-    """The create/booking body: Travelian's agency details, adults only, one booking_details entry per traveler."""
+def agency_from_profile(profile: Any) -> dict[str, str]:
+    """agency_info fields from GET /api/user. Raises AlHaiderError (nothing is booked) when any is missing."""
+    data = profile.get("data", profile) if isinstance(profile, dict) else None
+    data = data if isinstance(data, dict) else {}
+    name, email, mobile = (str(data.get(key) or "").strip() for key in ("name", "email", "mobile_no"))
+    if not (name and email and mobile):
+        raise AlHaiderError("Al Haider account profile has no name, email or mobile", error_code="profile_incomplete")
+    return {"agent_name": name, "agency_name": name, "email": email, "mobile": mobile}
+
+
+def booking_payload(ticket: GroupTicket, passengers: list[HoldPassenger], agency: dict[str, str]) -> dict[str, Any]:
+    """The create/booking body: Travelian's agency (from its profile), adults only, one booking_details entry per traveler."""
     if not ticket.supplier_group_id or not ticket.supplier_group_id.isdigit():
         raise ValueError("the listing gave no group id for this fare")
     if any(passenger.type != "ADT" for passenger in passengers):
@@ -58,8 +67,8 @@ def booking_payload(ticket: GroupTicket, passengers: list[HoldPassenger]) -> dic
     return {
         "group_id": group_id,
         "agency_info": {
-            "group_id": group_id, "agent_name": settings.al_haider_agent_name, "agency_name": settings.al_haider_agency_name,
-            "email": settings.al_haider_agent_email, "mobile": settings.al_haider_agent_mobile,
+            "group_id": group_id, "agent_name": agency["agent_name"], "agency_name": agency["agency_name"],
+            "email": agency["email"], "mobile": agency["mobile"],
             "adults": len(passengers), "child": 0, "infant": 0, "agent_notes": None,
         },
         "booking_details": [{
@@ -140,8 +149,16 @@ class AlHaiderHoldProvider:
         cost = supplier_cost(ticket)
         if cost is None:
             raise AlHaiderError("Al Haider fare has no price", error_code="no_price")
-        body = booking_payload(ticket, passengers)
         async with self._client() as client:
+            try:
+                profile = await client.get(f"{self.base_url}/api/user", headers=self._headers())
+                profile.raise_for_status()
+                agency = agency_from_profile(profile.json())
+            except AlHaiderError:
+                raise
+            except (httpx.HTTPError, ValueError) as exc:  # nothing booked yet
+                raise AlHaiderError("Al Haider account profile could not be read", error_code="profile_unavailable") from exc
+            body = booking_payload(ticket, passengers, agency)
             try:
                 response = await client.post(f"{self.base_url}/api/create/booking", json=body, headers=self._headers())  # never retried
             except httpx.TimeoutException as exc:
