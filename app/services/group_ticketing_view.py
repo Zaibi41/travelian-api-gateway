@@ -167,7 +167,8 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
     view = GroupTicketView(
         id=group_ticket_id(ticket), updated_at=ticket.updated_at, sold=ticket.sold,
         departure_date=ticket.departure_date, departure_time=_departure_time(ticket) or (first.departure_time if first else None), sector=ticket.sector,
-        airline=ticket.airline, logo_url=supplier_logos.register(ticket.airline_logo), flight_number=first.flight_number if first else None,
+        airline=ticket.airline, logo_url=supplier_logos.register(ticket.airline_logo, supplier_logos.airline_label(ticket.airline, first.flight_number if first else None)),
+        flight_number=first.flight_number if first else None,
         remaining=ticket.remaining, baggage=ticket.baggage, hand_carry=ticket.hand_carry, meal=meal_text(ticket.meal) or (first.meal if first else None),
         ticket_type=ticket.ticket_type, legs=legs, selling_price=selling_price(cost),
         stock=stock_label(ticket.vendor),
@@ -209,7 +210,7 @@ def inventory_view(groups: list[GroupInventory], visibility: FieldVisibility) ->
     return GroupInventoryView(data=[
         GroupView(
             id=str(uuid5(NAMESPACE_URL, f"travelian:group-ticketing:{group.vendor}:{group.id}")),
-            sector=group.sector, airline=group.airline, logo_url=supplier_logos.register(group.airline_logo),
+            sector=group.sector, airline=group.airline, logo_url=supplier_logos.register(group.airline_logo, group.airline),
             tickets=[ticket_view(ticket, visibility) for ticket in group.tickets],
         )
         for group in groups

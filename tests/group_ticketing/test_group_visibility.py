@@ -291,3 +291,16 @@ def test_customer_http_responses_never_include_supplier_data(monkeypatch, path, 
     assert response.status_code == 403
     assert response.json() == {"detail": "Search access denied."}
     upstream.assert_not_called()
+
+
+def test_a_logo_that_cant_be_served_logs_which_airline_and_why(caplog):
+    caplog.set_level("WARNING")
+    path = supplier_logos.register("https://logos.example/pa.png", supplier_logos.airline_label("Airblue", "PA470"))
+    logo_id = path.rsplit("/", 1)[1]
+    with patch.object(supplier_logos, "_public_host", lambda host: False), pytest.raises(supplier_logos.LogoUnavailable):
+        asyncio.run(supplier_logos.fetch(logo_id))
+    record = next(r for r in caplog.records if r.getMessage() == "Airline logo not available")
+    assert (record.airline, record.reason) == ("Airblue (PA)", "host_not_public")
+    with pytest.raises(supplier_logos.LogoUnavailable):
+        asyncio.run(supplier_logos.fetch("0" * 32))                      # e.g. an id from before a gateway restart
+    assert caplog.records[-1].reason == "unknown_id" and caplog.records[-1].airline == "unknown"

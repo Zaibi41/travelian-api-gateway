@@ -31,19 +31,36 @@ TIMEOUT_SECONDS = 5.0
 _KEY = os.urandom(32)
 
 _urls: OrderedDict[str, str] = OrderedDict()
+#: The airline each logo belongs to, only for the log line when it can't be served ("Airblue (PA)").
+_airlines: dict[str, str] = {}
 _images: OrderedDict[str, tuple[float, str, bytes]] = OrderedDict()
 
 
-def register(url: str | None) -> str | None:
-    """Opaque path for a supplier logo URL, or None when it can't be served."""
+def register(url: str | None, airline: str | None = None) -> str | None:
+    """Opaque path for a supplier logo URL, or None when it can't be served. `airline`: name and code for the log."""
     if not url or urlsplit(url).scheme != "https" or not urlsplit(url).hostname:
         return None
     logo_id = hmac.new(_KEY, url.encode(), hashlib.sha256).hexdigest()[:32]
     _urls[logo_id] = url
     _urls.move_to_end(logo_id)
+    if airline:
+        _airlines[logo_id] = airline
     while len(_urls) > MAX_ENTRIES:
-        _urls.popitem(last=False)
+        dropped, _ = _urls.popitem(last=False)
+        _airlines.pop(dropped, None)
     return f"/v1/logos/{logo_id}"
+
+
+def airline_label(name: str | None, flight_number: str | None = None) -> str | None:
+    """'Airblue (PA)': the name and the airline code from the flight number, for logging only."""
+    code = (flight_number or "").strip()[:2].upper()
+    return f"{name} ({code})" if name and code.isalnum() and len(code) == 2 else name or (code or None)
+
+
+def _missing(logo_id: str, reason: str) -> LogoUnavailable:
+    # The page shows the airline name instead; this says which airline had no logo, and why.
+    logger.warning("Airline logo not available", extra={"airline": _airlines.get(logo_id, "unknown"), "reason": reason})
+    return LogoUnavailable()
 
 
 class LogoUnavailable(Exception):
@@ -65,25 +82,25 @@ async def fetch(logo_id: str, client_factory=None) -> tuple[str, bytes]:
         return cached[1], cached[2]
     url = _urls.get(logo_id)
     if url is None:
-        raise LogoUnavailable()
+        # Unknown id: logo ids live in memory with a per-process key, so a gateway restart (e.g. --reload) forgets
+        # the ids a page already has. The next search issues fresh ones.
+        raise _missing(logo_id, "unknown_id")
     host = urlsplit(url).hostname or ""
     if not await asyncio.to_thread(_public_host, host):
-        logger.warning("Logo refused: host is not public")
-        raise LogoUnavailable()
+        raise _missing(logo_id, "host_not_public")
     try:
         async with (client_factory or httpx.AsyncClient)(timeout=TIMEOUT_SECONDS, follow_redirects=False) as client:
             async with client.stream("GET", url) as response:
                 content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
                 if response.status_code != 200 or content_type not in ALLOWED_TYPES:
-                    raise LogoUnavailable()
+                    raise _missing(logo_id, f"supplier_answer_{response.status_code}" if response.status_code != 200 else "not_an_image")
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body.extend(chunk)
                     if len(body) > MAX_BYTES:
-                        raise LogoUnavailable()
+                        raise _missing(logo_id, "too_large")
     except httpx.HTTPError:
-        logger.warning("Logo fetch failed")
-        raise LogoUnavailable() from None
+        raise _missing(logo_id, "fetch_failed") from None
     _images[logo_id] = (time.monotonic(), content_type, bytes(body))
     while len(_images) > MAX_ENTRIES:
         _images.popitem(last=False)

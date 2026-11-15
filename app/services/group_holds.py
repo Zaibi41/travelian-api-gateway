@@ -318,7 +318,8 @@ def _flight(booking: store.GroupBooking) -> GroupHoldFlight:
         airline=segment.get("airline_name"), origin=segment.get("origin"), destination=segment.get("destination"),
         sector=f"{segment['origin']} - {segment['destination']}" if segment.get("origin") and segment.get("destination") else None,
         departure_date=departure[:10] or None, departure_time=departure[11:16] or None,
-        logo_url=supplier_logos.register(segment.get("logo")) if segment.get("logo") else None, baggage=segment.get("baggage"),
+        logo_url=supplier_logos.register(segment.get("logo"), supplier_logos.airline_label(segment.get("airline_name"), segment.get("flight_number")))
+        if segment.get("logo") else None, baggage=segment.get("baggage"),
         legs=[_leg_view(item) for item in booking.itinerary if isinstance(item, dict)],
     )
 
