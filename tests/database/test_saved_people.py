@@ -564,3 +564,65 @@ def test_repair_script_counts_then_fills_only_empty_values(db, capsys):
     assert connection.scalar(text("SELECT person_id FROM booking_customers")) == person_id
     repair_saved_contacts.main([])
     assert "Saved people that would gain an email or phone: 0" in capsys.readouterr().out
+
+
+# ---------- live search on the hold form (customers and travelers), from 2 characters, at most 8 ----------
+
+def typeahead(path, q, viewer=ADMIN):
+    from app.api.routes.saved_people import travelers_router
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/v1")
+    app.include_router(travelers_router, prefix="/v1")
+    app.dependency_overrides[require_back_office] = lambda: viewer
+    return TestClient(app).get(f"/v1/admin/{path}/search", params={"q": q})
+
+
+def names(response):
+    return [f"{p['first_name']} {p['last_name']}" for p in response.json()["results"]]
+
+
+def test_customer_search_matches_partial_names_phone_email_and_document_prefix(db):
+    person(first="Usman", last="Tariq", dob=None, phone_code="92", phone="3125551234", email="usman.t@example.invalid", document=passport("AB5554967"))
+    person(first="Sana", last="Raza", dob=None, phone_code="92", phone="3009998887", email="sana@example.invalid")
+    for q in ("usm", "USMAN", "tariq", "man tar", "Usman Tariq"):
+        assert names(typeahead("customers", q)) == ["Usman Tariq"], q
+    assert names(typeahead("customers", "5551")) == ["Usman Tariq"]                       # phone contains
+    assert names(typeahead("customers", "sana@exa")) == ["Sana Raza"]                     # email contains
+    assert names(typeahead("customers", "ab555")) == ["Usman Tariq"]                      # document number prefix
+    result = typeahead("customers", "usm").json()["results"][0]
+    assert result["documents"][0]["document_number_masked"] == "••••••967" and "AB5554967" not in str(result)
+    assert result["phone_masked"] and result["email_masked"]
+    assert typeahead("customers", "u").status_code == 422                                  # 2 characters at least
+    assert names(typeahead("customers", "zzz")) == []
+
+
+def test_traveler_search_matches_name_and_document_but_not_contact(db):
+    person(first="Usman", last="Tariq", dob=None, phone_code="92", phone="3125551234", document=passport("AB5554967"))
+    assert names(typeahead("travelers", "tar")) == ["Usman Tariq"]
+    assert names(typeahead("travelers", "AB55")) == ["Usman Tariq"]
+    assert names(typeahead("travelers", "5551")) == []
+
+
+def test_search_returns_at_most_eight_names_starting_with_the_text_first_and_treats_wildcards_literally(db):
+    for n in range(10):
+        person(first=f"Ali{n}", last="Khan", dob=None)
+    person(first="Malik", last="Ahmed", dob=None)
+    found = names(typeahead("customers", "ali"))
+    assert len(found) == 8 and all(name.startswith("Ali") for name in found)
+    assert names(typeahead("customers", "%_")) == []
+
+
+def test_search_is_back_office_only(db):
+    from app.core.field_visibility import require_back_office as dependency
+    from fastapi import HTTPException
+
+    def refuse():
+        raise HTTPException(403, "Not back office.")
+    from app.api.routes.saved_people import travelers_router
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/v1")
+    app.include_router(travelers_router, prefix="/v1")
+    app.dependency_overrides[dependency] = refuse
+    client = TestClient(app)
+    assert client.get("/v1/admin/customers/search", params={"q": "usm"}).status_code == 403
+    assert client.get("/v1/admin/travelers/search", params={"q": "usm"}).status_code == 403

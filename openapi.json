@@ -9735,6 +9735,57 @@
         ]
       }
     },
+    "/v1/admin/customers/search": {
+      "get": {
+        "description": "Live search for \"Find saved customer\" (hold form): up to 8 people by name (partial: given name, surname or full\nname), phone or email (contains), or document number (prefix). Masked values only.",
+        "operationId": "search_customers_v1_admin_customers_search_get",
+        "parameters": [
+          {
+            "description": "At least 2 characters.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "At least 2 characters.",
+              "maxLength": 64,
+              "minLength": 2,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPersonSearch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not back office, or missing the permission."
+          },
+          "404": {
+            "description": "No such person or document."
+          },
+          "422": {
+            "description": "Search needs at least 2 characters."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Customers",
+        "tags": [
+          "saved people"
+        ]
+      }
+    },
     "/v1/admin/customers/{person_id}": {
       "get": {
         "operationId": "get_person_v1_admin_customers__person_id__get",
@@ -10541,6 +10592,54 @@
         "summary": "List Roles",
         "tags": [
           "user administration"
+        ]
+      }
+    },
+    "/v1/admin/travelers/search": {
+      "get": {
+        "description": "Live search for \"Use saved traveler\" (hold form): up to 8 people by name (partial: given name, surname or full\nname) or document number (prefix). Masked values only.",
+        "operationId": "search_travelers_v1_admin_travelers_search_get",
+        "parameters": [
+          {
+            "description": "At least 2 characters.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "At least 2 characters.",
+              "maxLength": 64,
+              "minLength": 2,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPersonSearch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not back office."
+          },
+          "422": {
+            "description": "Search needs at least 2 characters."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Travelers",
+        "tags": [
+          "saved people"
         ]
       }
     },

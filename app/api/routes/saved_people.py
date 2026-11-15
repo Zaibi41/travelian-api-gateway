@@ -93,6 +93,30 @@ async def search_people(viewer: Viewer,
     return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
 
 
+TypeaheadQuery = Annotated[str, Query(min_length=2, max_length=64, description="At least 2 characters.")]
+
+
+@router.get("/search", response_model=SavedPersonSearch, response_model_exclude_none=True,
+            responses={422: {"description": "Search needs at least 2 characters."}})
+async def search_customers(viewer: Viewer, q: TypeaheadQuery):
+    """Live search for "Find saved customer" (hold form): up to 8 people by name (partial: given name, surname or full
+    name), phone or email (contains), or document number (prefix). Masked values only."""
+    people = await run_in_threadpool(store.typeahead, owner_of(viewer), q, "customer", 8)
+    return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
+
+
+travelers_router = APIRouter(prefix="/admin/travelers", tags=["saved people"], responses={403: {"description": "Not back office."}})
+
+
+@travelers_router.get("/search", response_model=SavedPersonSearch, response_model_exclude_none=True,
+                      responses={422: {"description": "Search needs at least 2 characters."}})
+async def search_travelers(viewer: Viewer, q: TypeaheadQuery):
+    """Live search for "Use saved traveler" (hold form): up to 8 people by name (partial: given name, surname or full
+    name) or document number (prefix). Masked values only."""
+    people = await run_in_threadpool(store.typeahead, owner_of(viewer), q, "traveler", 8)
+    return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
+
+
 @router.get("/{person_id}", response_model=SavedPersonDetail, response_model_exclude_none=True)
 async def get_person(viewer: Viewer, person_id: PersonId):
     try:

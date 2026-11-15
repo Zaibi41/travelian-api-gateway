@@ -265,6 +265,55 @@ def search(owner: str | None, q: str, limit: int = 20) -> list[Person]:
     return unique[:limit]
 
 
+def _like(text_: str) -> str:
+    """A LIKE pattern part with the user's % and _ taken literally."""
+    return text_.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def typeahead(owner: str | None, q: str, kind: str, limit: int = 8) -> list[Person]:
+    """Live search for the hold form, from 2 characters. kind "customer": name, phone, email or document number;
+    "traveler": name or document number. Name: partial and case-insensitive on the given name, the surname and the
+    full name ("usm" and "tariq" both find Usman Tariq). Document number: prefix of the normalised number. Phone and
+    email: contains. Order: document, then contact, then names that start with the text, then other name matches."""
+    q = " ".join(q.split())
+    if len(q) < 2:
+        return []
+    live = f"{_owner_clause('p.owner_agency_id')} AND p.merged_into_id IS NULL"
+    results: list[Person] = []
+    with agencies.application_engine().begin() as connection:
+        numbers = {pii.normalize_document(q), pii.normalize_document(q, "NATI", "PAK")} - {""}
+        if numbers:
+            results += _people(connection, f"{live} AND p.id IN (SELECT person_id FROM saved_person_documents WHERE removed_at IS NULL"
+                               " AND coalesce(owner_agency_id, '') = coalesce(:owner, '') AND (" +
+                               " OR ".join(f"document_number_normalized LIKE :n{i} ESCAPE '\\'" for i in range(len(numbers))) + "))"
+                               " ORDER BY p.last_name, p.first_name LIMIT :limit",
+                               {"owner": owner, "limit": limit, **{f"n{i}": _like(n) + "%" for i, n in enumerate(sorted(numbers))}}, "document")
+        if kind == "customer":
+            digits = "".join(ch for ch in q if ch.isdigit())
+            contact = []
+            if " " not in q:
+                contact.append(("p.email_normalized LIKE :email ESCAPE '\\'", {"email": "%" + _like(q.lower()) + "%"}))
+            if len(digits) >= 3:
+                contact.append(("p.phone_normalized LIKE :phone ESCAPE '\\'", {"phone": "%" + digits.lstrip("0") + "%"}))
+            if contact:
+                where = " OR ".join(clause for clause, _ in contact)
+                params = {k: v for _, values in contact for k, v in values.items()}
+                results += _people(connection, f"{live} AND ({where}) ORDER BY p.last_name, p.first_name LIMIT :limit",
+                                   {"owner": owner, "limit": limit, **params}, "contact")
+        full = "(p.first_name || ' ' || p.last_name)"
+        results += _people(connection,
+                           f"{live} AND (p.first_name ILIKE :any ESCAPE '\\' OR p.last_name ILIKE :any ESCAPE '\\' OR {full} ILIKE :any ESCAPE '\\')"
+                           f" ORDER BY (p.first_name ILIKE :start ESCAPE '\\' OR p.last_name ILIKE :start ESCAPE '\\' OR {full} ILIKE :start ESCAPE '\\') DESC,"
+                           " p.last_name, p.first_name LIMIT :limit",
+                           {"owner": owner, "limit": limit, "any": "%" + _like(q) + "%", "start": _like(q) + "%"}, "name")
+    seen, unique = set(), []
+    for person in results:
+        if person.id not in seen:
+            seen.add(person.id)
+            unique.append(person)
+    return unique[:limit]
+
+
 def recent(owner: str | None, limit: int = 50) -> list[Person]:
     """The most recent saved people, for the register's first page: latest booking first (people
     never booked last), then the most recently saved or edited. Merged people excluded."""

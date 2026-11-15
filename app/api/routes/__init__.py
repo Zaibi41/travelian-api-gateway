@@ -20,7 +20,7 @@ from app.api.routes.operations import router as operations_router
 from app.api.routes.payment_accounts import finance_router as finance_payment_accounts_router
 from app.api.routes.payment_accounts import router as payment_accounts_router
 from app.api.routes.saved_people import booking_router as saved_people_booking_router
-from app.api.routes.saved_people import router as saved_people_router
+from app.api.routes.saved_people import router as saved_people_router, travelers_router as saved_travelers_router
 
 router = APIRouter()
 router.include_router(operations_router)
@@ -46,6 +46,7 @@ router.include_router(admin_dashboard_router)
 
 router.include_router(admin_bookings_router)
 router.include_router(saved_people_router)
+router.include_router(saved_travelers_router)
 router.include_router(payment_accounts_router)
 router.include_router(finance_payment_accounts_router)
 router.include_router(saved_people_booking_router)
