@@ -85,12 +85,13 @@ async def release_group_hold(booking_id: Reference, viewer: Staff):
 
 
 @router.post("/{booking_id}/issue", response_model=GroupIssueResult, response_model_exclude_none=True,
-             responses={409: {"description": "price_changed (held_total, new_total, difference), payment_due, hold_expired, or not issuable."},
+             responses={409: {"description": "supplier_cost_changed or below_cost (with the price check's fields), payment_due, hold_expired, or not issuable."},
                         502: {"description": "The price couldn't be checked. Nothing was issued."}})
 async def issue_group_tickets(request: GroupIssueRequest, booking_id: Reference, viewer: Staff):
-    """Check the price again; if it moved, refuse with price_changed unless accepted_total equals the new total.
+    """Check the supplier cost again; the selling price never changes. If the cost moved, refuse with supplier_cost_changed
+    unless accepted_supplier_cost equals the new cost (and accept_below_cost when it is above the selling price).
     Needs full payment and the issue tickets permission. One issue call, never retried."""
     try:
-        return await group_holds.issue(booking_id, viewer, request.accepted_total)
+        return await group_holds.issue(booking_id, viewer, request.accepted_supplier_cost, request.accept_below_cost)
     except group_holds.GroupHoldError as error:
         return _error(error)

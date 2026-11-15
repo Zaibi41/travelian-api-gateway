@@ -15,9 +15,10 @@ seats are released where the provider can.
 The hold time is Travelian's own: expiry = creation + GROUP_HOLD_MINUTES, kept on the booking.
 No supplier expiry is used. After it, payments and issuing are refused even if the supplier still
 holds the seats, and the job gives the seats back. The supplier price per adult from the listing
-becomes the selling price (group markup) and the booking total. Before issuing, the price is
-checked again: when it moved, issuing stops with "price_changed" until the customer agrees
-(accepted_total) or the hold is released. Supplier names, supplier PNRs and cost never leave this
+becomes the selling price (group markup) and the booking total. Before issuing, the supplier cost is
+checked again. The selling price is never recalculated: when the cost moved, issuing stops with
+"supplier_cost_changed" until the issuer confirms the new cost (accepted_supplier_cost), and with
+"below_cost" too when it is above the selling price (accept_below_cost); or the hold is released. Supplier names, supplier PNRs and cost never leave this
 module except for viewers allowed to see them.
 """
 
@@ -710,8 +711,8 @@ async def _open_hold(reference: str) -> tuple[store.GroupBooking, GroupHoldProvi
     return booking, provider
 
 
-async def _new_price(booking: store.GroupBooking, provider: GroupHoldProvider) -> tuple[GroupMoney, GroupMoney, int]:
-    """(new selling per adult, supplier cost per adult, new total). Read-only at the supplier."""
+async def _new_cost(booking: store.GroupBooking, provider: GroupHoldProvider) -> tuple[GroupMoney, int]:
+    """(supplier cost per adult, supplier cost total) from the supplier. Read-only at the supplier."""
     try:
         cost = await provider.price(_held_ref(booking))
     except PriceOrSeatsChanged:
@@ -720,22 +721,29 @@ async def _new_price(booking: store.GroupBooking, provider: GroupHoldProvider) -
                or GroupHoldError(409, "The supplier says the price or the seats changed. Nothing was changed.", "price_changed")) from None
     except Exception:  # noqa: BLE001
         raise GroupHoldError(502, "The price couldn't be checked with the supplier. Nothing was changed.", "price_check_failed") from None
-    selling = selling_price(cost)
-    if selling is None or selling.currency != booking.currency:
-        raise GroupHoldError(409, "No selling price could be worked out for the new supplier price. Nothing was changed.", "no_selling_price")
-    return selling, cost, selling.amount_minor * booking.adults
+    if cost.currency != booking.currency:
+        raise GroupHoldError(409, "The supplier's price is in a different currency. Nothing was changed.", "currency_changed")
+    return cost, cost.amount_minor * booking.adults
 
 
-def _check(booking: store.GroupBooking, selling: GroupMoney, total: int) -> GroupPriceCheck:
+def _check(booking: store.GroupBooking, cost_total: int, viewer: BackOfficeUser) -> GroupPriceCheck:
+    """The selling price stays; only the supplier cost (and so the profit) can change."""
     money = lambda minor: GroupMoney(amount_minor=minor, currency=booking.currency)  # noqa: E731
-    return GroupPriceCheck(changed=total != booking.total_minor, held_total=money(booking.total_minor), new_total=money(total),
-                           difference=money(total - booking.total_minor), new_price_per_adult=selling)
+    check = GroupPriceCheck(changed=cost_total != booking.supplier_cost_minor, selling_total=money(booking.total_minor),
+                            below_cost=cost_total > booking.total_minor, accepted_supplier_cost=money(cost_total))
+    if viewer.visibility.cost_and_margin:
+        previous = booking.supplier_cost_minor
+        check.previous_supplier_cost = money(previous) if previous is not None else None
+        check.new_supplier_cost = money(cost_total)
+        check.difference = money(cost_total - previous) if previous is not None else None
+        check.profit = money(booking.total_minor - cost_total)
+    return check
 
 
 async def price_check(reference: str, viewer: BackOfficeUser) -> GroupPriceCheck:
     booking, provider = await _open_hold(reference)
-    selling, _, total = await _new_price(booking, provider)
-    return _check(booking, selling, total)
+    _, cost_total = await _new_cost(booking, provider)
+    return _check(booking, cost_total, viewer)
 
 
 async def release(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
@@ -761,7 +769,8 @@ async def release(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
     return await read(reference, viewer)
 
 
-async def issue(reference: str, viewer: BackOfficeUser, accepted_total: GroupMoney | None = None) -> GroupIssueResult:
+async def issue(reference: str, viewer: BackOfficeUser, accepted_cost: GroupMoney | None = None,
+                accept_below_cost: bool = False) -> GroupIssueResult:
     if not viewer.can(ISSUE_TICKETS):
         raise GroupHoldError(403, "Issuing tickets requires the issue tickets permission.", "not_allowed")
     booking, provider = await _open_hold(reference)
@@ -771,24 +780,23 @@ async def issue(reference: str, viewer: BackOfficeUser, accepted_total: GroupMon
         due = booking.total_minor - booking.paid_minor
         raise GroupHoldError(409, f"Record the full payment first: {money_text(due, booking.currency)} is still due. Nothing was issued.", "payment_due")
 
-    # 1. Check the price again (read-only). A different price needs the customer's agreement.
-    selling, cost, total = await _new_price(booking, provider)
-    if total != booking.total_minor:
-        check = _check(booking, selling, total)
-        agreed = accepted_total is not None and accepted_total.currency == booking.currency and accepted_total.amount_minor == total
-        if not agreed:
-            raise GroupHoldError(409, f"The price has changed to {money_text(total, booking.currency)}. Nothing was issued.", "price_changed",
-                                 held_total=check.held_total.model_dump(), new_total=check.new_total.model_dump(),
-                                 difference=check.difference.model_dump())
+    # 1. Check the supplier cost again (read-only). The selling price never changes here. A different cost needs the
+    #    issuer's confirmation, and an explicit one more when the cost is now above the selling price.
+    cost, cost_total = await _new_cost(booking, provider)
+    check = _check(booking, cost_total, viewer)
+    if check.changed:
+        confirmed = accepted_cost is not None and accepted_cost.currency == booking.currency and accepted_cost.amount_minor == cost_total
+        if not confirmed or (check.below_cost and not accept_below_cost):
+            detail = check.model_dump(mode="json", exclude_none=True, exclude={"changed"})
+            if check.below_cost:
+                raise GroupHoldError(409, "The supplier price is now above the selling price. Confirm to issue at a loss. Nothing was issued.",
+                                     "below_cost", **detail)
+            raise GroupHoldError(409, "The supplier price has changed. The selling price stays; confirm the new cost to issue. Nothing was issued.",
+                                 "supplier_cost_changed", **detail)
         try:
-            booking = await run_in_threadpool(store.accept_price, reference, viewer.user_id, booking.total_minor, total,
-                                              cost.amount_minor * booking.adults)
+            booking = await run_in_threadpool(store.accept_cost, reference, viewer.user_id, booking.supplier_cost_minor, cost_total)
         except store.GroupHoldRefused as error:
             raise _refused(error) from None
-        if booking.paid_minor < booking.total_minor:
-            due = booking.total_minor - booking.paid_minor
-            raise GroupHoldError(409, f"The new total is {money_text(total, booking.currency)}. Record the remaining "
-                                      f"{money_text(due, booking.currency)}, then issue the tickets.", "payment_due")
 
     # 2. Claim (a second click is refused), then ONE issue call, never retried.
     try:

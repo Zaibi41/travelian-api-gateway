@@ -3824,7 +3824,13 @@
       },
       "GroupIssueRequest": {
         "properties": {
-          "accepted_total": {
+          "accept_below_cost": {
+            "default": false,
+            "description": "Required when the new supplier cost is above the selling price.",
+            "title": "Accept Below Cost",
+            "type": "boolean"
+          },
+          "accepted_supplier_cost": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/GroupMoney"
@@ -3833,7 +3839,7 @@
                 "type": "null"
               }
             ],
-            "description": "After 'The price has changed': the new total the customer agreed to. Issuing is refused if the price moved again."
+            "description": "After 'supplier_cost_changed': the new supplier cost the issuer confirmed. Refused if it moved again."
           }
         },
         "title": "GroupIssueRequest",
@@ -4019,31 +4025,76 @@
         "type": "object"
       },
       "GroupPriceCheck": {
+        "description": "The supplier cost checked again (read-only). The selling price never changes here; only the cost can move.",
         "properties": {
+          "accepted_supplier_cost": {
+            "$ref": "#/components/schemas/GroupMoney",
+            "description": "Send this back as accepted_supplier_cost to issue at the new cost."
+          },
+          "below_cost": {
+            "description": "The new supplier cost is above the selling price.",
+            "title": "Below Cost",
+            "type": "boolean"
+          },
           "changed": {
+            "description": "The supplier cost differs from the one on the booking.",
             "title": "Changed",
             "type": "boolean"
           },
           "difference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "new - previous supplier cost. Only with the cost and margin permission."
+          },
+          "new_supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "previous_supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "selling_total - new supplier cost. Only with the cost and margin permission."
+          },
+          "selling_total": {
             "$ref": "#/components/schemas/GroupMoney",
-            "description": "new_total - held_total; negative when the price went down."
-          },
-          "held_total": {
-            "$ref": "#/components/schemas/GroupMoney"
-          },
-          "new_price_per_adult": {
-            "$ref": "#/components/schemas/GroupMoney"
-          },
-          "new_total": {
-            "$ref": "#/components/schemas/GroupMoney"
+            "description": "What the customer pays (unchanged)."
           }
         },
         "required": [
           "changed",
-          "held_total",
-          "new_total",
-          "difference",
-          "new_price_per_adult"
+          "selling_total",
+          "below_cost",
+          "accepted_supplier_cost"
         ],
         "title": "GroupPriceCheck",
         "type": "object"
@@ -11708,7 +11759,7 @@
     },
     "/v1/group-ticketing/holds/{booking_id}/issue": {
       "post": {
-        "description": "Check the price again; if it moved, refuse with price_changed unless accepted_total equals the new total.\nNeeds full payment and the issue tickets permission. One issue call, never retried.",
+        "description": "Check the supplier cost again; the selling price never changes. If the cost moved, refuse with supplier_cost_changed\nunless accepted_supplier_cost equals the new cost (and accept_below_cost when it is above the selling price).\nNeeds full payment and the issue tickets permission. One issue call, never retried.",
         "operationId": "issue_group_tickets_v1_group_ticketing_holds__booking_id__issue_post",
         "parameters": [
           {
@@ -11753,7 +11804,7 @@
             "description": "No such group booking."
           },
           "409": {
-            "description": "price_changed (held_total, new_total, difference), payment_due, hold_expired, or not issuable."
+            "description": "supplier_cost_changed or below_cost (with the price check's fields), payment_due, hold_expired, or not issuable."
           },
           "422": {
             "content": {

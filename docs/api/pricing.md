@@ -16,6 +16,10 @@ One model for both products (`app/services/pricing.py`, `app/db/booking_pricing.
 - **Supplier price changes** (the selling price stays; the profit changes):
   - Group, at the hold: `price_change` on the hold (selling total, `below_cost`; shown and held cost, difference and profit
     with cost access). Payments wait until `accept-held-price`, which is refused while selling < the new cost.
+  - Group, at the price check and at issue: only the supplier cost is compared and updated (booking and travelers);
+    the selling price, set by staff or by default, is never recalculated. 409 `supplier_cost_changed`, then issue with
+    `accepted_supplier_cost`; 409 `below_cost` when the new cost is above the selling total, then also `accept_below_cost`.
+    The total can't drop below what was paid here, so Due never goes negative and no refund arises.
   - Flights, at the hold: the hold goes ahead while every confirmed selling price covers the new airline cost; otherwise
     409 `price_changed` (revalidate). The hold answer carries `supplier_cost` and `profit` with cost access.
   - Flights, at ticketing: 409 `supplier_cost_changed` (with `accepted_supplier_cost`, and the costs and profit with cost

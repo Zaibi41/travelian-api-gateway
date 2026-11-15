@@ -202,16 +202,22 @@ class GroupHoldView(BaseModel):
 
 
 class GroupPriceCheck(BaseModel):
-    changed: bool
-    held_total: GroupMoney
-    new_total: GroupMoney
-    difference: GroupMoney = Field(description="new_total - held_total; negative when the price went down.")
-    new_price_per_adult: GroupMoney
+    """The supplier cost checked again (read-only). The selling price never changes here; only the cost can move."""
+
+    changed: bool = Field(description="The supplier cost differs from the one on the booking.")
+    selling_total: GroupMoney = Field(description="What the customer pays (unchanged).")
+    below_cost: bool = Field(description="The new supplier cost is above the selling price.")
+    accepted_supplier_cost: GroupMoney = Field(description="Send this back as accepted_supplier_cost to issue at the new cost.")
+    previous_supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
+    new_supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
+    difference: GroupMoney | None = Field(None, description="new - previous supplier cost. Only with the cost and margin permission.")
+    profit: GroupMoney | None = Field(None, description="selling_total - new supplier cost. Only with the cost and margin permission.")
 
 
 class GroupIssueRequest(BaseModel):
-    accepted_total: GroupMoney | None = Field(
-        None, description="After 'The price has changed': the new total the customer agreed to. Issuing is refused if the price moved again.")
+    accepted_supplier_cost: GroupMoney | None = Field(
+        None, description="After 'supplier_cost_changed': the new supplier cost the issuer confirmed. Refused if it moved again.")
+    accept_below_cost: bool = Field(False, description="Required when the new supplier cost is above the selling price.")
 
 
 class GroupIssueResult(BaseModel):

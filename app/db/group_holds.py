@@ -4,7 +4,7 @@ A group hold is created by supplier_bookings.save_hold(product="group"). Its sta
 lock the booking row and check the current state in the same transaction:
 - expire: a held booking whose hold time has passed becomes 'expired' (it is never held again).
 - release: a held booking becomes 'cancelled' after the supplier confirmed the release.
-- accept_price: the customer agreed to the re-checked price; the total and supplier cost change.
+- accept_cost: the issuer confirmed the re-checked supplier cost; only the cost changes (booking and travelers).
 - release state (supplier_response -> 'release'): whether the seats were given back at the supplier
   (pending / released / failed, attempts, last error). The expiry job retries pending releases.
 supplier_ref and supplier_response never leave the gateway.
@@ -20,7 +20,6 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db import agencies
-from app.db.booking_payments import payment_status
 from app.db.supplier_bookings import _event
 
 RELEASE_PENDING, RELEASE_DONE, RELEASE_FAILED = "pending", "released", "failed"
@@ -222,20 +221,24 @@ def mark_release_failed_on_request(reference: str, actor: str, error: str | None
         _event(connection, booking.id, actor, "hold_released", {"pnr": booking.pnr, "supplier_error": error, "reason_code": "supplier_release_failed"})
 
 
-def accept_price(reference: str, actor: str, expected_total_minor: int, total_minor: int, supplier_cost_minor: int) -> GroupBooking:
-    """The customer agreed to the re-checked price: new total and supplier cost, payment status recomputed."""
+def accept_cost(reference: str, actor: str, expected_cost_minor: int | None, supplier_cost_minor: int) -> GroupBooking:
+    """The issuer confirmed the re-checked supplier cost. Only the cost changes (booking and each traveler); the selling
+    price, the travelers' selling prices, payments and Due stay as they are (app.services.pricing)."""
+    from app.services.pricing import split
+
     with agencies.application_engine().begin() as connection:
         booking = _load(connection, reference, lock=True)
-        if booking.total_minor != expected_total_minor or booking.booking_status != "held":
+        if booking.supplier_cost_minor != expected_cost_minor or booking.booking_status != "held":
             raise GroupHoldRefused(409, "The booking changed meanwhile. Check the price again.", "changed")
-        status = payment_status(booking.paid_minor, total_minor)
-        connection.execute(
-            text("UPDATE bookings SET total_minor = :t, supplier_cost_minor = :c, payment_status = :s, updated_at = now(),"
-                 " revision = revision + 1 WHERE id = :b"),
-            {"t": total_minor, "c": supplier_cost_minor, "s": status, "b": booking.id},
-        )
-        _event(connection, booking.id, actor, "price_change_accepted",
-               {"amount_minor": total_minor, "previous_amount_minor": booking.total_minor, "currency": booking.currency, "payment_status": status})
+        connection.execute(text("UPDATE bookings SET supplier_cost_minor = :c, updated_at = now(), revision = revision + 1 WHERE id = :b"),
+                           {"c": supplier_cost_minor, "b": booking.id})
+        travelers = connection.execute(text("SELECT id FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                       {"b": booking.id}).scalars().all()
+        for traveler_id, cost in zip(travelers, split(supplier_cost_minor, len(travelers))):
+            connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
+        _event(connection, booking.id, actor, "supplier_cost_accepted",
+               {"amount_minor": supplier_cost_minor, "previous_amount_minor": expected_cost_minor, "currency": booking.currency,
+                "below_cost": supplier_cost_minor > booking.total_minor})
         return _load(connection, reference, lock=False)
 
 

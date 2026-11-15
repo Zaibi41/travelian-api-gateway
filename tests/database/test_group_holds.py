@@ -287,25 +287,37 @@ def test_issue_with_unchanged_price_issues_straight_away(provider):
     assert provider.calls[-2:] == ["price", ("issue", 100_000_00)]
 
 
-def test_price_changed_needs_agreement_then_issues_after_the_rest_is_paid(provider):
+def test_cost_changed_keeps_the_selling_price_and_updates_only_the_cost(provider, database):
     view = place()
     pay(view.booking_id, 210_000_00)
-    provider.cost = 103_000_00  # new selling 108,150 per adult -> 216,300
+    provider.cost = 103_000_00  # the supplier cost moved; the selling price (210,000) stays
     check = run(group_holds.price_check(view.booking_id, ADMIN))
-    assert check.changed and check.difference.amount_minor == 6_300_00
+    assert check.changed and check.selling_total.amount_minor == 210_000_00 and check.difference.amount_minor == 6_000_00
     with pytest.raises(GroupHoldError) as error:
         run(group_holds.issue(view.booking_id, ADMIN))
-    assert error.value.code == "price_changed"
-    assert error.value.extra["held_total"]["amount_minor"] == 210_000_00 and error.value.extra["new_total"]["amount_minor"] == 216_300_00
+    assert error.value.code == "supplier_cost_changed" and error.value.extra["accepted_supplier_cost"]["amount_minor"] == 206_000_00
     assert ("issue", 103_000_00) not in provider.calls
-    # Customer agrees: the total changes, and the difference must be paid first.
+    result = run(group_holds.issue(view.booking_id, ADMIN, GroupMoney(amount_minor=206_000_00, currency="PKR")))
+    assert result.result == "issued"
+    held = result.hold
+    assert held.total.amount_minor == 210_000_00 and held.amount_due.amount_minor == 0
+    assert held.supplier_cost.amount_minor == 206_000_00 and held.profit.amount_minor == 4_000_00
+    connection, _, _ = database
+    rows = connection.execute(text("SELECT t.selling_minor, t.cost_minor FROM booking_travelers t JOIN bookings b ON b.id = t.booking_id"
+                                   " WHERE b.reference = :r ORDER BY t.position"), {"r": view.booking_id}).all()
+    assert [tuple(r) for r in rows] == [(105_000_00, 103_000_00), (105_000_00, 103_000_00)]
+
+
+def test_cost_above_selling_needs_explicit_confirmation(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    provider.cost = 106_000_00  # 212,000 > 210,000
+    new_cost = GroupMoney(amount_minor=212_000_00, currency="PKR")
     with pytest.raises(GroupHoldError) as error:
-        run(group_holds.issue(view.booking_id, ADMIN, GroupMoney(amount_minor=216_300_00, currency="PKR")))
-    assert error.value.code == "payment_due"
-    held = run(group_holds.read(view.booking_id, ADMIN))
-    assert held.total.amount_minor == 216_300_00 and held.amount_due.amount_minor == 6_300_00
-    pay(view.booking_id, 6_300_00)
-    assert run(group_holds.issue(view.booking_id, ADMIN)).result == "issued"
+        run(group_holds.issue(view.booking_id, ADMIN, new_cost))
+    assert error.value.code == "below_cost"
+    result = run(group_holds.issue(view.booking_id, ADMIN, new_cost, accept_below_cost=True))
+    assert result.result == "issued" and result.hold.profit.amount_minor == -2_000_00 and result.hold.amount_due.amount_minor == 0
 
 
 def test_price_changed_and_customer_declines_releases_the_hold(provider, database):
