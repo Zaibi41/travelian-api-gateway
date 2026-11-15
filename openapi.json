@@ -9136,7 +9136,7 @@
     },
     "/v1/admin/bookings/{booking_id}/itinerary.pdf": {
       "get": {
-        "description": "The booking's itinerary as a PDF (Flights and Group Ticketing): reference, PNR, status, customer, travelers, every\nflight (outbound then return) and the selling price, paid and due. Never a supplier name, group id, cost or profit;\na group booking's PNR (the supplier's) only with the supplier names permission.",
+        "description": "The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status\nbanner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight\noutbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only\nwith the supplier names permission; full passport numbers only with reveal_identity (each one logged).",
         "operationId": "itinerary_pdf_v1_admin_bookings__booking_id__itinerary_pdf_get",
         "parameters": [
           {

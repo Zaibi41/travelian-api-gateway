@@ -106,9 +106,10 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
                403: {"description": "Back-office users only."}, 404: {"description": "No such booking."}},
 )
 async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
-    """The booking's itinerary as a PDF (Flights and Group Ticketing): reference, PNR, status, customer, travelers, every
-    flight (outbound then return) and the selling price, paid and due. Never a supplier name, group id, cost or profit;
-    a group booking's PNR (the supplier's) only with the supplier names permission."""
+    """The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status
+    banner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight
+    outbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only
+    with the supplier names permission; full passport numbers only with reveal_identity (each one logged)."""
     bookings = await run_in_threadpool(_read_bookings)
     booking = service.find_booking(bookings, booking_id)
     if booking is None or not service.visible_to(booking, viewer.visibility):
@@ -117,15 +118,28 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         people = await run_in_threadpool(booking_people.read, booking_id)
     except SQLAlchemyError:
         raise HTTPException(503, "Booking details are not available.") from None
-    travelers = [(t.passenger_type, t.title, t.first_name, t.last_name) for t in (people.travelers if people else [])]
+    # Passport numbers: full for viewers allowed to reveal identity (each reveal logged), masked for everyone else.
+    travelers = []
+    for traveler in (people.travelers if people else []):
+        passport = traveler.document_number_masked if traveler.id_type == "PSPT" else None
+        if viewer.visibility.reveal_identity and traveler.id_type == "PSPT":
+            try:
+                revealed = await run_in_threadpool(booking_people.reveal, booking_id, traveler.position, viewer.user_id, "Itinerary PDF")
+                passport = revealed.get("document_number") or passport
+            except booking_people.NotFound:
+                pass
+        travelers.append(itinerary_pdf_service.Traveler(traveler.passenger_type, traveler.title, traveler.first_name, traveler.last_name,
+                                                        passport, traveler.selling_minor, traveler.ticket_number))
     customer = f"{people.customer.first_name} {people.customer.last_name}".strip() if people and people.customer else booking.customer_name
-    paid = sum(payment.amount_minor for payment in people.payments) if people else None
-    content = itinerary_pdf_service.itinerary(
-        reference=booking.booking_id, product=booking.product, pnr=service.visible_pnr(booking, viewer.visibility), status=booking.status,
-        created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, customer=customer, travelers=travelers,
-        segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)], currency=booking.currency,
-        total_minor=booking.total_minor, paid_minor=paid, now=_now(),
+    paid = sum(payment.amount_minor for payment in people.payments) if people else 0
+    document = itinerary_pdf_service.Itinerary(
+        reference=booking.booking_id, product=booking.product, pnr=service.visible_pnr(booking, viewer.visibility),
+        booking_status=booking.status, issuance_status=booking.ticket_status, payment_status=booking.payment_status,
+        created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, currency=booking.currency, total_minor=booking.total_minor,
+        paid_minor=paid, travelers=travelers, segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)],
+        customer=customer,
     )
+    content = await run_in_threadpool(itinerary_pdf_service.render, document, _now())
     filename = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id) + ".pdf"
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"',
                                                                      "Cache-Control": "no-store"})

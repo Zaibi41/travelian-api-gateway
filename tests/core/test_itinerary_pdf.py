@@ -1,82 +1,120 @@
-"""GET /v1/admin/bookings/{id}/itinerary.pdf: a PDF named after the booking reference, for back-office users, with no
-supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only with supplier access."""
+"""GET /v1/admin/bookings/{id}/itinerary.pdf (ReportLab layout): a PDF named after the booking reference, for
+back-office users. Status banner per state (hold, paid not issued, issued), one block per flight outbound then return,
+the selling price only, no supplier name, group id, cost or profit; a group booking's PNR only with supplier access;
+full passport numbers only with reveal_identity (each reveal logged). The text is read back with pdftotext."""
 
 import re
+import shutil
+import subprocess
 from datetime import timedelta
+from types import SimpleNamespace
 
-from app.core.field_visibility import NONE, BackOfficeUser
+import pytest
+
+from app.core.field_visibility import NONE, BackOfficeUser, FieldVisibility
 from app.db import booking_people
 from tests.core.test_admin_bookings import NOW, STAFF_NAMES, SUPER_ADMIN, booking, client
 
+pytestmark = pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler-utils) reads the PDF text back")
+
 STAFF = BackOfficeUser("u-2", "staff", NONE)
-FLIGHT = booking(41, status="held", payment_status="unpaid", ticket_status="not_issued", pnr="63B55C", provider="southair",
-                 hold_expires_at=NOW + timedelta(hours=3), itinerary=[{"direction": "outbound", "origin": "KHI", "destination": "MUX",
-                 "airline_name": "Synthetic Aviation", "flight_number": "MM112", "departure_local": "2026-11-27T23:00", "arrival_local": "2026-11-28T00:00"}])
-GROUP_RETURN = booking(42, product="group", status="held", payment_status="unpaid", ticket_status="not_issued", pnr="4YB8HL-4VK1MF",
-                       provider="skypass", total_minor=17_640_000, supplier_cost_minor=17_600_000, hold_expires_at=NOW + timedelta(minutes=30),
-                       itinerary=[{"direction": "outbound", "origin": "ISB", "destination": "JED", "airline_name": "Fly Jinnah", "flight_number": "9P700",
-                                   "departure_local": "2026-12-02T06:40", "arrival_local": "2026-12-02T10:05", "baggage": "10+20 kg"},
-                                  {"direction": "return", "origin": "JED", "destination": "ISB", "airline_name": "Fly Jinnah", "flight_number": "9P701",
-                                   "departure_local": "2026-12-21T11:05", "arrival_local": "2026-12-21T18:05", "baggage": "10+30 kg"}])
-GROUP_ONE_WAY = booking(43, product="group", status="held", payment_status="unpaid", ticket_status="not_issued", pnr="41SDS4", provider="dhillu_sahi",
-                        itinerary=[{"direction": "outbound", "origin": "LHE", "destination": "DMM", "flight_number": "PF742", "departure_local": "2026-12-05T21:10",
-                                    "meal": "0"}])
+REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(False, False, reveal_identity=True))
+OUT = {"direction": "outbound", "origin": "ISB", "destination": "JED", "airline_name": "Fly Jinnah", "flight_number": "9P700",
+       "departure_local": "2026-12-02T06:40", "arrival_local": "2026-12-02T10:05", "baggage": "10+20 kg", "meal": "No"}
+BACK = {"direction": "return", "origin": "JED", "destination": "ISB", "airline_name": "Fly Jinnah", "flight_number": "9P701",
+        "departure_local": "2026-12-21T11:05", "arrival_local": "2026-12-21T18:05", "baggage": "10+30 kg", "meal": "No"}
+FLIGHT_HOLD = booking(41, status="held", payment_status="unpaid", ticket_status="not_issued", pnr="63B55C", provider="southair",
+                      hold_expires_at=NOW + timedelta(hours=3), total_minor=8_800_000, supplier_cost_minor=8_500_000, itinerary=[OUT])
+GROUP_PAID = booking(42, product="group", status="held", payment_status="paid", ticket_status="not_issued", pnr="4YB8HL-4VK1MF", provider="skypass",
+                     total_minor=17_640_000, supplier_cost_minor=17_600_000, hold_expires_at=NOW + timedelta(minutes=30), itinerary=[OUT, BACK])
+ISSUED = booking(43, status="ticket_issued", payment_status="paid", ticket_status="issued", pnr="6393B8", provider="southair", itinerary=[OUT, BACK],
+                 total_minor=17_600_000, supplier_cost_minor=17_000_000)
+GROUP_ONE_WAY = booking(44, product="group", status="held", payment_status="unpaid", ticket_status="not_issued", pnr="41SDS4", provider="dhillu_sahi",
+                        hold_expires_at=NOW + timedelta(minutes=40), itinerary=[{**OUT, "origin": "LHE", "destination": "DMM", "airline_name": "PF",
+                                                                                  "flight_number": "PF742", "meal": "0"}])
 
 
-def text_of(pdf: bytes) -> str:
-    """The text drawn on the pages (the content streams are uncompressed)."""
-    return " ".join(match.decode("latin-1").replace("\\(", "(").replace("\\)", ")") for match in re.findall(rb"\(((?:\\.|[^\\)])*)\) Tj", pdf))
+def traveler(position, first, last="Raza", kind="ADT", fare=8_800_000, ticket=None):
+    return SimpleNamespace(position=position, passenger_type=kind, title="MR", first_name=first, last_name=last, id_type="PSPT",
+                           document_number_masked="ZU•••4251", selling_minor=fare, ticket_number=ticket)
 
 
-def get(monkeypatch, reference, viewer=SUPER_ADMIN, rows=None):
-    api = client(monkeypatch, rows=rows or [FLIGHT, GROUP_RETURN, GROUP_ONE_WAY], viewer=viewer)
-    monkeypatch.setattr(booking_people, "read", lambda reference: None)
+def people(*travelers, paid=0):
+    return SimpleNamespace(customer=SimpleNamespace(first_name="Ali", last_name="Raza"), travelers=list(travelers),
+                           payments=[SimpleNamespace(amount_minor=paid)] if paid else [])
+
+
+def pdf_text(content: bytes, tmp_path) -> str:
+    path = tmp_path / "itinerary.pdf"
+    path.write_bytes(content)
+    return subprocess.run(["pdftotext", "-layout", str(path), "-"], capture_output=True, text=True, check=True).stdout
+
+
+def get(monkeypatch, reference, viewer=SUPER_ADMIN, who=None, reveal=None):
+    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY], viewer=viewer)
+    monkeypatch.setattr(booking_people, "read", lambda ref: who)
+    monkeypatch.setattr(booking_people, "reveal", reveal or (lambda *a, **kw: {"document_number": "ZU3124251"}))
     return api.get(f"/v1/admin/bookings/{reference}/itinerary.pdf")
 
 
-def test_flight_itinerary_is_a_pdf_named_after_the_reference(monkeypatch):
-    response = get(monkeypatch, "TRV-41")
+def test_hold_pdf_status_banner_pkt_expiry_and_one_flight(monkeypatch, tmp_path):
+    response = get(monkeypatch, "TRV-41", who=people(traveler(0, "Ali")))
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"] == 'attachment; filename="TRV-41.pdf"'
-    assert response.content.startswith(b"%PDF-") and response.content.rstrip().endswith(b"%%EOF") and len(response.content) > 500
-    text = text_of(response.content)
-    assert "Booking reference: TRV-41" in text and "PNR: 63B55C" in text  # the airline PNR, for everyone
-    assert "Outbound: KHI to MUX" in text and "Departs 27 Nov 2026 23:00, arrives 28 Nov 2026 00:00" in text
-    assert "Total: Rs 10,000" in text
+    assert response.content.startswith(b"%PDF-") and len(response.content) > 10_000
+    text = pdf_text(response.content, tmp_path)
+    assert "Your booking is on hold" in text and re.search(r"Hold expires \d\d \w{3} 2026, \d\d:\d\d PKT", text)
+    assert "TRV-41" in text and "PNR 63B55C" in text and "BOOKING ITINERARY" in text
+    assert "Outbound" in text and "Return" not in text and "Islamabad to Jeddah" in text
+    assert "06:40" in text and "10:05" in text and "Flight 9P 700" in text and "10+20 kg" in text
+    assert "Mr Ali Raza" in text and "Rs 88,000" in text and "Travelian" in text and "+92 324 4440014" in text
 
 
-def test_group_return_shows_both_flights_and_the_selling_price_only(monkeypatch):
-    text = text_of(get(monkeypatch, "TRV-42").content)
-    assert text.index("Outbound: ISB to JED") < text.index("Return: JED to ISB")
-    assert "Fly Jinnah 9P701, Baggage 10+30 kg" in text and "Total: Rs 176,400" in text
-    assert "176,000" not in text and "Profit" not in text and "cost" not in text.lower()  # no cost or profit, even for Super Admin
-    assert "skypass" not in text.lower() and not re.search(r"Group \d", text)  # never a supplier name or group id
+def test_paid_group_return_shows_both_flights_and_the_selling_price_only(monkeypatch, tmp_path):
+    who = people(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000)
+    text = pdf_text(get(monkeypatch, "TRV-42", who=who).content, tmp_path)
+    assert "Payment received, ticket not yet issued" in text
+    assert text.index("Outbound") < text.index("Return") and "Jeddah to Islamabad" in text and "Flight 9P 701" in text
+    assert "Rs 176,400" in text and "176,000" not in text and "Profit" not in text and "cost" not in text.lower()
+    assert "skypass" not in text.lower() and not re.search(r"Group \d", text)
 
 
-def test_group_one_way_works_and_its_supplier_pnr_needs_supplier_access(monkeypatch):
+def test_issued_pdf_is_an_e_ticket_with_ticket_numbers(monkeypatch, tmp_path):
+    who = people(traveler(0, "Ali", ticket="2147483647001"), traveler(1, "Sana", ticket="2147483647002"), paid=17_600_000)
+    text = pdf_text(get(monkeypatch, "TRV-43", who=who).content, tmp_path)
+    assert "E-TICKET & ITINERARY" in text and "E-ticket issued" in text and "Ticketed" in text
+    assert "2147483647001" in text and "2147483647002" in text and "Rs 0" in text
+
+
+def test_group_pnr_needs_supplier_access_and_no_supplier_names_ever(monkeypatch, tmp_path):
     for viewer, sees in ((SUPER_ADMIN, True), (STAFF_NAMES, True), (STAFF, False)):
-        text = text_of(get(monkeypatch, "TRV-43", viewer=viewer).content)
-        assert "Outbound: LHE to DMM" in text and "PF742, No meal" in text and "Meal 0" not in text
+        text = pdf_text(get(monkeypatch, "TRV-44", viewer=viewer, who=people(traveler(0, "Ali"))).content, tmp_path)
         assert ("41SDS4" in text) is sees
-        assert "dhillu" not in text.lower()
-    assert "PNR: 63B55C" in text_of(get(monkeypatch, "TRV-41", viewer=STAFF).content)  # a flight's airline PNR: everyone
+        assert "dhillu" not in text.lower() and "No meal" in text and "AirSial" in text  # airline from its code, never the supplier
+    assert "PNR 63B55C" in pdf_text(get(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali"))).content, tmp_path)
+
+
+def test_passports_full_only_with_reveal_identity_and_each_reveal_logged(monkeypatch, tmp_path):
+    reveals = []
+
+    def reveal(reference, position, actor, reason):
+        reveals.append((reference, position, actor, reason))
+        return {"document_number": "ZU3124251"}
+
+    full = pdf_text(get(monkeypatch, "TRV-41", viewer=REVEALER, who=people(traveler(0, "Ali")), reveal=reveal).content, tmp_path)
+    assert "ZU3124251" in full and reveals == [("TRV-41", 0, "u-5", "Itinerary PDF")]
+    reveals.clear()
+    masked = pdf_text(get(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali")), reveal=reveal).content, tmp_path)
+    assert "ZU3124251" not in masked and "4251" in masked and reveals == []
+
+
+def test_three_travelers_and_names_beyond_latin(monkeypatch, tmp_path):
+    who = people(traveler(0, "Naziran", "Bibi"), traveler(1, "Aysha", "Qamar"), traveler(2, "Ölüm", "Øresund Ñandú"))
+    text = pdf_text(get(monkeypatch, "TRV-41", who=who).content, tmp_path)
+    assert "Mr Naziran Bibi" in text and "Mr Aysha Qamar" in text and "Mr Ölüm Øresund Ñandú" in text and "?" not in text
 
 
 def test_unknown_booking_is_404_and_other_roles_are_refused(monkeypatch):
     assert get(monkeypatch, "TRV-NOPE").status_code == 404
     assert get(monkeypatch, "TRV-41", viewer=None).status_code == 403
-
-
-def test_travelers_and_payments_when_saved_without_documents(monkeypatch):
-    from types import SimpleNamespace
-
-    people = SimpleNamespace(customer=SimpleNamespace(first_name="Ali", last_name="Raza"),
-                             travelers=[SimpleNamespace(passenger_type="ADT", title="MR", first_name="Ali", last_name="Raza", document_number_masked="AB•••4567"),
-                                        SimpleNamespace(passenger_type="INF", title="MISS", first_name="Baby", last_name="Raza", document_number_masked="CD•••4321")],
-                             payments=[SimpleNamespace(amount_minor=400_000)])
-    api = client(monkeypatch, rows=[FLIGHT], viewer=SUPER_ADMIN)
-    monkeypatch.setattr(booking_people, "read", lambda reference: people)
-    text = text_of(api.get("/v1/admin/bookings/TRV-41/itinerary.pdf").content)
-    assert "1. Mr Ali Raza (Adult)" in text and "2. Miss Baby Raza (Infant)" in text and "Customer Ali Raza" in text
-    assert "Paid: Rs 4,000" in text and "Due: Rs 6,000" in text and "4567" not in text  # never a document number
