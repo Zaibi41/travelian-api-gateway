@@ -1,5 +1,5 @@
-"""The customer card used by both admin hold forms (Flights and Group Ticketing): full name, one phone field with its
-country code, email, and the customer's document. The gateway turns it into the Flights contact shape (first and last
+"""The customer card used by both admin hold forms (Flights and Group Ticketing): given name and surname (or, from
+older clients, one full name), one phone field with its country code, email, and the customer's document. The gateway turns it into the Flights contact shape (first and last
 name, phone code and number), so the browser never splits names or phone numbers."""
 
 from __future__ import annotations
@@ -47,7 +47,9 @@ def split_phone(text: str) -> tuple[str, str]:
 class CustomerCard(BaseModel):
     """The customer card, typed per booking (or a saved customer by customer_id)."""
 
-    full_name: str | None = Field(None, max_length=60, description="Given name(s) and surname; the last word is the surname.")
+    first_name: str | None = Field(None, max_length=60, description="Given name(s), as on the document.")
+    last_name: str | None = Field(None, max_length=60, description="Surname, as on the document. Airlines need both parts.")
+    full_name: str | None = Field(None, max_length=60, description="Older clients: given name(s) and surname; the last word is the surname.")
     phone: str | None = Field(None, max_length=24, description="With country code, e.g. +92 300 1234567. A Pakistani number may start with 0.")
     email: str | None = Field(None, max_length=50)
     id_type: Literal["PSPT", "NATI"] | None = Field(None, description="The customer's document: passport or CNIC.")
@@ -65,14 +67,23 @@ class CustomerCard(BaseModel):
         """The Flights contact shape (first/last name, phone code and number). Raises ContactError."""
         values: dict[str, object] = {"customer_id": self.customer_id, "save_for_next_time": self.save_for_next_time,
                                      "email": (self.email or "").strip() or None}
-        if self.full_name and self.full_name.strip():
+        first, last = (self.first_name or "").strip(), (self.last_name or "").strip()
+        if first or last:
+            if self.customer_id is None and not first:
+                raise ContactError("first_name", "Enter the customer's given name.")
+            if self.customer_id is None and not last:
+                raise ContactError("last_name", "Enter the customer's surname.")
+            values["first_name"], values["last_name"] = first or None, last or None
+        elif self.full_name and self.full_name.strip():
             values["first_name"], values["last_name"] = split_name(self.full_name)
         elif self.customer_id is None:
-            raise ContactError("full_name", "Enter the customer's full name.")
+            raise ContactError("first_name", "Enter the customer's given name and surname.")
         if self.phone and self.phone.strip():
             values["phone_code"], values["phone"] = split_phone(self.phone)
         elif self.customer_id is None:
             raise ContactError("phone", "Enter the customer's phone number.")
+        if self.customer_id is None and not values["email"]:
+            raise ContactError("email", "Enter the customer's email.")
         from app.schemas.live_flights import HoldContact  # late: live_flights imports this module
 
         return HoldContact.model_validate(values)

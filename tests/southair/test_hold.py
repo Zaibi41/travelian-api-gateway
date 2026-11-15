@@ -482,3 +482,23 @@ def test_an_unreadable_customer_card_points_at_its_field_before_any_supplier_cal
 def test_contact_or_customer_but_not_both_or_neither():
     with pytest.raises(ValueError):
         HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": 1, "currency": "PKR"}, passengers=[ADULT])
+
+
+def test_the_card_takes_given_name_and_surname_as_typed():
+    make_quote()
+    _, save = run(card_request({"first_name": "Ali Hassan", "last_name": "Raza", "phone": "+92 300 1234567", "email": "ops@example.invalid"}), fake_client())
+    customer = save.call_args.kwargs["customer"]
+    assert (customer.first_name, customer.last_name) == ("Ali Hassan", "Raza")
+
+
+@pytest.mark.parametrize("card,field,message", [
+    ({"first_name": "Customer", "phone": "+92 300 1234567", "email": "a@b.co"}, "last_name", "Enter the customer's surname."),
+    ({"last_name": "Raza", "phone": "+92 300 1234567", "email": "a@b.co"}, "first_name", "Enter the customer's given name."),
+    ({"first_name": "Ali", "last_name": "Raza", "phone": "+92 300 1234567"}, "email", "Enter the customer's email."),
+])
+def test_a_missing_name_part_or_email_points_at_its_own_field(card, field, message):
+    make_quote()
+    client = fake_client()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(card_request(card), client)
+    assert error.value.field_errors == [(["contact", field], message)] and client.booking.await_count == 0

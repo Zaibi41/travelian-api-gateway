@@ -1997,6 +1997,19 @@
             ],
             "title": "Email"
           },
+          "first_name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Given name(s), as on the document.",
+            "title": "First Name"
+          },
           "full_name": {
             "anyOf": [
               {
@@ -2007,7 +2020,7 @@
                 "type": "null"
               }
             ],
-            "description": "Given name(s) and surname; the last word is the surname.",
+            "description": "Older clients: given name(s) and surname; the last word is the surname.",
             "title": "Full Name"
           },
           "id_type": {
@@ -2025,6 +2038,19 @@
             ],
             "description": "The customer's document: passport or CNIC.",
             "title": "Id Type"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Surname, as on the document. Airlines need both parts.",
+            "title": "Last Name"
           },
           "phone": {
             "anyOf": [

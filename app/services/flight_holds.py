@@ -280,8 +280,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         except ContactError as error:
             raise HoldError(422, error.message, code="invalid_customer", field_errors=[(["contact", error.field], error.message)]) from None
         except ValidationError as error:
-            fields = {"first_name": "full_name", "last_name": "full_name", "phone_code": "phone"}
-            paths = [(["contact", fields.get(str(e["loc"][0]), str(e["loc"][0])) if e["loc"] else "full_name"], e["msg"].removeprefix("Value error, "))
+            fields = {"phone_code": "phone"}  # the card's own field names (given name, surname, phone, email)
+            paths = [(["contact", fields.get(str(e["loc"][0]), str(e["loc"][0])) if e["loc"] else "first_name"], e["msg"].removeprefix("Value error, "))
                      for e in error.errors()]
             raise HoldError(422, "Check the customer's details.", code="invalid_customer", field_errors=paths) from None
     owner = None  # back-office holds are Travelian's own (saved people are scoped by owner)
