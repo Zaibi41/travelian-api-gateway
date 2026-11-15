@@ -11,7 +11,7 @@ Passengers show date of birth and document number masked. The full values need t
 reveal_identity permission and a reason, and every reveal is logged (spec 3.2).
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import logging
 import re
@@ -102,14 +102,16 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
 
 @router.get(
     "/{booking_id}/itinerary.pdf", response_class=Response,
-    responses={200: {"content": {"application/pdf": {}}, "description": "The itinerary, named after the booking reference."},
+    responses={200: {"content": {"application/pdf": {}, "image/png": {}}, "description": "The itinerary, named after the booking reference."},
                403: {"description": "Back-office users only."}, 404: {"description": "No such booking."}},
 )
-async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)],
+                        format: Annotated[Literal["pdf", "png"], Query(description="pdf (default) or png: the same document as one image.")] = "pdf"):
     """The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status
     banner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight
     outbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only
-    with the supplier names permission; full passport numbers only with reveal_identity (each one logged)."""
+    with the supplier names permission; full passport numbers only with reveal_identity (each one logged).
+    format=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules and reveals)."""
     bookings = await run_in_threadpool(_read_bookings)
     booking = service.find_booking(bookings, booking_id)
     if booking is None or not service.visible_to(booking, viewer.visibility):
@@ -124,7 +126,8 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         passport = traveler.document_number_masked if traveler.id_type == "PSPT" else None
         if viewer.visibility.reveal_identity and traveler.id_type == "PSPT":
             try:
-                revealed = await run_in_threadpool(booking_people.reveal, booking_id, traveler.position, viewer.user_id, "Itinerary PDF")
+                source = "Itinerary PNG" if format == "png" else "Itinerary PDF"
+                revealed = await run_in_threadpool(booking_people.reveal, booking_id, traveler.position, viewer.user_id, source)
                 passport = revealed.get("document_number") or passport
             except booking_people.NotFound:
                 pass
@@ -140,8 +143,12 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         customer=customer,
     )
     content = await run_in_threadpool(itinerary_pdf_service.render, document, _now())
-    filename = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id) + ".pdf"
-    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"',
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id)
+    media, filename = "application/pdf", f"{safe}.pdf"
+    if format == "png":
+        content = await run_in_threadpool(itinerary_pdf_service.to_png, content)
+        media, filename = "image/png", f"{safe}-itinerary.png"
+    return Response(content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"',
                                                                      "Cache-Control": "no-store"})
 
 

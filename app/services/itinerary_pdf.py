@@ -367,3 +367,29 @@ def render(doc: Itinerary, now: datetime) -> bytes:
                   _card([[_p(f"{index}.", bold=True, color=TEAL), _p(term)] for index, term in enumerate(doc.terms, start=1)], [8 * mm, width - 8 * mm])]
     template.build(story, onFirstPage=frame, onLaterPages=frame)
     return buffer.getvalue()
+
+
+# ---------- PNG ----------
+
+def to_png(pdf: bytes, dpi: int = 150) -> bytes:
+    """The finished PDF as one PNG (so the two never differ): each page rendered at `dpi` (about 2x) on white, pages
+    stacked top to bottom. PyMuPDF renders; Pillow stacks."""
+    import pymupdf
+    from PIL import Image as PILImage
+
+    pages = []
+    with pymupdf.open(stream=pdf, filetype="pdf") as document:
+        for page in document:
+            pixmap = page.get_pixmap(dpi=dpi, alpha=False)
+            pages.append(PILImage.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples))
+    if not pages:
+        raise ValueError("the PDF has no pages")
+    width, height = max(page.width for page in pages), sum(page.height for page in pages)
+    sheet = PILImage.new("RGB", (width, height), "white")
+    top = 0
+    for page in pages:
+        sheet.paste(page, (0, top))
+        top += page.height
+    out = io.BytesIO()
+    sheet.save(out, format="PNG", optimize=True)
+    return out.getvalue()

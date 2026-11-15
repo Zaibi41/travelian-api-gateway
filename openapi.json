@@ -9136,7 +9136,7 @@
     },
     "/v1/admin/bookings/{booking_id}/itinerary.pdf": {
       "get": {
-        "description": "The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status\nbanner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight\noutbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only\nwith the supplier names permission; full passport numbers only with reveal_identity (each one logged).",
+        "description": "The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status\nbanner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight\noutbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only\nwith the supplier names permission; full passport numbers only with reveal_identity (each one logged).\nformat=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules and reveals).",
         "operationId": "itinerary_pdf_v1_admin_bookings__booking_id__itinerary_pdf_get",
         "parameters": [
           {
@@ -9148,12 +9148,29 @@
               "title": "Booking Id",
               "type": "string"
             }
+          },
+          {
+            "description": "pdf (default) or png: the same document as one image.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "pdf",
+              "description": "pdf (default) or png: the same document as one image.",
+              "enum": [
+                "pdf",
+                "png"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/pdf": {}
+              "application/pdf": {},
+              "image/png": {}
             },
             "description": "The itinerary, named after the booking reference."
           },
