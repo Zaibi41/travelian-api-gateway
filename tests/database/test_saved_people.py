@@ -468,3 +468,99 @@ def test_backfill_creates_one_customer_per_email_and_owner_and_is_idempotent(db)
     assert store.backfill(connection) == {"created": 0, "linked_booking_customers": 2}
     assert connection.scalar(text("SELECT count(*) FROM saved_person_documents")) == 0  # no documents backfilled
     assert first != second
+
+
+# ---------- the shared customer card (both hold forms): what is typed is what is saved ----------
+
+CARD = {"full_name": "Test Customer", "phone": "+92 300 1234567", "email": "ops@example.invalid", "id_type": "PSPT", "document_number": "AB1234567",
+        "save_for_next_time": True}
+CUSTOMER_TRAVELS = {**ADULT, "first_name": "Test", "last_name": "Customer"}  # "The customer is also Adult 1"
+
+
+def card_hold(passengers, card=CARD, client=None):
+    from app.schemas.live_flights import HoldRequest
+    quote()
+    request = HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": 46_700, "currency": "PKR"}, customer=card, passengers=passengers)
+    with patch.object(settings, "southair_booking_enabled", True), patch.object(settings, "flight_markup_percent", Decimal("2")), \
+         patch.object(settings, "flight_markup_fixed_minor", 0):
+        return asyncio.run(flight_holds.hold(request, ADMIN, client_factory=lambda: client or hold_client()))
+
+
+def saved(person_id):
+    found, _ = store.get(None, person_id)
+    return found
+
+
+def test_a_new_customer_from_the_card_keeps_phone_email_and_document_and_holds_again_when_picked(db):
+    view = card_hold([CUSTOMER_TRAVELS])
+    customer, traveler = view.saved_people
+    assert customer.person_id == traveler.person_id                       # one person: the customer travels
+    person = saved(customer.person_id)
+    assert (person.phone_code, person.phone, person.email) == ("92", "3001234567", "ops@example.invalid")
+    assert [(d.id_type, d.document_country, d.document_number) for d in person.documents] == [("PSPT", "PAK", "AB1234567")]
+    detail = api().get(f"/v1/admin/customers/{person.id}").json()
+    assert detail["phone_masked"] and detail["email_masked"]               # Find saved customer shows them (masked)
+    # Second booking: pick the saved customer; the hold needs nothing typed.
+    again = card_hold([{"type": "ADT", "traveler_id": person.id}], card={"customer_id": person.id, "save_for_next_time": True}, client=hold_client())
+    assert again.pnr == "63B55C" and again.saved_people[0].status == "linked"
+
+
+def test_a_phone_shared_with_someone_else_no_longer_drops_the_customer(db):
+    # The reported bug: another saved person (other name) already had this phone, so the customer save stopped at
+    # "possible duplicate" and only the traveler, without phone or email, was saved.
+    person(first="Other", last="Relative", dob=None, phone_code="92", phone="3001234567", email="other@example.invalid")
+    connection, _ = db
+    view = card_hold([CUSTOMER_TRAVELS])
+    customer, traveler = view.saved_people
+    assert customer.status == "linked" and customer.person_id == traveler.person_id
+    person_saved = saved(customer.person_id)
+    assert (person_saved.phone_code, person_saved.phone, person_saved.email) == ("92", "3001234567", "ops@example.invalid")
+    assert connection.scalar(text("SELECT person_id FROM booking_customers")) == customer.person_id
+
+
+def test_a_picked_customer_takes_newer_values_and_an_empty_one_never_blanks_a_stored_value(db):
+    customer, _ = person(first="Test", last="Customer", dob=None, phone_code="92", phone="3001234567", email="old@example.invalid")
+    view = card_hold([ADULT], card={"customer_id": customer.id, "email": "new@example.invalid", "save_for_next_time": True})
+    assert view.saved_people[0].status == "updated"
+    after = saved(customer.id)
+    assert (after.email, after.phone_code, after.phone) == ("new@example.invalid", "92", "3001234567")   # phone kept, not blanked
+    card_hold([ADULT], card={"customer_id": customer.id, "save_for_next_time": True}, client=hold_client())
+    assert saved(customer.id).email == "new@example.invalid"
+
+
+def test_a_picked_customer_without_a_document_gets_the_one_typed_on_the_card(db):
+    customer, _ = person(first="Test", last="Customer", dob=None, phone_code="92", phone="3001234567", email="ops@example.invalid")
+    card_hold([ADULT], card={"customer_id": customer.id, "id_type": "NATI", "document_number": "35202-1234567-1", "save_for_next_time": True})
+    assert [(d.id_type, d.document_country, d.document_number) for d in saved(customer.id).documents] == [("NATI", "PAK", "3520212345671")]  # the card stores it without spaces or dashes
+
+
+def test_traveler_fields_round_trip_and_a_known_passport_fills_what_the_record_lacks(db):
+    view = card_hold([{**ADULT, "title": "MRS", "first_name": "Sana", "last_name": "Raza", "nationality": "GBR", "document_country": "GBR",
+                       "date_of_birth": "1992-03-04", "document_expiry": "2032-05-06"}])
+    traveler = saved(view.saved_people[1].person_id)
+    assert (traveler.title, traveler.first_name, traveler.last_name, traveler.date_of_birth, traveler.nationality) == ("MRS", "Sana", "Raza", date(1992, 3, 4), "GBR")
+    assert [(d.id_type, d.document_country, d.document_number, d.document_expiry) for d in traveler.documents] == [("PSPT", "GBR", "AB1234567", date(2032, 5, 6))]
+    bare, _ = person(first="Ali", last="Khan", dob=None, document=passport("ZX9876543"))      # no birth date, nationality or title
+    card_hold([{**ADULT, "first_name": "Ali", "last_name": "Khan", "document_number": "ZX9876543", "nationality": "PAK", "date_of_birth": "1985-07-08"}],
+              client=hold_client())
+    filled = saved(bare.id)
+    assert (filled.date_of_birth, filled.nationality) == (date(1985, 7, 8), "PAK")
+
+
+def test_repair_script_counts_then_fills_only_empty_values(db, capsys):
+    from app.cli import repair_saved_contacts
+    connection, _ = db
+    # A booking as the bug left it: the traveler saved without contact details, the customer row unlinked.
+    view = card_hold([CUSTOMER_TRAVELS])
+    person_id = view.saved_people[1].person_id
+    connection.execute(text("UPDATE saved_people SET phone_code = NULL, phone = NULL, phone_normalized = NULL, email = NULL, email_normalized = NULL"))
+    connection.execute(text("UPDATE booking_customers SET person_id = NULL"))
+    assert repair_saved_contacts.main([]) == 0
+    assert "Booking customers to link to their saved traveler: 1. Saved people that would gain an email or phone: 1. Nothing changed." in capsys.readouterr().out
+    assert saved(person_id).email is None
+    assert repair_saved_contacts.main(["--apply"]) == 0
+    after = saved(person_id)
+    assert (after.phone_code, after.phone, after.email) == ("92", "3001234567", "ops@example.invalid")
+    assert connection.scalar(text("SELECT person_id FROM booking_customers")) == person_id
+    repair_saved_contacts.main([])
+    assert "Saved people that would gain an email or phone: 0" in capsys.readouterr().out

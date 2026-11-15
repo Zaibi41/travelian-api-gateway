@@ -36,7 +36,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core import pii
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, ISSUE_TICKETS, RECORD_PAYMENTS, BackOfficeUser
-from app.db import booking_people, group_holds as store, saved_people
+from app.db import booking_people, group_holds as store
 from app.db import issuance as issuance_store
 from app.schemas.group_holds import (
     ContactError, GroupHeldPriceChange, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
@@ -653,13 +653,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         ))
     except Exception as error:  # noqa: BLE001 - the supplier holds seats we couldn't record: never lose the PNR
         raise await _unrecorded(booking_id, reference, held, provider, ticket.vendor, request.adults, viewer, error_reason(error)) from None
-    document = None
-    customer = request.contact
-    if customer.document_number and customer.id_type:
-        nationality = "PAK" if customer.id_type == "NATI" else next(
-            (p.document_country for p in resolved.passengers if p.document_number == customer.document_number and p.document_country), None)
-        if nationality:
-            document = saved_people.DocumentInput(customer.id_type, nationality, customer.document_number)
+    document = flight_holds.customer_card_document(request.contact, resolved.passengers)  # the same rule as the Flights hold
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
     view = await read(reference, viewer)
     view.saved_people = outcomes

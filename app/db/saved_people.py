@@ -567,6 +567,7 @@ def _save_traveler(connection, owner: str | None, actor: str, reference: str, bo
             if traveler.document.document_expiry and traveler.document.document_expiry != document.document_expiry:
                 connection.execute(text("UPDATE saved_person_documents SET document_expiry = :e WHERE id = :d"),
                                    {"e": traveler.document.document_expiry, "d": document.id})
+            _apply(connection, person, _filled(person, {k: values[k] for k in ("title", "date_of_birth", "nationality")}))
             _link_traveler(connection, booking_id, traveler.position, person.id, document.id)
             _event(connection, person.id, actor, "linked_to_booking", {"booking_id": reference, "position": traveler.position, "role": "traveler"})
             return SaveOutcome("traveler", traveler.position, "linked", person.id, document.id)
@@ -581,40 +582,75 @@ def _save_traveler(connection, owner: str | None, actor: str, reference: str, bo
     return SaveOutcome("traveler", traveler.position, "saved", person_id, document_id)
 
 
+def _filled(person: Person, values: dict[str, Any]) -> dict[str, Any]:
+    """Only the values the saved record lacks (a stored value is never replaced or blanked here)."""
+    return {k: v for k, v in values.items() if v and not getattr(person, k)}
+
+
+def _newer(person: Person, values: dict[str, Any]) -> dict[str, Any]:
+    """Non-empty values that differ from the saved record (an empty value never blanks a stored one)."""
+    return {k: v for k, v in values.items() if v and (pii.normalize_email(v) != pii.normalize_email(getattr(person, k))
+                                                     if k == "email" else v != getattr(person, k))}
+
+
+def _add_customer_document(connection, owner: str | None, actor: str, person: Person, document: DocumentInput | None) -> bool:
+    """The customer's own document, added to their record when no saved person holds it yet."""
+    if document is None or find_document(connection, owner, document) is not None:
+        return False
+    _insert_document(connection, owner, actor, person.id, document)
+    return True
+
+
 def _save_customer(connection, owner: str | None, actor: str, reference: str, booking_id: str, customer: HoldCustomer,
                    travelers: list[tuple[HoldTraveler, SaveOutcome]]) -> SaveOutcome:
     contact = {"phone_code": customer.phone_code, "phone": customer.phone, "email": customer.email}
     if customer.person_id:
+        # A picked saved customer: newer non-empty phone or email typed for this booking update the record.
         person = load(connection, owner, customer.person_id, lock=True)
-        changed = {k: v for k, v in contact.items()
-                   if (pii.normalize_email(v) != pii.normalize_email(getattr(person, k)) if k == "email" else (v or None) != getattr(person, k))}
+        changed = _newer(person, contact)
+        if changed.keys() & {"phone_code", "phone"}:
+            changed |= {"phone_code": customer.phone_code, "phone": customer.phone}  # a phone is its code and number together
         _apply(connection, person, changed)
+        document_added = _add_customer_document(connection, owner, actor, person, customer.document)
         connection.execute(text("UPDATE booking_customers SET person_id = :p WHERE booking_id = :b"), {"p": person.id, "b": booking_id})
-        _event(connection, person.id, actor, "linked_to_booking", {"booking_id": reference, "role": "customer", "fields_updated": sorted(changed)})
-        return SaveOutcome("customer", None, "updated" if changed else "linked", person.id)
+        _event(connection, person.id, actor, "linked_to_booking", {"booking_id": reference, "role": "customer", "fields_updated": sorted(changed),
+                                                                    "documents_added": int(document_added)})
+        return SaveOutcome("customer", None, "updated" if changed or document_added else "linked", person.id)
+    # The customer is one of this booking's travelers (same name, saved or linked just now): that is the same
+    # person. Link it and add the phone, email and document; a phone or email shared with someone else
+    # (e.g. a family number) is no reason to stop.
+    traveler_person = next((outcome.person_id for traveler, outcome in travelers if outcome.status in ("saved", "linked") and outcome.person_id
+                            and _same_name(traveler.first_name, customer.first_name) and _same_name(traveler.last_name, customer.last_name)), None)
+    if traveler_person is not None:
+        return _link_customer(connection, owner, actor, reference, booking_id, traveler_person, contact, customer.document)
     matches = possible_duplicates(connection, owner, customer.first_name, customer.last_name, None,
                                   pii.normalize_email(customer.email), pii.normalize_phone(customer.phone_code, customer.phone))
     same = [p for p, _ in matches if _same_name(p.first_name, customer.first_name) and _same_name(p.last_name, customer.last_name)]
     if matches and not same:
         return SaveOutcome("customer", None, "needs_choice", duplicate=matches[0][0], reason=matches[0][1], code="possible_duplicate")
-    person_id = same[0].id if same else None
-    if person_id is None:  # the customer may be one of this booking's travelers (same name, saved just now)
-        person_id = next((outcome.person_id for traveler, outcome in travelers if outcome.status in ("saved", "linked") and outcome.person_id
-                          and _same_name(traveler.first_name, customer.first_name) and _same_name(traveler.last_name, customer.last_name)), None)
-    if person_id is None:
-        person_id = _insert_person(connection, owner, actor, {"first_name": customer.first_name, "last_name": customer.last_name, **contact})
-        if customer.document is not None and find_document(connection, owner, customer.document) is None:
-            _insert_document(connection, owner, actor, person_id, customer.document)
-        status = "saved"
-        _event(connection, person_id, actor, "created", {"source": "hold", "booking_id": reference, "role": "customer"})
-    else:
-        person = load(connection, owner, person_id, lock=True)
-        missing = {k: v for k, v in contact.items() if v and not getattr(person, k)}
-        _apply(connection, person, missing)
-        status = "linked"
-        _event(connection, person_id, actor, "linked_to_booking", {"booking_id": reference, "role": "customer", "fields_updated": sorted(missing)})
+    if same:
+        return _link_customer(connection, owner, actor, reference, booking_id, same[0].id, contact, customer.document)
+    person_id = _insert_person(connection, owner, actor, {"first_name": customer.first_name, "last_name": customer.last_name, **contact})
+    documents = int(_add_customer_document(connection, owner, actor, load(connection, owner, person_id), customer.document))
+    _event(connection, person_id, actor, "created", {"source": "hold", "booking_id": reference, "role": "customer",
+                                                     "fields": sorted(k for k, v in contact.items() if v), "documents": documents})
     connection.execute(text("UPDATE booking_customers SET person_id = :p WHERE booking_id = :b"), {"p": person_id, "b": booking_id})
-    return SaveOutcome("customer", None, status, person_id)
+    return SaveOutcome("customer", None, "saved", person_id)
+
+
+def _link_customer(connection, owner: str | None, actor: str, reference: str, booking_id: str, person_id: str,
+                   contact: dict[str, Any], document: DocumentInput | None) -> SaveOutcome:
+    """Link the booking's customer to an existing person and add what the record lacks (never blanking a value)."""
+    person = load(connection, owner, person_id, lock=True)
+    missing = _filled(person, contact)
+    if missing.keys() & {"phone_code", "phone"}:
+        missing |= {k: contact[k] for k in ("phone_code", "phone") if contact.get(k)}
+    _apply(connection, person, missing)
+    document_added = _add_customer_document(connection, owner, actor, person, document)
+    connection.execute(text("UPDATE booking_customers SET person_id = :p WHERE booking_id = :b"), {"p": person_id, "b": booking_id})
+    _event(connection, person_id, actor, "linked_to_booking", {"booking_id": reference, "role": "customer", "fields_updated": sorted(missing),
+                                                               "documents_added": int(document_added)})
+    return SaveOutcome("customer", None, "linked", person_id)
 
 
 def save_from_hold(owner: str | None, actor: str, reference: str, customer: HoldCustomer, travelers: list[HoldTraveler]) -> list[SaveOutcome]:

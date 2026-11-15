@@ -184,6 +184,16 @@ def resolve_saved(request: HoldRequest, owner: str | None) -> tuple[HoldRequest,
     return request.model_copy(update={"passengers": passengers, "contact": contact}), links
 
 
+def customer_card_document(card, passengers) -> saved_people.DocumentInput | None:
+    """The customer's own document from the shared customer card (Flights and Group Ticketing): a CNIC is Pakistani; a
+    passport takes its issuing country from the traveler holding the same number (the customer travelling)."""
+    if card is None or not card.document_number or not card.id_type:
+        return None
+    country = "PAK" if card.id_type == "NATI" else next(
+        (p.document_country for p in passengers if p.document_number == card.document_number and p.document_country), None)
+    return saved_people.DocumentInput(card.id_type, country, card.document_number) if country else None
+
+
 def _save_people(request: HoldRequest, reference: str, actor: str, owner: str | None,
                  links: dict[int, tuple[str, str | None]], customer_document: saved_people.DocumentInput | None = None) -> list[SaveOutcomeView]:
     """Create or link saved people after the hold. Any failure is reported, never raised.
@@ -262,6 +272,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     if request.confirmed_total.currency != quote.currency or request.confirmed_total.amount_minor != quote.selling_total_minor:
         raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.",
                         code="confirm_total")
+    card = request.customer
     if request.customer is not None:
         # The shared customer card: the gateway splits the name and phone (same rules as the Group Ticketing hold).
         try:
@@ -369,7 +380,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
-    saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links)
+    saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links,
+                                             customer_card_document(card, request.passengers))
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:
