@@ -20,6 +20,10 @@ One model for both products (`app/services/pricing.py`, `app/db/booking_pricing.
     the selling price, set by staff or by default, is never recalculated. 409 `supplier_cost_changed`, then issue with
     `accepted_supplier_cost`; 409 `below_cost` when the new cost is above the selling total, then also `accept_below_cost`.
     The total can't drop below what was paid here, so Due never goes negative and no refund arises.
+  - Flights, at the hold: one cost source. After booking, the supplier's booking record (pnr_info) must show the
+    repriced total; that total, the per-passenger costs and the below-cost check then agree. If it can't be verified
+    (no record, no total, another status or currency, or a different total), nothing is saved: 502 `total_unverified`
+    with the PNR, and the supplier hold lapses at its time limit.
   - Flights, at the hold: the hold goes ahead while every confirmed selling price covers the new airline cost; otherwise
     409 `price_changed` (revalidate). The hold answer carries `supplier_cost` and `profit` with cost access.
   - Flights, at ticketing: 409 `supplier_cost_changed` (with `accepted_supplier_cost`, and the costs and profit with cost

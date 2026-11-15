@@ -135,19 +135,22 @@ def test_supplier_failure_saves_nothing(failure):
     assert error.value.status == 502 and save.call_count == 0 and client.booking.await_count == 1
 
 
-@pytest.mark.parametrize("after,status", [(SouthairError("fare_info_failed"), "failed"), ({"ADT": {"BASE": {"FARE": {"VALUE": 450}}}}, "no_total"),
-                                          ({"FINAL_TOTAL": "999.00"}, "differs")])
-def test_unverified_total_after_booking_saves_the_hold_but_never_confirms_it(after, status):
+@pytest.mark.parametrize("pnr,status", [(SouthairError("pnr_lookup_failed"), "no_total"), (pnr_info(total=None), "no_total"),
+                                        (pnr_info(total=999.00), "differs")])
+def test_unverified_total_after_booking_saves_nothing(pnr, status, caplog):
     make_quote()
     client = fake_client()
-    client.pnr_info = AsyncMock(side_effect=SouthairError("pnr_lookup_failed"))  # no PNR record: fall back to fare_info
-    client.fare_info = AsyncMock(side_effect=[{"ADT": {"TOTAL": "457.70"}}, after])
-    save = MagicMock(return_value="TRV-ABC123")
-    with pytest.raises(flight_holds.HoldError) as error:
+    client.pnr_info = AsyncMock(side_effect=pnr) if isinstance(pnr, Exception) else AsyncMock(return_value=pnr)
+    save, people = MagicMock(return_value="TRV-ABC123"), MagicMock()
+    caplog.set_level("WARNING")
+    with patch.object(flight_holds, "_save_people", people), pytest.raises(flight_holds.HoldError) as error:
         run(hold_request(), client, saved=save)
-    assert error.value.status == 502 and "couldn't be verified" in error.value.message
-    assert "63B55C" in error.value.message and "TRV-ABC123" in error.value.message  # staff can find the hold
-    assert save.call_count == 1 and save.call_args.kwargs["audit"]["fare_info"] == status
+    assert error.value.status == 502 and error.value.code == "total_unverified" and error.value.extra == {"pnr": "63B55C"}
+    assert "couldn't be verified, so it wasn't saved" in error.value.message and "63B55C" in error.value.message
+    assert save.call_count == 0 and people.call_count == 0  # no booking, so no payment can be taken
+    assert client.fare_info.await_count == 1  # one cost source after booking: the supplier's booking record only
+    logged = next(r for r in caplog.records if r.getMessage() == "Southair hold total not verified; booking not saved")
+    assert logged.pnr == "63B55C" and logged.total_check == status
 
 
 def make_live_quote():
@@ -398,39 +401,42 @@ def test_this_hold_verifies_from_the_pnr_record_when_fare_info_fails_after_booki
     assert client.fare_info.await_count == 1  # not needed after booking
 
 
-@pytest.mark.parametrize("pnr,after,status,source", [
-    (live_pnr_info(total=14500), None, "differs", "pnr_info"),                               # a real mismatch
-    (live_pnr_info(total=None), SouthairError("fare_info_failed"), "failed", None),           # no total anywhere
-    (live_pnr_info(total=None), {"ADT": {"BASE": {"FARE": {"VALUE": 1}}}}, "no_total", None),  # fare_info without a total
-    (live_pnr_info(status="XX"), SouthairError("fare_info_failed"), "failed", None),         # not booked: its total isn't used
-    (live_pnr_info(currency="USD"), SouthairError("fare_info_failed"), "failed", None),      # another currency isn't compared
-    (live_pnr_info(total=None), live_fare_info(14390), "matches", "fare_info"),               # fallback verifies
+@pytest.mark.parametrize("pnr", [
+    live_pnr_info(total=14500),        # a real mismatch
+    live_pnr_info(total=None),         # no total
+    live_pnr_info(status="XX"),        # not booked: its total isn't used
+    live_pnr_info(currency="USD"),     # another currency isn't compared
 ])
-def test_unverified_or_mismatched_totals_are_never_confirmed(pnr, after, status, source):
+def test_unverified_or_mismatched_totals_are_never_saved(pnr):
     live_5a5282_quote()
-    client = live_5a5282_client(pnr=pnr, after_booking_fare_info=after)
+    client = live_5a5282_client(pnr=pnr, after_booking_fare_info=live_fare_info(14390))  # fare_info is no longer asked
     save = MagicMock(return_value="TRV-PJM32J")
-    with patch.object(settings, "flight_markup_percent", Decimal("100")):
-        if status == "matches":
-            view, _ = run(hold_request(total=2_878_000), client, saved=save)
-            assert view.pnr == "5A5282"
-        else:
-            with pytest.raises(flight_holds.HoldError) as error:
-                run(hold_request(total=2_878_000), client, saved=save)
-            assert error.value.code == "total_unverified" and error.value.extra == {"pnr": "5A5282", "booking_id": "TRV-PJM32J"}
-    audit = save.call_args.kwargs["audit"]
-    assert audit["fare_info"] == status and audit.get("total_source") == source
+    with patch.object(settings, "flight_markup_percent", Decimal("100")), pytest.raises(flight_holds.HoldError) as error:
+        run(hold_request(total=2_878_000), client, saved=save)
+    assert error.value.code == "total_unverified" and error.value.extra == {"pnr": "5A5282"} and save.call_count == 0
+    assert client.fare_info.await_count == 1
 
 
-def test_pnr_lookup_failing_falls_back_and_records_the_error_codes_only():
+def test_pnr_lookup_failing_saves_nothing_and_logs_the_error_code_only(caplog):
     live_5a5282_quote()
     client = live_5a5282_client(pnr_error=SouthairError("pnr lookup_failed"))
     save = MagicMock(return_value="TRV-PJM32J")
+    caplog.set_level("WARNING")
     with patch.object(settings, "flight_markup_percent", Decimal("100")), pytest.raises(flight_holds.HoldError):
         run(hold_request(total=2_878_000), client, saved=save)
-    audit = save.call_args.kwargs["audit"]
-    assert audit["fare_info"] == "failed" and audit["pnr_info_error"] == "pnr lookup_failed" and audit["fare_info_error"] == "fare_info_failed"
-    assert "Test" not in str(audit) and "AB1234567" not in str(audit)
+    assert save.call_count == 0
+    logged = next(r for r in caplog.records if r.getMessage() == "Southair hold total not verified; booking not saved")
+    assert logged.pnr_info_error == "pnr lookup_failed" and "AB1234567" not in str(logged.__dict__)
+
+
+def test_saved_costs_total_and_below_cost_check_come_from_the_same_verified_record():
+    make_quote(adults=1, infants=1, selling=46_700 + 5_100)
+    client = fake_client(fare_info={"ADT": {"TOTAL": "457.70"}, "INF": {"TOTAL": "50.00"}}, pnr=pnr_info(total=507.70))
+    _, save = run(hold_request(total=46_700 + 5_100, passengers=[ADULT, INFANT]), client)
+    saved = save.call_args.kwargs
+    costs = [t.cost_minor for t in saved["travelers"]]
+    assert saved["supplier_total_minor"] == 50_770 == sum(costs)  # the booking record's total = the travelers' costs
+    assert saved["audit"]["total_source"] == "pnr_info"
 
 
 def test_hold_saves_the_itinerary_from_the_fresh_search():

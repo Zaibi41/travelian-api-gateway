@@ -1,8 +1,9 @@
 """Southair hold (booking without ticketing or payment), behind SOUTHAIR_BOOKING_ENABLED.
 
-Order: fresh reprice -> refuse unless it equals the confirmed total -> booking ->
-fare_info within the supplier's 10-minute window -> save PNR, ticket_ref (server-only),
-time_limit and the fare total in `bookings` as UAT test data, with an audit entry.
+Order: fresh reprice -> refuse unless it equals the confirmed total -> booking -> the supplier's
+booking record (pnr_info) must show the same total -> save PNR, ticket_ref (server-only), time_limit
+and that total in `bookings` as UAT test data, with an audit entry. The total, the per-passenger costs
+and the below-cost check all use that one cost. An unverified total saves nothing (total_unverified).
 Never retried automatically. There is no cancel call: the hold lapses at time_limit.
 """
 
@@ -312,38 +313,30 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except (TypeError, ValueError):
         pax_count = None
 
-    # 3. Verify the hold's total. The booking reply carries no total, so ask the supplier's own
-    #    record of this PNR first (pnr_info: res.total_amount, status BK). Only if that gives no
-    #    usable total, fall back to fare_info for the same selection (which UAT sometimes refuses
-    #    after booking). No verified total, or a different one, is reported as not verified.
-    fare_info: dict = {}
+    # 3. Verify the hold's total from one source: the supplier's own booking record of this PNR (pnr_info:
+    #    res.total_amount, status BK). It must equal the repriced total the per-passenger costs and the below-cost check
+    #    used, so total, traveler costs and profit all agree. No verified total, or a different one: nothing is saved.
     pnr_summary: dict = {}
-    total_check, total_source, check_errors = "no_total", None, {}
-    stored_cost = supplier_total
-    info_total = None
+    record_total, check_errors = None, {}
     try:
         record = normalize.pnr_state(await client.pnr_info(pnr), pnr)
         pnr_summary = {"status": record.status, "total_minor": live_flights.to_minor(record.total.value) if record.total else None,
                        "currency": record.currency}
         if record.status == "BK" and record.total is not None and (record.currency in (None, currency)):
-            info_total, total_source = live_flights.to_minor(record.total.value), "pnr_info"
+            record_total = live_flights.to_minor(record.total.value)
     except SouthairError as error:
         check_errors["pnr_info_error"] = error.error_code
         logger.warning("Southair pnr_info after booking failed", extra={"error_code": error.error_code})
-    if info_total is None:
-        try:
-            fare_info = await client.fare_info(nld=nld, selections=[(ref.route_key, ref.fare_hash) for ref in fresh])
-            info_total = live_flights.verified_total_minor(fare_info, counts)
-            total_source = "fare_info" if info_total is not None else None
-        except SouthairError as error:
-            check_errors["fare_info_error"] = error.error_code
-            logger.warning("Southair fare_info after booking failed", extra={"error_code": error.error_code})
-    if info_total is not None:
-        total_check = "matches" if info_total == supplier_total else "differs"
-        stored_cost = info_total
-    elif "fare_info_error" in check_errors:
-        total_check = "failed"  # the supplier answered neither check with a total
-    fare_info_status = total_check
+    total_check = "no_total" if record_total is None else "matches" if record_total == supplier_total else "differs"
+    if total_check != "matches":
+        # The supplier holds the PNR, but its total isn't confirmed: the booking is not saved, so no payment can be
+        # taken against it. The supplier hold lapses at its own time limit.
+        logger.warning("Southair hold total not verified; booking not saved",
+                       extra={"pnr": pnr, "total_check": total_check, "time_limit": booking.get("time_limit"), **check_errors})
+        raise HoldError(502, f"The supplier created a hold (PNR {pnr}) but its total couldn't be verified, so it wasn't saved. "
+                             "Don't take payment for it; it lapses at the supplier's time limit. Search and hold again.",
+                        code="total_unverified", pnr=pnr)
+    stored_cost = record_total
 
     # 4. Save as UAT test data with an audit entry.
     time_limit = _time_limit(booking.get("time_limit"))
@@ -352,25 +345,19 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             provider=NAME, pnr=pnr, supplier_ref=ticket_ref, hold_expires_at=time_limit, currency=currency,
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
-                               "pnr_info": pnr_summary, "fare_info": fare_info, "repriced_supplier_total_minor": supplier_total},
+                               "pnr_info": pnr_summary, "repriced_supplier_total_minor": supplier_total},
             actor_user_id=viewer.user_id, customer=_customer(request),
             travelers=[replace(t, selling_minor=confirmed_selling.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
                        for t in _travelers(request, links)],
             itinerary=[ref.segment for ref in fresh if ref.segment],
             audit={"provider": NAME, "pnr": pnr, "time_limit": booking.get("time_limit"), "selling_total_minor": selling_total,
-                   "currency": currency, "pax_count": pax_count, "fare_info": fare_info_status,
-                   **({"total_source": total_source} if total_source else {}), **check_errors},
+                   "currency": currency, "pax_count": pax_count, "fare_info": total_check,
+                   "total_source": "pnr_info"},
         )
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
     saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links)
-    if fare_info_status != "matches":
-        # The hold exists at the supplier and is saved, but its total isn't verified: never
-        # report it as confirmed. Staff must check the total with the supplier first.
-        logger.warning("Southair hold total not verified", extra={"pnr": pnr, "fare_info": fare_info_status})
-        raise HoldError(502, f"The hold was created at the supplier (PNR {pnr}, {reference}) but its total couldn't be verified. "
-                             "Check the total with the supplier before taking any payment.", code="total_unverified", pnr=pnr, booking_id=reference)
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:
