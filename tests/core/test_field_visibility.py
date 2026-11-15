@@ -38,7 +38,7 @@ def test_dashboard_omits_margin_and_supplier_names_for_plain_staff(monkeypatch):
     api = client(monkeypatch, ROWS, viewer=staff())
     summary = api.get("/v1/admin/dashboard/summary").json()
     assert "gross_profit" not in summary["business"]          # margin: absent, not null
-    assert summary["business"]["total_sales"]["amount_minor"] == 1_500_000
+    assert summary["business"]["total_sales"] == [{"amount_minor": 1_500_000, "currency": "PKR"}]
     options = api.get("/v1/admin/dashboard/filter-options").json()
     assert "providers" not in options                          # supplier names: absent
     assert [o["value"] for o in options["products"]] == ["flight", "hotel", "umrah"]
@@ -50,7 +50,7 @@ def test_dashboard_omits_margin_and_supplier_names_for_plain_staff(monkeypatch):
 def test_super_admin_and_granted_staff_see_the_fields(monkeypatch):
     for viewer in (BackOfficeUser(user_id="a", role="super_admin", visibility=ALL), staff(BOTH)):
         api = client(monkeypatch, ROWS, viewer=viewer)
-        assert api.get("/v1/admin/dashboard/summary").json()["business"]["gross_profit"]["amount_minor"] == 150_000
+        assert api.get("/v1/admin/dashboard/summary").json()["business"]["gross_profit"] == [{"amount_minor": 150_000, "currency": "PKR"}]
         assert [o["label"] for o in api.get("/v1/admin/dashboard/filter-options").json()["providers"]] == ["SooperFare"]
         assert api.get("/v1/admin/dashboard/summary", params={"provider": "sooperfare"}).status_code == 200
 

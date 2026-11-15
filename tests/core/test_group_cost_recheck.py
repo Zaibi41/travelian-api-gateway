@@ -26,7 +26,7 @@ class Provider:
 
     async def price(self, held):
         self.calls.append("price")
-        return GroupMoney(amount_minor=self.cost_each, currency="PKR")
+        return GroupMoney(amount_minor=self.cost_each * held.adults, currency="PKR")  # all held seats
 
     async def issue(self, held, cost):
         self.calls.append("issue")
@@ -111,3 +111,17 @@ def test_a_cost_that_moved_again_is_refused():
 def test_due_never_goes_negative_and_selling_stays_after_a_lower_cost():
     view = group_holds.build_view(booking(cost=150_000_00, paid=SELLING + 5_000_00), None, ADMIN, datetime.now(timezone.utc))
     assert view.amount_due.amount_minor == 0 and view.total.amount_minor == SELLING and view.profit.amount_minor == SELLING - 150_000_00
+
+
+class TotalProvider(Provider):
+    """A supplier that gives an odd total for the held seats (Dhillu & Sahi total_amount)."""
+
+    async def price(self, held):
+        self.calls.append("price")
+        return GroupMoney(amount_minor=self.cost_each, currency="PKR")
+
+
+def test_an_odd_supplier_total_is_kept_whole_and_is_not_a_change():
+    record = booking(cost=200_000_01)  # 2 adults: not divisible
+    check, _ = run(group_holds.price_check("TRV-GRP-AB12CD", ADMIN), TotalProvider(200_000_01), record)
+    assert check.changed is False and check.new_supplier_cost.amount_minor == 200_000_01

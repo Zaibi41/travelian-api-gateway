@@ -1,4 +1,4 @@
-"""Admin Dashboard home responses. Money is integer paisa (PKR)."""
+"""Admin Dashboard home responses. Money is integer paisa, per currency."""
 
 from datetime import date, datetime
 from typing import Literal
@@ -13,11 +13,6 @@ Product = Literal["flight", "hotel", "umrah"]
 AttentionType = Literal["pending_issuance", "payment_pending", "hold_expiring"]
 
 
-class Money(BaseModel):
-    amount_minor: int = Field(description="Amount in paisa.")
-    currency: Literal["PKR"] = "PKR"
-
-
 class NeedsAction(BaseModel):
     """Not affected by the date filter."""
 
@@ -27,14 +22,21 @@ class NeedsAction(BaseModel):
     expiring_window_hours: int
 
 
+class CurrencyAmount(BaseModel):
+    currency: str = Field(description="ISO currency code, e.g. PKR.")
+    amount_minor: int | None = Field(None, description="Amount in minor units (paisa for PKR). Omitted = n/a: it can't be computed exactly.")
+
+
 class BusinessResults(BaseModel):
-    """Follows all filters. A field is omitted when it can't be computed exactly."""
+    """Follows all filters. Money is summed per currency, never converted."""
 
     total_bookings: int
     issued_tickets: int
-    total_sales: Money | None = Field(None, description="Omitted if any paid booking is not priced in PKR.")
-    gross_profit: Money | None = Field(
-        None, description="Omitted if any paid booking lacks supplier cost, or for roles without margin visibility."
+    total_sales: list[CurrencyAmount] = Field(description="One entry per currency of the paid bookings (PKR when there are none).")
+    gross_profit: list[CurrencyAmount] | None = Field(
+        None, description="Per currency, as total_sales. amount_minor omitted (n/a) when a paid booking in that currency has no real "
+                          "supplier cost (none recorded, or an imported booking whose cost was filled in as its total). "
+                          "Omitted for roles without margin visibility.",
     )
 
 

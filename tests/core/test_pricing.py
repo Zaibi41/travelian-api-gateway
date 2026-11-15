@@ -282,3 +282,16 @@ def test_ticketing_cost_change_hides_cost_without_access():
 def test_ticketing_blocked_when_the_airline_price_is_above_the_selling_price():
     refused, client, _ = ticketing(490.00, accepted=49_000)
     assert refused.code == "below_cost" and client.ticketing.await_count == 0
+
+
+def test_scale_keeps_the_passenger_type_proportions_and_sums_exactly():
+    from app.services.pricing import scale
+    assert scale([45_770, 45_770, 5_000], 100_001) == [47_411, 47_411, 5_179] and sum(scale([45_770, 45_770, 5_000], 100_001)) == 100_001
+    assert scale([None, None], 101) == [51, 50] and scale([], 5) == []
+    assert scale([1, 1, 1], 100) == [34, 33, 33]
+
+
+def test_cost_unknown_for_missing_or_imported_cost_equal_to_total():
+    from app.services.pricing import cost_unknown
+    assert cost_unknown(None, None, 100) and cost_unknown("legacy_test_csv", 100, 100)
+    assert not cost_unknown("legacy_test_csv", 90, 100) and not cost_unknown(None, 100, 100)

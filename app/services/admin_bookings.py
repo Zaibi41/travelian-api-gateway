@@ -19,6 +19,7 @@ from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
+from app.services.pricing import cost_unknown
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
     BookingListItem, BookingMoney, BookingPassenger, BookingSegment, BookingStatuses, FarePerPassenger, FilterOption, SupplierPayment,
@@ -261,6 +262,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
     if people and people.events:
         detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
                         for e in people.events]
+    unknown_cost = cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor)
     if people and people.travelers and all(t.selling_minor is not None for t in people.travelers):
         per_type: dict[str, list] = {}
         for traveler in people.travelers:
@@ -270,7 +272,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
             if kind in per_type:
                 group = per_type[kind]
                 item = FarePerPassenger(passenger_type=kind, count=len(group), selling_each=_money(max(t.selling_minor for t in group), booking.currency))
-                if visibility.cost_and_margin and all(t.cost_minor is not None for t in group):
+                if visibility.cost_and_margin and not unknown_cost and all(t.cost_minor is not None for t in group):
                     item.supplier_cost_each = _money(max(t.cost_minor for t in group), booking.currency)
                 fare.per_passenger.append(item)
     detail.can_set_selling_price = (can_record_payments and booking.status in ("held", "pending_payment") and issuance_status(booking) == "not_issued"
@@ -278,7 +280,9 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
     if visibility.supplier_names and booking.provider:
         detail.provider = booking.provider
     if visibility.cost_and_margin:
-        if booking.supplier_cost_minor is not None:
+        if unknown_cost:
+            fare.cost_unknown = True
+        else:
             cost = _money(booking.supplier_cost_minor, booking.currency)
             fare.supplier_cost = cost
             if booking.total_minor is not None:

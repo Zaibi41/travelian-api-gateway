@@ -175,7 +175,7 @@ def test_skypass_hold_sends_ticket_quantity_and_slot_and_gives_no_expiry():
     assert not hasattr(held, "expires_at")
     asyncio.run(provider.release(group_holds.HeldRef(held.pnr, held.supplier_ref, 2)))
     assert recorder.requests[-1] == ("/release-seats", {"ticket_id": "12116", "open_seats_slot": "30345"})
-    assert asyncio.run(provider.price(group_holds.HeldRef(held.pnr, held.supplier_ref, 2))).amount_minor == 162_000_00
+    assert asyncio.run(provider.price(group_holds.HeldRef(held.pnr, held.supplier_ref, 2))).amount_minor == 2 * 162_000_00  # both seats
     assert provider.supports_issue is False
 
 

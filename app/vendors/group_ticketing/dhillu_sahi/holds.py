@@ -241,7 +241,7 @@ class DhilluSahiHoldProvider:
 
     async def price(self, held) -> GroupMoney:
         """Before issuing: check-availbility with the held price per adult (status false -> AvailabilityChanged), then the
-        booking's total_amount from agent-booking-detail, per adult."""
+        booking's total_amount from agent-booking-detail (all held seats, nothing divided)."""
         from app.services.group_holds import PriceOrSeatsChanged  # late import: group_holds imports this module
 
         if held.cost_per_adult is None or not held.pnr:
@@ -253,7 +253,7 @@ class DhilluSahiHoldProvider:
         total = total_money(details["booking"].get("total_amount"))
         if total is None:
             raise DhilluSahiAuthError("Dhillu & Sahi booking detail had no total_amount", error_code="invalid_response")
-        return GroupMoney(amount_minor=total.amount_minor // max(held.adults, 1), currency=total.currency)
+        return GroupMoney(amount_minor=total.amount_minor, currency=total.currency)
 
     async def release(self, held) -> None:
         raise DhilluSahiAuthError("Dhillu & Sahi has no release or cancel call", error_code="not_supported")

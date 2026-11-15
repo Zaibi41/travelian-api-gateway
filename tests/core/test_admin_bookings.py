@@ -23,7 +23,7 @@ STAFF_NAMES = BackOfficeUser("u-3", "staff", FieldVisibility(supplier_names=True
 STAFF_COST = BackOfficeUser("u-4", "staff", FieldVisibility(supplier_names=False, cost_and_margin=True))
 
 SUPPLIER_KEYS = {"provider", "providers"}
-COST_KEYS = {"supplier_cost", "margin", "supplier_payment"}
+COST_KEYS = {"supplier_cost", "margin", "supplier_payment", "cost_unknown"}
 
 
 def booking(n, **overrides):
@@ -201,6 +201,17 @@ def test_unknown_cost_is_omitted_not_zero(monkeypatch):
     body = client(monkeypatch, rows=[booking(1, supplier_cost_minor=None)]).get("/v1/admin/bookings/TRV-1").json()
     assert "supplier_cost" not in body["fare"] and "margin" not in body["fare"]
     assert "amount_due" not in body["supplier_payment"]
+    assert body["fare"]["cost_unknown"] is True
+
+
+def test_imported_booking_with_cost_equal_to_total_shows_cost_and_profit_as_unknown(monkeypatch):
+    imported = booking(1, supplier_cost_minor=1_000_000, import_source="legacy_test_csv")
+    body = client(monkeypatch, rows=[imported]).get("/v1/admin/bookings/TRV-1").json()
+    assert body["fare"]["cost_unknown"] is True and "margin" not in body["fare"] and "supplier_cost" not in body["fare"]
+    staff = client(monkeypatch, rows=[imported], viewer=STAFF).get("/v1/admin/bookings/TRV-1").json()
+    assert "cost_unknown" not in staff["fare"]
+    real = client(monkeypatch, rows=[booking(1, supplier_cost_minor=1_000_000)]).get("/v1/admin/bookings/TRV-1").json()
+    assert real["fare"]["margin"]["amount_minor"] == 0 and "cost_unknown" not in real["fare"]  # a real booking at cost
 
 
 # ---------- D23 visibility ----------

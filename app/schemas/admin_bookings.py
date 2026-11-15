@@ -102,6 +102,8 @@ class BookingFare(BaseModel):
     per_passenger: list[FarePerPassenger] | None = Field(None, description="Selling price (and cost, with access) per passenger type. Omitted when no travelers were saved.")
     supplier_cost: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
     margin: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
+    cost_unknown: bool | None = Field(None, description="True when no real supplier cost exists (none recorded, or an imported booking whose cost "
+                                                        "was filled in as its total): show cost and profit as n/a. Only with the cost and margin permission.")
 
 
 class SupplierPayment(BaseModel):

@@ -61,19 +61,33 @@ def test_business_results_follow_filters_and_exclude_retired_products():
     hotels = figures.build_summary(RECORDS, figures.DashboardQuery(product="hotel"), NOW, 2, True).business
     assert hotels.total_bookings == 1 and hotels.issued_tickets == 0
     other = figures.build_summary(RECORDS, figures.DashboardQuery(provider="airsial"), NOW, 2, True).business
-    assert other.total_bookings == 0 and other.total_sales.amount_minor == 0
+    assert other.total_bookings == 0 and [(m.currency, m.amount_minor) for m in other.total_sales] == [("PKR", 0)]
 
 
-def test_money_is_paisa_and_gross_profit_is_omitted_unless_exact():
+def amounts(items):
+    return [(m.currency, m.amount_minor) for m in items]
+
+
+def test_money_is_paisa_summed_per_currency_and_profit_is_na_unless_exact():
     rows = [booking(1), booking(2, total_minor=500_000, supplier_cost_minor=450_000)]
     business = figures.build_summary(rows, figures.DashboardQuery(), NOW, 2, True).business
-    assert business.total_sales.amount_minor == 1_500_000 and business.gross_profit.amount_minor == 150_000
+    assert amounts(business.total_sales) == [("PKR", 1_500_000)] and amounts(business.gross_profit) == [("PKR", 150_000)]
     missing_cost = figures.build_summary(rows + [booking(3, supplier_cost_minor=None)], figures.DashboardQuery(), NOW, 2, True).business
-    assert missing_cost.total_sales is not None and missing_cost.gross_profit is None
-    foreign = figures.build_summary(rows + [booking(4, currency="USD")], figures.DashboardQuery(), NOW, 2, True).business
-    assert foreign.total_sales is None and foreign.gross_profit is None
+    assert amounts(missing_cost.total_sales) == [("PKR", 2_500_000)] and amounts(missing_cost.gross_profit) == [("PKR", None)]
+    foreign = figures.build_summary(rows + [booking(4, currency="SAR", total_minor=40_000, supplier_cost_minor=30_000)],
+                                    figures.DashboardQuery(), NOW, 2, True).business
+    assert amounts(foreign.total_sales) == [("PKR", 1_500_000), ("SAR", 40_000)]  # never converted, never dropped
+    assert amounts(foreign.gross_profit) == [("PKR", 150_000), ("SAR", 10_000)]
     hidden = figures.build_summary(rows, figures.DashboardQuery(), NOW, 2, can_see_margin=False).business
     assert hidden.gross_profit is None
+
+
+def test_imported_booking_with_cost_equal_to_total_makes_profit_na_not_zero():
+    imported = booking(5, total_minor=700_000, supplier_cost_minor=700_000, import_source="legacy_test_csv")
+    business = figures.build_summary([booking(1), imported], figures.DashboardQuery(), NOW, 2, True).business
+    assert amounts(business.total_sales) == [("PKR", 1_700_000)] and amounts(business.gross_profit) == [("PKR", None)]
+    real = booking(6, total_minor=700_000, supplier_cost_minor=700_000)  # a real booking at cost: profit 0 is real
+    assert amounts(figures.build_summary([real], figures.DashboardQuery(), NOW, 2, True).business.gross_profit) == [("PKR", 0)]
 
 
 def test_periods_use_local_calendar():
@@ -138,9 +152,9 @@ def test_summary_route_returns_paisa_and_omits_inexact_fields(monkeypatch):
     assert body["source"] == "gateway_bookings"
     assert body["needs_action"]["expiring_window_hours"] == 2
     # Sales: B1 (paid, confirmed), B5 (issued), B6 (hotel). Tour and unpaid/cancelled excluded.
-    assert body["business"]["total_sales"] == {"amount_minor": 3_000_000, "currency": "PKR"}
+    assert body["business"]["total_sales"] == [{"amount_minor": 3_000_000, "currency": "PKR"}]
     missing = client(monkeypatch, [booking(1, supplier_cost_minor=None)]).get("/v1/admin/dashboard/summary").json()
-    assert "gross_profit" not in missing["business"]
+    assert missing["business"]["gross_profit"] == [{"currency": "PKR"}]  # no amount: n/a, never 0
 
 
 def test_routes_validate_input(monkeypatch):

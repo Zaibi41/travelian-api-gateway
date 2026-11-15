@@ -104,7 +104,7 @@ class SkypassHoldProvider:
             raise SkypassError("Skypass ticket detail has no usable adult price", error_code="invalid_response") from None
         if amount <= 0:
             raise SkypassError("Skypass ticket detail has no usable adult price", error_code="invalid_response")
-        return GroupMoney(amount_minor=int(amount * 100), currency=settings.group_ticketing_default_currency)
+        return GroupMoney(amount_minor=int(amount * 100) * max(held.adults, 1), currency=settings.group_ticketing_default_currency)
 
     async def release(self, held) -> None:
         ticket_id, slot = _split_ref(held.supplier_ref)

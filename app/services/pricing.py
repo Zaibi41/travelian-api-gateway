@@ -40,6 +40,26 @@ def split(total_minor: int, count: int) -> list[int]:
     return [base + rest] + [base] * (count - 1)
 
 
+def scale(parts: list[int | None], total_minor: int) -> list[int]:
+    """A new total shared in the same proportions as `parts` (e.g. per-passenger-type costs), summing exactly to it:
+    each part rounded down, the leftover paisa to the largest remainders (first on ties). Equal split without parts."""
+    known = [p or 0 for p in parts]
+    whole = sum(known)
+    if not parts or whole <= 0:
+        return split(total_minor, len(parts))
+    shares = [divmod(p * total_minor, whole) for p in known]
+    result = [q for q, _ in shares]
+    for index in sorted(range(len(parts)), key=lambda i: -shares[i][1])[: total_minor - sum(result)]:
+        result[index] += 1
+    return result
+
+
+def cost_unknown(import_source: str | None, cost_minor: int | None, total_minor: int | None) -> bool:
+    """No real supplier cost: none recorded, or an imported booking whose cost was filled in as its total (migration
+    0021). Profit is then "n/a", never 0."""
+    return cost_minor is None or (import_source is not None and cost_minor == total_minor)
+
+
 @dataclass(frozen=True)
 class Amounts:
     selling_total_minor: int

@@ -12,9 +12,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from app.services.pricing import cost_unknown
 from app.schemas.admin_dashboard import (
     AttentionItem, AttentionQueue, BookingReport, BusinessResults, DashboardFilterOptions,
-    DashboardSummary, FilterOption, Money, NeedsAction, Period, Product, ReportBucket,
+    CurrencyAmount, DashboardSummary, FilterOption, NeedsAction, Period, Product, ReportBucket,
 )
 from app.db.bookings import BookingRow
 
@@ -171,13 +172,7 @@ def build_summary(
     period_rows = [booking for booking in selected if in_period(booking, query.period, now)]
     sales = [booking for booking in period_rows if is_sale(booking)]
 
-    priced = all(booking.currency == "PKR" and booking.total_minor is not None for booking in sales)
-    total_sales = Money(amount_minor=sum(booking.total_minor or 0 for booking in sales)) if priced else None
-    costed = priced and all(booking.supplier_cost_minor is not None for booking in sales)
-    gross_profit = (
-        Money(amount_minor=sum((booking.total_minor or 0) - (booking.supplier_cost_minor or 0) for booking in sales))
-        if can_see_margin and costed else None
-    )
+    total_sales, gross_profit = money_by_currency(sales)
 
     return DashboardSummary(
         generated_at=now,
@@ -194,9 +189,26 @@ def build_summary(
             total_bookings=len(period_rows),
             issued_tickets=sum(is_issued_ticket(booking) for booking in period_rows),
             total_sales=total_sales,
-            gross_profit=gross_profit,
+            gross_profit=gross_profit if can_see_margin else None,
         ),
     )
+
+
+def money_by_currency(sales: list[BookingRow]) -> tuple[list[CurrencyAmount], list[CurrencyAmount]]:
+    """Sales and gross profit summed per currency (PKR first, then A-Z; PKR 0 when there are no sales). A sum is null
+    (n/a) when a booking in it has no total, or for profit, no real supplier cost; never a guessed 0."""
+    by_currency: dict[str, list[BookingRow]] = {"PKR": []} if not sales else {}
+    for booking in sales:
+        by_currency.setdefault((booking.currency or "PKR").upper(), []).append(booking)
+    sales_out, profit_out = [], []
+    for currency in sorted(by_currency, key=lambda c: (c != "PKR", c)):
+        rows = by_currency[currency]
+        priced = all(b.total_minor is not None for b in rows)
+        costed = priced and not any(cost_unknown(b.import_source, b.supplier_cost_minor, b.total_minor) for b in rows)
+        sales_out.append(CurrencyAmount(currency=currency, amount_minor=sum(b.total_minor or 0 for b in rows) if priced else None))
+        profit_out.append(CurrencyAmount(currency=currency, amount_minor=sum((b.total_minor or 0) - (b.supplier_cost_minor or 0) for b in rows)
+                                         if costed else None))
+    return sales_out, profit_out
 
 
 def report_granularity(days: int) -> str:

@@ -88,3 +88,21 @@ def test_accepting_a_supplier_change_is_refused_below_cost(database):
     with pytest.raises(group_holds.GroupHoldRefused) as raised:
         group_holds.accept_held_price("TRV-GRP-000000000004", ACTOR)
     assert raised.value.code == "below_cost"
+
+
+def test_accepted_flight_cost_is_shared_by_passenger_type_not_evenly(database):
+    from app.db import issuance
+
+    connection, metadata, _ = database
+    connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
+    booking_id = _booking(connection, "TRV-000000000009", 120_000_00, 96_540, travelers=3)
+    connection.execute(sa.text("UPDATE booking_travelers SET passenger_type = 'INF' WHERE booking_id = :b AND position = 2"), {"b": booking_id})
+    for position, cost in ((0, 45_770), (1, 45_770), (2, 5_000)):
+        connection.execute(sa.text("UPDATE booking_travelers SET selling_minor = 40_000_00, cost_minor = :c WHERE booking_id = :b AND position = :p"),
+                           {"c": cost, "b": booking_id, "p": position})
+    target = issuance.Target(booking_id, "TRV-000000000009", None, "southair", "flight", "held", "not_issued", None, "PKR",
+                             120_000_00, 96_540, None, 0, [(0, "ADT"), (1, "ADT"), (2, "INF")])
+    issuance.update_cost(target, ACTOR, 100_001)
+    costs = connection.execute(sa.text("SELECT cost_minor FROM booking_travelers WHERE booking_id = :b ORDER BY position"), {"b": booking_id}).scalars().all()
+    assert costs == [47_411, 47_411, 5_179] and sum(costs) == 100_001  # the infant keeps its smaller share
+    assert connection.scalar(sa.text("SELECT total_minor FROM bookings WHERE id = :b"), {"b": booking_id}) == 120_000_00  # selling unchanged

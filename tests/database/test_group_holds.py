@@ -62,7 +62,7 @@ class FakeProvider:
 
     async def price(self, held):
         self.calls.append("price")
-        return GroupMoney(amount_minor=self.cost, currency="PKR")
+        return GroupMoney(amount_minor=self.cost * held.adults, currency="PKR")  # all held seats
 
     async def release(self, held):
         self.calls.append(("release", held.supplier_ref))

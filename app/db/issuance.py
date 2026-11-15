@@ -136,15 +136,17 @@ def _store_response(response: dict[str, Any] | None) -> tuple[str, dict[str, Any
 
 
 def update_cost(target: Target, actor: str, cost_minor: int) -> Target:
-    """The airline's new total, confirmed by the issuer: the booking's supplier cost (and each traveler's share)
-    becomes it. The selling total doesn't change. Logged."""
-    from app.services.pricing import split
+    """The airline's new total, confirmed by the issuer: the booking's supplier cost becomes it, and each traveler's
+    share keeps its passenger type's proportion (adult, child and infant costs differ), summing exactly to it.
+    The selling total doesn't change. Logged."""
+    from app.services.pricing import scale
 
     with agencies.application_engine().begin() as connection:
         connection.execute(text("UPDATE bookings SET supplier_cost_minor = :c, updated_at = now(), revision = revision + 1 WHERE id = :b"),
                            {"c": cost_minor, "b": target.id})
-        ids = connection.execute(text("SELECT id FROM booking_travelers WHERE booking_id = :b ORDER BY position"), {"b": target.id}).scalars().all()
-        for traveler_id, cost in zip(ids, split(cost_minor, len(ids))):
+        rows = connection.execute(text("SELECT id, cost_minor FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                  {"b": target.id}).all()
+        for (traveler_id, _), cost in zip(rows, scale([previous for _, previous in rows], cost_minor)):
             connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
         _event(connection, target.id, actor, "supplier_cost_changed",
                {"amount_minor": cost_minor, "previous_amount_minor": target.supplier_cost_minor, "currency": target.currency})

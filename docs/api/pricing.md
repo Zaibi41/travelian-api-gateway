@@ -27,10 +27,17 @@ One model for both products (`app/services/pricing.py`, `app/db/booking_pricing.
   - Flights, at the hold: the hold goes ahead while every confirmed selling price covers the new airline cost; otherwise
     409 `price_changed` (revalidate). The hold answer carries `supplier_cost` and `profit` with cost access.
   - Flights, at ticketing: 409 `supplier_cost_changed` (with `accepted_supplier_cost`, and the costs and profit with cost
-    access); issue again with `accepted_supplier_cost` to ticket at the new cost. 409 `below_cost` when the new cost is
+    access); issue again with `accepted_supplier_cost` to ticket at the new cost. Each traveler's cost keeps its
+    passenger type's share of the new total (adult, child and infant differ), summing exactly to it. 409 `below_cost` when the new cost is
     above the selling total.
-- **Existing bookings (0021)**: a booking with a recorded supplier cost keeps it; one without gets cost = its current total
-  (profit 0). Travelers get their booking's totals split evenly (remainder on the first). Columns are added nullable,
+- **Existing bookings (0021)**: a booking with a recorded supplier cost keeps it; one without gets cost = its current total.
+  An imported booking (`import_source` set) whose cost equals its total has no real cost: the detail sends
+  `fare.cost_unknown` instead of cost and profit, and the dashboard's gross profit for its currency is n/a, never 0. Travelers get their booking's totals split evenly (remainder on the first). Columns are added nullable,
   backfilled, then made required. No total, payment, received or due amount changes.
 - No receipts, printouts or customer emails exist yet; when they are built they show the selling price only, and never
   supplier names, cost or profit.
+
+- **Dashboard**: total sales and gross profit are summed per currency (never converted or dropped); a currency's
+  profit is n/a when any paid booking in it has no real cost.
+- **Group supplier price check**: providers return the supplier cost for all held seats (Dhillu & Sahi `total_amount`
+  as is), so an odd total is never cut by dividing per adult.

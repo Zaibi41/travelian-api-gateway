@@ -863,6 +863,18 @@
           "billable_price": {
             "$ref": "#/components/schemas/BookingMoney"
           },
+          "cost_unknown": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when no real supplier cost exists (none recorded, or an imported booking whose cost was filled in as its total): show cost and profit as n/a. Only with the cost and margin permission.",
+            "title": "Cost Unknown"
+          },
           "margin": {
             "anyOf": [
               {
@@ -1796,18 +1808,22 @@
         "type": "object"
       },
       "BusinessResults": {
-        "description": "Follows all filters. A field is omitted when it can't be computed exactly.",
+        "description": "Follows all filters. Money is summed per currency, never converted.",
         "properties": {
           "gross_profit": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "items": {
+                  "$ref": "#/components/schemas/CurrencyAmount"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Omitted if any paid booking lacks supplier cost, or for roles without margin visibility."
+            "description": "Per currency, as total_sales. amount_minor omitted (n/a) when a paid booking in that currency has no real supplier cost (none recorded, or an imported booking whose cost was filled in as its total). Omitted for roles without margin visibility.",
+            "title": "Gross Profit"
           },
           "issued_tickets": {
             "title": "Issued Tickets",
@@ -1818,22 +1834,46 @@
             "type": "integer"
           },
           "total_sales": {
+            "description": "One entry per currency of the paid bookings (PKR when there are none).",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "title": "Total Sales",
+            "type": "array"
+          }
+        },
+        "required": [
+          "total_bookings",
+          "issued_tickets",
+          "total_sales"
+        ],
+        "title": "BusinessResults",
+        "type": "object"
+      },
+      "CurrencyAmount": {
+        "properties": {
+          "amount_minor": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Omitted if any paid booking is not priced in PKR."
+            "description": "Amount in minor units (paisa for PKR). Omitted = n/a: it can't be computed exactly.",
+            "title": "Amount Minor"
+          },
+          "currency": {
+            "description": "ISO currency code, e.g. PKR.",
+            "title": "Currency",
+            "type": "string"
           }
         },
         "required": [
-          "total_bookings",
-          "issued_tickets"
+          "currency"
         ],
-        "title": "BusinessResults",
+        "title": "CurrencyAmount",
         "type": "object"
       },
       "CurrentUser": {
@@ -5513,26 +5553,6 @@
           "reason"
         ],
         "title": "MergeRequest",
-        "type": "object"
-      },
-      "Money": {
-        "properties": {
-          "amount_minor": {
-            "description": "Amount in paisa.",
-            "title": "Amount Minor",
-            "type": "integer"
-          },
-          "currency": {
-            "const": "PKR",
-            "default": "PKR",
-            "title": "Currency",
-            "type": "string"
-          }
-        },
-        "required": [
-          "amount_minor"
-        ],
-        "title": "Money",
         "type": "object"
       },
       "NeedsAction": {

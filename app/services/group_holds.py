@@ -92,7 +92,7 @@ class GroupHoldProvider(Protocol):
     issue_unavailable_reason: str
 
     async def hold(self, ticket: GroupTicket, passengers: list[HoldPassenger], contact: HoldContact) -> HeldSeats: ...
-    async def price(self, held: HeldRef) -> GroupMoney: ...
+    async def price(self, held: HeldRef) -> GroupMoney: ...  # the supplier cost for ALL the held seats (not per adult)
     async def release(self, held: HeldRef) -> None: ...
     async def issue(self, held: HeldRef, cost_per_adult: GroupMoney) -> list[str]: ...
 
@@ -712,18 +712,19 @@ async def _open_hold(reference: str) -> tuple[store.GroupBooking, GroupHoldProvi
 
 
 async def _new_cost(booking: store.GroupBooking, provider: GroupHoldProvider) -> tuple[GroupMoney, int]:
-    """(supplier cost per adult, supplier cost total) from the supplier. Read-only at the supplier."""
+    """(supplier cost per adult, supplier cost total) from the supplier. Read-only at the supplier. The total is the
+    supplier's own (no remainder lost); the per-adult figure is only what the supplier's issue call takes."""
     try:
-        cost = await provider.price(_held_ref(booking))
+        total = await provider.price(_held_ref(booking))
     except PriceOrSeatsChanged:
         held = _held_ref(booking)
         raise (await _research(booking.ticket_id, booking.adults, held.cost_per_adult, None, "Nothing was changed.")
                or GroupHoldError(409, "The supplier says the price or the seats changed. Nothing was changed.", "price_changed")) from None
     except Exception:  # noqa: BLE001
         raise GroupHoldError(502, "The price couldn't be checked with the supplier. Nothing was changed.", "price_check_failed") from None
-    if cost.currency != booking.currency:
+    if total.currency != booking.currency:
         raise GroupHoldError(409, "The supplier's price is in a different currency. Nothing was changed.", "currency_changed")
-    return cost, cost.amount_minor * booking.adults
+    return GroupMoney(amount_minor=pricing.split(total.amount_minor, max(booking.adults, 1))[-1], currency=total.currency), total.amount_minor
 
 
 def _check(booking: store.GroupBooking, cost_total: int, viewer: BackOfficeUser) -> GroupPriceCheck:
