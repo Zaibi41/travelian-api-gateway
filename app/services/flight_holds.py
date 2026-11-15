@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, BackOfficeUser
 from app.core.pakistan_airports import is_domestic
 from app.db import saved_people, supplier_bookings
+from app.schemas.customer_card import ContactError
 from app.schemas.live_flights import IDENTITY_FIELDS, FlightMoney, HoldContact, HoldPassenger, HoldRequest, HoldView
 from app.schemas.saved_people import SaveOutcomeView
 from app.services import live_flights
@@ -261,6 +262,17 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     if request.confirmed_total.currency != quote.currency or request.confirmed_total.amount_minor != quote.selling_total_minor:
         raise HoldError(409, f"Confirm the revalidated total of {live_flights.money_text(quote.selling_total_minor, quote.currency)}. Nothing was booked.",
                         code="confirm_total")
+    if request.customer is not None:
+        # The shared customer card: the gateway splits the name and phone (same rules as the Group Ticketing hold).
+        try:
+            request = request.model_copy(update={"contact": request.customer.to_hold_contact(), "customer": None})
+        except ContactError as error:
+            raise HoldError(422, error.message, code="invalid_customer", field_errors=[(["contact", error.field], error.message)]) from None
+        except ValidationError as error:
+            fields = {"first_name": "full_name", "last_name": "full_name", "phone_code": "phone"}
+            paths = [(["contact", fields.get(str(e["loc"][0]), str(e["loc"][0])) if e["loc"] else "full_name"], e["msg"].removeprefix("Value error, "))
+                     for e in error.errors()]
+            raise HoldError(422, "Check the customer's details.", code="invalid_customer", field_errors=paths) from None
     owner = None  # back-office holds are Travelian's own (saved people are scoped by owner)
     request, links = await run_in_threadpool(resolve_saved, request, owner)
     counts = {"ADT": quote.request.adults, "CHD": quote.request.children, "INF": quote.request.infants}

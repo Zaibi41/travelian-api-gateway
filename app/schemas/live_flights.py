@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.customer_card import CustomerCard
 from app.schemas.saved_people import SaveOutcomeView
 
 
@@ -168,9 +169,17 @@ class HoldContact(BaseModel):
 class HoldRequest(BaseModel):
     quote_id: str = Field(min_length=8, max_length=64)
     confirmed_total: FlightMoney = Field(description="The total the user confirmed. The hold is refused if the supplier's total differs.")
-    contact: HoldContact
+    contact: HoldContact | None = Field(None, description="The customer, already split (first/last name, phone code and number).")
+    customer: CustomerCard | None = Field(None, description="Or the customer card shared with the Group Ticketing hold (full name, one phone "
+                                                             "field); the gateway splits it. Send contact or customer, not both.")
     passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
     accept_price_change: bool = Field(False, description="Required (true) when the quote's price changed since the search.")
+
+    @model_validator(mode="after")
+    def one_customer(self):
+        if (self.contact is None) == (self.customer is None):
+            raise ValueError("Send the customer as contact or as customer, not both.")
+        return self
 
 
 class HoldView(BaseModel):

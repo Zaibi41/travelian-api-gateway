@@ -1956,6 +1956,99 @@
         "title": "CurrentUser",
         "type": "object"
       },
+      "CustomerCard": {
+        "description": "The customer card, typed per booking (or a saved customer by customer_id).",
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved customer; typed values override for this booking.",
+            "title": "Customer Id"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Given name(s) and surname; the last word is the surname.",
+            "title": "Full Name"
+          },
+          "id_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PSPT",
+                  "NATI"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The customer's document: passport or CNIC.",
+            "title": "Id Type"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 24,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With country code, e.g. +92 300 1234567. A Pakistani number may start with 0.",
+            "title": "Phone"
+          },
+          "save_for_next_time": {
+            "default": true,
+            "description": "Save or update the customer after the hold. Never blocks the hold.",
+            "title": "Save For Next Time",
+            "type": "boolean"
+          }
+        },
+        "title": "CustomerCard",
+        "type": "object"
+      },
       "DashboardFilterOptions": {
         "properties": {
           "products": {
@@ -2964,99 +3057,6 @@
         "title": "GroupHeldPriceChange",
         "type": "object"
       },
-      "GroupHoldContact": {
-        "description": "The customer card, typed per booking (or a saved customer by customer_id).",
-        "properties": {
-          "customer_id": {
-            "anyOf": [
-              {
-                "maxLength": 36,
-                "minLength": 8,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A saved customer; typed values override for this booking.",
-            "title": "Customer Id"
-          },
-          "document_number": {
-            "anyOf": [
-              {
-                "maxLength": 20,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Number"
-          },
-          "email": {
-            "anyOf": [
-              {
-                "maxLength": 50,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
-          },
-          "full_name": {
-            "anyOf": [
-              {
-                "maxLength": 60,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Given name(s) and surname; the last word is the surname.",
-            "title": "Full Name"
-          },
-          "id_type": {
-            "anyOf": [
-              {
-                "enum": [
-                  "PSPT",
-                  "NATI"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The customer's document: passport or CNIC.",
-            "title": "Id Type"
-          },
-          "phone": {
-            "anyOf": [
-              {
-                "maxLength": 24,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "With country code, e.g. +92 300 1234567. A Pakistani number may start with 0.",
-            "title": "Phone"
-          },
-          "save_for_next_time": {
-            "default": true,
-            "description": "Save or update the customer after the hold. Never blocks the hold.",
-            "title": "Save For Next Time",
-            "type": "boolean"
-          }
-        },
-        "title": "GroupHoldContact",
-        "type": "object"
-      },
       "GroupHoldCustomer": {
         "properties": {
           "email": {
@@ -3447,7 +3447,7 @@
             "type": "integer"
           },
           "contact": {
-            "$ref": "#/components/schemas/GroupHoldContact"
+            "$ref": "#/components/schemas/CustomerCard"
           },
           "passengers": {
             "description": "One adult (ADT) per seat.",
@@ -4983,7 +4983,26 @@
             "description": "The total the user confirmed. The hold is refused if the supplier's total differs."
           },
           "contact": {
-            "$ref": "#/components/schemas/HoldContact"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HoldContact"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The customer, already split (first/last name, phone code and number)."
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerCard"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Or the customer card shared with the Group Ticketing hold (full name, one phone field); the gateway splits it. Send contact or customer, not both."
           },
           "passengers": {
             "items": {
@@ -5004,7 +5023,6 @@
         "required": [
           "quote_id",
           "confirmed_total",
-          "contact",
           "passengers"
         ],
         "title": "HoldRequest",

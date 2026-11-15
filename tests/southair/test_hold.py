@@ -452,3 +452,33 @@ def test_hold_saves_the_itinerary_from_the_fresh_search():
     assert set(segment) == {"direction", "origin", "destination", "airline_code", "airline_name", "flight_number", "departure_local",
                             "arrival_local", "duration_minutes", "stops", "stop_cities", "fare_name", "baggage", "meal"}
     assert "Test" not in str(itinerary) and "AB1234567" not in str(itinerary)
+
+
+def card_request(card, total=46_700):
+    return HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": total, "currency": "PKR"}, customer=card, passengers=[ADULT])
+
+
+def test_the_shared_customer_card_is_split_by_the_gateway():
+    make_quote()
+    client = fake_client()
+    _, save = run(card_request({"full_name": "Ali Hassan Raza", "phone": "+92 300 1234567", "email": "ops@example.invalid",
+                                "id_type": "PSPT", "document_number": "AB1234567"}), client)
+    customer = save.call_args.kwargs["customer"]
+    assert (customer.first_name, customer.last_name, customer.email) == ("Ali Hassan", "Raza", "ops@example.invalid")
+    assert client.booking.await_args.kwargs["contact"] == {"email": "ops@example.invalid", "code": "92", "phone": "3001234567"}
+
+
+@pytest.mark.parametrize("card,field", [({"full_name": "Ali", "phone": "+92 300 1234567", "email": "a@b.co"}, "full_name"),
+                                        ({"full_name": "Ali Raza", "phone": "300 12", "email": "a@b.co"}, "phone")])
+def test_an_unreadable_customer_card_points_at_its_field_before_any_supplier_call(card, field):
+    make_quote()
+    client = fake_client()
+    with pytest.raises(flight_holds.HoldError) as error:
+        run(card_request(card), client)
+    assert error.value.status == 422 and error.value.field_errors[0][0] == ["contact", field]
+    assert client.search.await_count == 0 and client.booking.await_count == 0
+
+
+def test_contact_or_customer_but_not_both_or_neither():
+    with pytest.raises(ValueError):
+        HoldRequest(quote_id="q" * 20, confirmed_total={"amount_minor": 1, "currency": "PKR"}, passengers=[ADULT])
