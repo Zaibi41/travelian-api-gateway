@@ -14,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.admin_dashboard import FilterOption
+from app.schemas.group_holds import FareTermsView
 
 
 Product = Literal["flight", "group", "hotel", "umrah"]
@@ -300,6 +301,7 @@ class BookingSegment(BaseModel):
 
 
 class BookingDetail(BaseModel):
+    fare_terms: FareTermsView | None = Field(None, description="Group bookings: the stored non-refundable, non-changeable acknowledgement.")
     source: Literal["gateway_bookings"] = SOURCE
     sample: bool
     sample_label: DataLabel | None = None

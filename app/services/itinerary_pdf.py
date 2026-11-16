@@ -197,6 +197,7 @@ class Itinerary:
     segments: list[dict] = field(default_factory=list)
     customer: str | None = None
     terms: list[str] = field(default_factory=list)  # only terms the booking actually carries; none are invented
+    fare_note: str | None = None  # shown next to the fare, e.g. "Non-refundable · Non-changeable" (group bookings that carry it)
 
     @property
     def state(self) -> str:
@@ -356,8 +357,10 @@ def render(doc: Itinerary, now: datetime) -> bytes:
                                  title=f"Travelian {doc.reference}", author="Travelian", subject="Booking itinerary", creator="Travelian")
     story = [_header(doc, width), Spacer(1, 4 * mm), _banner(doc, width),
              _section("Booked by / Contact", width), _booked_by(doc, width),
-             _section("Travelers", width), _travelers(doc, width),
-             _section("Flights", width)]
+             _section("Travelers", width), _travelers(doc, width)]
+    if doc.fare_note:
+        story += [Spacer(1, 1.5 * mm), _p(doc.fare_note, size=8.5, bold=True, color=NAVY, align=TA_RIGHT)]
+    story.append(_section("Flights", width))
     if doc.segments:
         story += [_leg(doc, segment, width) for segment in doc.segments]
     else:

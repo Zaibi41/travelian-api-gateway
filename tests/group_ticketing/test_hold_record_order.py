@@ -33,7 +33,7 @@ def stock():
 TICKET_ID = group_ticket_id(stock()[0].tickets[0])
 ADULT = {"type": "ADT", "title": "MR", "first_name": "Ali", "last_name": "Raza", "date_of_birth": "1988-03-14", "id_type": "PSPT",
          "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2031-09-30", "nationality": "PAK"}
-REQUEST = GroupHoldRequest(ticket_id=UUID(TICKET_ID), adults=1, passengers=[ADULT],
+REQUEST = GroupHoldRequest(fare_terms_acknowledged=True, ticket_id=UUID(TICKET_ID), adults=1, passengers=[ADULT],
                            contact={"full_name": "Ali Raza", "phone": "+92 300 1234567", "email": "a@example.invalid"})
 
 
@@ -189,3 +189,22 @@ def test_unrecorded_hold_view_notice_and_staff_cannot_open_it():
         with patch.object(store, "expire_if_over", lambda reference, now, no_release=frozenset(): booking), pytest.raises(GroupHoldError) as raised:
             asyncio.run(group_holds.read("TRV-GRP-AB12CD", STAFF))
     assert raised.value.status == 404
+
+
+def test_a_hold_without_the_non_refundable_acknowledgement_is_refused_before_anything_is_written_or_sent(fakes):
+    provider = Provider()
+    request = REQUEST.model_copy(update={"fare_terms_acknowledged": False})
+    with patch.dict(group_holds.PROVIDERS, {"skypass": lambda: provider}), pytest.raises(GroupHoldError) as raised:
+        asyncio.run(group_holds.hold(request, ADMIN, fetch=AsyncMock(return_value=stock())))
+    assert raised.value.status == 422 and raised.value.code == "fare_terms_not_acknowledged"
+    assert "non-refundable and non-changeable" in raised.value.message
+    assert raised.value.field_errors[0][0] == ["fare_terms_acknowledged"]
+    assert fakes == [] and provider.calls == []
+
+
+def test_the_acknowledgement_is_written_with_the_hold_record_text_and_version(fakes):
+    with pytest.raises(GroupHoldError):
+        hold(Provider())                                                  # (this fixture's confirm_hold fails; the record is written first)
+    from app.services import group_terms
+    assert fakes[0][1]["fare_terms"] == {"terms_version": group_terms.VERSION, "acknowledged_by": "staff",
+                                         "terms_text": "The customer has been told that this group fare is non-refundable and non-changeable, and agrees."}

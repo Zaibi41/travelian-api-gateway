@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.field_visibility import FieldVisibility
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
-from app.services import supplier_logos
+from app.services import group_terms, supplier_logos
 from app.services.group_ticketing import group_ticket_id, stock_label
 
 from uuid import NAMESPACE_URL, uuid5
@@ -44,8 +44,19 @@ class GroupLegView(BaseModel):
     meal: Literal["Yes", "No"] | None = None
 
 
+class GroupFareTerms(BaseModel):
+    """Group fares are non-refundable and non-changeable. The texts to show, word for word (app.services.group_terms)."""
+
+    version: str
+    notice: str = Field(description="Above the results: the rule in one line.")
+    acknowledgement: str = Field(description="The tick box on the staff hold form; this exact text is stored with the booking.")
+    refund: Literal["Non-refundable"] = "Non-refundable"
+
+
 class GroupTicketView(BaseModel):
     id: str
+    fare_terms: GroupFareTerms = Field(default_factory=lambda: GroupFareTerms(
+        version=group_terms.VERSION, notice=group_terms.TERM, acknowledgement=group_terms.STAFF_TEXT))
     updated_at: str | None = None
     sold: str | int | None = None
     departure_date: str | None = None

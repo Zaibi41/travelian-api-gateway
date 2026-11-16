@@ -36,6 +36,9 @@ class GroupHoldRequest(BaseModel):
     adults: int = Field(ge=1, le=MAX_ADULTS, description="Adults only; must equal the number of passengers.")
     contact: GroupHoldContact
     passengers: list[GroupHoldPassenger] = Field(min_length=1, max_length=MAX_ADULTS, description="One adult (ADT) per seat.")
+    fare_terms_acknowledged: bool = Field(False, description="Required (true): the customer has been told that this group fare is "
+                                                              "non-refundable and non-changeable, and agrees. Stored with the booking "
+                                                              "(who, when, the text shown). The hold is refused without it.")
     selling_price_per_adult: GroupMoney | None = Field(None, description="What the customer pays per adult, in whole rupees, not below the "
                                                                          "supplier cost. Default: supplier price + the group markup (0 when unset). "
                                                                          "Changing it needs the record payments permission.")
@@ -99,6 +102,16 @@ class GroupHeldPriceChange(BaseModel):
     profit: GroupMoney | None = Field(None, description="selling_total - held_cost. Only with the cost and margin permission.")
 
 
+class FareTermsView(BaseModel):
+    """The stored acknowledgement that the fare is non-refundable and non-changeable."""
+
+    text: str = Field(description="The exact text that was shown and ticked.")
+    version: str = Field(description="The version of that text.")
+    acknowledged_by: Literal["staff", "customer"] = Field(description="Who ticked it: a staff user for the customer, or the customer.")
+    acknowledged_by_user_id: str | None = Field(None, description="The user who ticked it.")
+    acknowledged_at: datetime
+
+
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
     pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
@@ -135,6 +148,7 @@ class GroupHoldView(BaseModel):
     hold_time_note: str | None = Field(None, description="Under the countdown: 'Hold time estimated (45 min default)' or 'Hold time from "
                                                         "supplier'. Only with the supplier names permission.")
     supplier_notice: str | None = Field(None, description="What happens to the seats at the supplier, e.g. 'Cancelled at the supplier'. Only with the supplier names permission.")
+    fare_terms: FareTermsView | None = Field(None, description="The non-refundable, non-changeable acknowledgement stored at the hold.")
     saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
 
 

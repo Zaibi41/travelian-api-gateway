@@ -219,7 +219,7 @@ def store_ok():
 
 
 def request_for(stock, **passenger):
-    return GroupHoldRequest(ticket_id=UUID(group_ticket_id(stock[0].tickets[0])), adults=1,
+    return GroupHoldRequest(fare_terms_acknowledged=True, ticket_id=UUID(group_ticket_id(stock[0].tickets[0])), adults=1,
                             passengers=[{"type": "ADT", "title": "MR", "first_name": "Test", "last_name": "Traveler", "date_of_birth": "1990-01-01",
                                          "id_type": "PSPT", "document_number": "TEST12345", "document_country": "PAK",
                                          "document_expiry": "2031-01-01", "nationality": "PAK", **passenger}],

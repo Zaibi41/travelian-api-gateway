@@ -26,6 +26,7 @@ from app.core.config import settings
 from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
 from app.db import booking_payments, booking_people, booking_pricing
 from app.db import issuance as issuance_store
+from app.services import group_terms
 from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
@@ -142,6 +143,9 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         paid_minor=paid, travelers=travelers, segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)],
         customer=customer,
     )
+    if group_terms.acknowledgement(getattr(people, "events", None)) is not None:
+        # The booking carries the stored group fare terms: the tag next to the fare and the full line in the terms box.
+        document.fare_note, document.terms = group_terms.TAG, [group_terms.TERM]
     content = await run_in_threadpool(itinerary_pdf_service.render, document, _now())
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id)
     media, filename = "application/pdf", f"{safe}.pdf"

@@ -39,12 +39,12 @@ from app.core.field_visibility import BACK_OFFICE_ROLES, ISSUE_TICKETS, RECORD_P
 from app.db import booking_people, group_holds as store
 from app.db import issuance as issuance_store
 from app.schemas.group_holds import (
-    ContactError, GroupHeldPriceChange, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
+    ContactError, FareTermsView, GroupHeldPriceChange, GroupHoldCustomer, GroupHoldFlight, GroupHoldPayment, GroupHoldRequest, GroupHoldTraveler, GroupHoldView,
     GroupIssueResult, GroupPriceCheck, age_on,
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
-from app.services import flight_holds, pricing
+from app.services import flight_holds, group_terms, pricing
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
 from app.services.live_flights import money_text
@@ -404,6 +404,11 @@ def source_record(ticket: GroupTicket, held_pnr: str | None) -> dict[str, str | 
             "supplier_group_id": ticket.supplier_group_id, "supplier_ticket_id": ticket.supplier_ticket_id}
 
 
+def fare_terms_view(stored: group_terms.Acknowledgement | None) -> FareTermsView | None:
+    return None if stored is None else FareTermsView(text=stored.text, version=stored.version, acknowledged_by=stored.acknowledged_by,
+                                                     acknowledged_by_user_id=stored.actor_user_id, acknowledged_at=stored.at)
+
+
 def build_view(booking: store.GroupBooking, people: booking_people.People | None, viewer: BackOfficeUser, now: datetime) -> GroupHoldView:
     money = lambda minor: GroupMoney(amount_minor=minor, currency=booking.currency)  # noqa: E731
     status = _status(booking, now)
@@ -442,6 +447,7 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         view.supplier_notice = supplier_notice(booking, provider, status)
         view.hold_time_note = hold_time_note(booking) if status in ("held", "expired") else None
     if people is not None:
+        view.fare_terms = fare_terms_view(group_terms.acknowledgement(people.events))
         if people.customer:
             c = people.customer
             view.customer = GroupHoldCustomer(name=f"{c.first_name} {c.last_name}".strip(), phone=f"+{c.phone_code} {c.phone}", email=c.email)
@@ -534,6 +540,8 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None) -> GroupHoldView:
     if viewer.role not in BACK_OFFICE_ROLES:
         raise GroupHoldError(403, "Only back-office users can hold group seats.", "not_allowed")
+    if not request.fare_terms_acknowledged:
+        raise GroupHoldError(422, group_terms.REQUIRED, "fare_terms_not_acknowledged", [(["fare_terms_acknowledged"], group_terms.REQUIRED)])
     if any(passenger.type != "ADT" for passenger in request.passengers):
         raise GroupHoldError(422, "Group fares are for adults only.", "adults_only")
     if len(request.passengers) != request.adults:
@@ -600,7 +608,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                                "ticket": {"id": str(request.ticket_id), "updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
                                "source": source_record(ticket, None)},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
-            reference_prefix=REFERENCE_PREFIX,
+            reference_prefix=REFERENCE_PREFIX, fare_terms=group_terms.event_details(),
         ))
     except Exception as error:  # noqa: BLE001 - nothing was sent to the supplier
         reason = error_reason(error)

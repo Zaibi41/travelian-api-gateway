@@ -85,7 +85,7 @@ def group_hold(selling=None, viewer=SUPER_ADMIN, provider=None, adults=2):
     stock = normalize_groups(rows())
     passenger = {"type": "ADT", "title": "MR", "first_name": "Ali", "last_name": "Raza", "date_of_birth": "1990-01-01", "id_type": "PSPT",
                  "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2031-01-01", "nationality": "PAK"}
-    request = GroupHoldRequest(ticket_id=UUID(group_ticket_id(stock[0].tickets[0])), adults=adults,
+    request = GroupHoldRequest(fare_terms_acknowledged=True, ticket_id=UUID(group_ticket_id(stock[0].tickets[0])), adults=adults,
                                passengers=[passenger, {**passenger, "first_name": "Sana", "title": "MRS"}][:adults],
                                contact={"full_name": "Ali Raza", "phone": "+92 300 1234567", "email": "a@example.invalid"},
                                selling_price_per_adult=None if selling is None else {"amount_minor": selling, "currency": "PKR"})

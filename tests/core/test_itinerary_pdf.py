@@ -118,3 +118,27 @@ def test_three_travelers_and_names_beyond_latin(monkeypatch, tmp_path):
 def test_unknown_booking_is_404_and_other_roles_are_refused(monkeypatch):
     assert get(monkeypatch, "TRV-NOPE").status_code == 404
     assert get(monkeypatch, "TRV-41", viewer=None).status_code == 403
+
+
+def acknowledged(*travelers, paid=0):
+    """A group booking whose events carry the stored non-refundable, non-changeable acknowledgement."""
+    from app.db.booking_people import AuditEvent
+    from app.services import group_terms
+    who = people(*travelers, paid=paid)
+    who.events = [AuditEvent("fare_terms_acknowledged", "u-1", NOW, group_terms.event_details())]
+    return who
+
+
+def test_group_pdf_carries_non_refundable_next_to_the_fare_and_the_full_line_in_the_terms_box(monkeypatch, tmp_path):
+    who = acknowledged(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000)
+    text = " ".join(pdf_text(get(monkeypatch, "TRV-42", who=who).content, tmp_path).split())
+    assert "Non-refundable · Non-changeable" in text
+    assert "TERMS 1 Group fares are non-refundable and non-changeable. Names and dates cannot be altered after booking." in text
+    assert text.index("Rs 176,400") < text.index("Non-refundable · Non-changeable") < text.index("FLIGHTS")   # right under the fare
+    issued = acknowledged(traveler(0, "Ali", ticket="2147483647001"), paid=8_800_000)                           # the e-ticket state too
+    assert "Non-refundable · Non-changeable" in pdf_text(get(monkeypatch, "TRV-44", who=issued).content, tmp_path)
+
+
+def test_a_booking_without_the_stored_term_has_no_terms_box(monkeypatch, tmp_path):
+    text = pdf_text(get(monkeypatch, "TRV-41", who=people(traveler(0, "Ali"))).content, tmp_path)
+    assert "Non-refundable" not in text and "TERMS" not in text

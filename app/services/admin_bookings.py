@@ -19,6 +19,7 @@ from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
+from app.services import group_terms
 from app.services.pricing import cost_unknown
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
@@ -260,6 +261,8 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
     if booking.itinerary:
         detail.itinerary = [BookingSegment.model_validate(segment) for segment in booking.itinerary]
     if people and people.events:
+        from app.services.group_holds import fare_terms_view  # late: group_holds imports this module's helpers
+        detail.fare_terms = fare_terms_view(group_terms.acknowledgement(people.events))
         detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
                         for e in people.events]
     unknown_cost = cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor)

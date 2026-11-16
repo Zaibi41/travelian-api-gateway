@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.field_visibility import ALL, NONE, BackOfficeUser, resolve_actions
-from app.db import booking_payments, payment_accounts, saved_people
+from app.db import booking_payments, booking_people, payment_accounts, saved_people
 from app.db import bookings as booking_store
 from app.schemas.group_holds import GroupHoldRequest
 from app.services import group_holds
@@ -83,7 +83,7 @@ ADULT_2 = {**ADULT_1, "title": "MRS", "first_name": "Sana", "date_of_birth": "19
 
 
 def request(passengers=None, adults=2, **contact):
-    return GroupHoldRequest(ticket_id=UUID(TICKET_ID), adults=adults, passengers=passengers or [ADULT_1, ADULT_2], contact={
+    return GroupHoldRequest(fare_terms_acknowledged=True, ticket_id=UUID(TICKET_ID), adults=adults, passengers=passengers or [ADULT_1, ADULT_2], contact={
         "full_name": "Ali Raza", "phone": "+92 300 1234567", "email": "ali.raza@example.invalid", "id_type": "PSPT",
         "document_number": "AB1234567", **contact})
 
@@ -405,3 +405,32 @@ def test_a_default_hold_time_switches_to_the_supplier_expiry_once(provider, data
     assert after.hold_expires_at == supplier_time and after.hold_time["source"] == "supplier"
     again = store_.save_supplier_amounts(view.booking_id, {"cancel_status": 0}, False, datetime.now(timezone.utc), supplier_time + timedelta(minutes=5))
     assert again.hold_expires_at == supplier_time  # only a default hold time is switched
+
+
+def test_the_non_refundable_acknowledgement_is_stored_with_the_user_and_time_and_shown_on_the_booking(provider, database):
+    from app.services import admin_bookings, group_terms
+    before = datetime.now(timezone.utc) - timedelta(seconds=5)
+    view = place()
+    terms = view.fare_terms
+    assert (terms.text, terms.version, terms.acknowledged_by, terms.acknowledged_by_user_id) == (group_terms.STAFF_TEXT, group_terms.VERSION, "staff", ACTOR)
+    assert before <= terms.acknowledged_at <= datetime.now(timezone.utc) + timedelta(seconds=5)
+    connection, _, _ = database
+    row = connection.execute(text("SELECT e.actor_user_id, e.details FROM booking_events e JOIN bookings b ON b.id = e.booking_id"
+                                  " WHERE b.reference = :r AND e.action = 'fare_terms_acknowledged'"), {"r": view.booking_id}).one()
+    assert row.actor_user_id == ACTOR and row.details == group_terms.event_details()
+    assert run(group_holds.read(view.booking_id, ADMIN)).fare_terms.text == group_terms.STAFF_TEXT   # still there on a later read
+    # Bookings > Overview and Audit: the same stored acknowledgement and its audit entry.
+    people = booking_people.read(view.booking_id)
+    booking = next(b for b in booking_store.list_dashboard_bookings() if b.booking_id == view.booking_id)
+    detail = admin_bookings.build_detail(booking, ADMIN.visibility, people)
+    assert detail.fare_terms.text == group_terms.STAFF_TEXT and detail.fare_terms.acknowledged_by_user_id == ACTOR
+    entry = next(e for e in detail.audit if e.action == "fare_terms_acknowledged")
+    assert entry.details == group_terms.event_details() and entry.actor_user_id == ACTOR
+
+
+def test_a_hold_without_the_acknowledgement_creates_no_booking(provider, database):
+    with pytest.raises(GroupHoldError) as error:
+        place(req=request().model_copy(update={"fare_terms_acknowledged": False}))
+    assert error.value.code == "fare_terms_not_acknowledged" and "hold" not in str(provider.calls)
+    connection, _, _ = database
+    assert connection.scalar(text("SELECT count(*) FROM bookings")) == 0

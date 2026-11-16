@@ -594,6 +594,17 @@
           "fare": {
             "$ref": "#/components/schemas/BookingFare"
           },
+          "fare_terms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FareTermsView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Group bookings: the stored non-refundable, non-changeable acknowledgement."
+          },
           "itinerary": {
             "anyOf": [
               {
@@ -2253,6 +2264,55 @@
         "title": "FarePerPassenger",
         "type": "object"
       },
+      "FareTermsView": {
+        "description": "The stored acknowledgement that the fare is non-refundable and non-changeable.",
+        "properties": {
+          "acknowledged_at": {
+            "format": "date-time",
+            "title": "Acknowledged At",
+            "type": "string"
+          },
+          "acknowledged_by": {
+            "description": "Who ticked it: a staff user for the customer, or the customer.",
+            "enum": [
+              "staff",
+              "customer"
+            ],
+            "title": "Acknowledged By",
+            "type": "string"
+          },
+          "acknowledged_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user who ticked it.",
+            "title": "Acknowledged By User Id"
+          },
+          "text": {
+            "description": "The exact text that was shown and ticked.",
+            "title": "Text",
+            "type": "string"
+          },
+          "version": {
+            "description": "The version of that text.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "version",
+          "acknowledged_by",
+          "acknowledged_at"
+        ],
+        "title": "FareTermsView",
+        "type": "object"
+      },
       "FareView": {
         "properties": {
           "baggage": {
@@ -3019,6 +3079,38 @@
         "title": "GroupBookingResponse",
         "type": "object"
       },
+      "GroupFareTerms": {
+        "description": "Group fares are non-refundable and non-changeable. The texts to show, word for word (app.services.group_terms).",
+        "properties": {
+          "acknowledgement": {
+            "description": "The tick box on the staff hold form; this exact text is stored with the booking.",
+            "title": "Acknowledgement",
+            "type": "string"
+          },
+          "notice": {
+            "description": "Above the results: the rule in one line.",
+            "title": "Notice",
+            "type": "string"
+          },
+          "refund": {
+            "const": "Non-refundable",
+            "default": "Non-refundable",
+            "title": "Refund",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "notice",
+          "acknowledgement"
+        ],
+        "title": "GroupFareTerms",
+        "type": "object"
+      },
       "GroupHeldPriceChange": {
         "description": "The supplier held the seats at a different cost than shown before the hold. The selling price stays the staff's;\npayments wait until the change is confirmed, which is refused while the selling price is below the new cost.",
         "properties": {
@@ -3475,6 +3567,12 @@
           "contact": {
             "$ref": "#/components/schemas/CustomerCard"
           },
+          "fare_terms_acknowledged": {
+            "default": false,
+            "description": "Required (true): the customer has been told that this group fare is non-refundable and non-changeable, and agrees. Stored with the booking (who, when, the text shown). The hold is refused without it.",
+            "title": "Fare Terms Acknowledged",
+            "type": "boolean"
+          },
           "passengers": {
             "description": "One adult (ADT) per seat.",
             "items": {
@@ -3655,6 +3753,17 @@
                 "type": "null"
               }
             ]
+          },
+          "fare_terms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FareTermsView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The non-refundable, non-changeable acknowledgement stored at the hold."
           },
           "flight": {
             "$ref": "#/components/schemas/GroupHoldFlight"
@@ -4434,6 +4543,9 @@
             ],
             "description": "HH:MM of the first segment, when the supplier sends it.",
             "title": "Departure Time"
+          },
+          "fare_terms": {
+            "$ref": "#/components/schemas/GroupFareTerms"
           },
           "flight_number": {
             "anyOf": [

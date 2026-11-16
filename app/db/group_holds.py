@@ -249,7 +249,7 @@ HOLD_PENDING, HOLD_FAILED, HOLD_UNRECORDED = "hold_pending", "hold_failed", "hol
 
 def create_pending(*, provider: str, currency: str, selling_total_minor: int, supplier_total_minor: int | None,
                    supplier_response: dict[str, Any], actor_user_id: str, customer, travelers: list, itinerary: list[dict[str, Any]],
-                   reference_prefix: str) -> tuple[str, str]:
+                   reference_prefix: str, fare_terms: dict[str, Any] | None = None) -> tuple[str, str]:
     """Our record before the supplier is called: 'hold_pending', no PNR yet, with its customer and travelers.
     Returns (booking id, reference)."""
     from uuid import uuid4
@@ -270,6 +270,8 @@ def create_pending(*, provider: str, currency: str, selling_total_minor: int, su
         if customer is not None:
             _save_people(connection, booking_id, customer, travelers, selling_total_minor, supplier_total_minor)
         _event(connection, booking_id, actor_user_id, "hold_requested", {"travelers": len(travelers)})
+        if fare_terms:  # the non-refundable, non-changeable acknowledgement: who (the actor), when, and the text shown
+            _event(connection, booking_id, actor_user_id, "fare_terms_acknowledged", fare_terms)
     return booking_id, reference
 
 
