@@ -102,21 +102,20 @@ def test_agency_and_customer_roles_get_403():
 
 # ---------- masked API output ----------
 
-def test_search_and_detail_are_masked_and_never_carry_full_numbers(db):
+def test_search_and_detail_carry_the_full_values(db):
     saved, _ = person(document=passport(), email="ops@example.invalid", phone_code="92", phone="3001234567")
     store.add_document(None, ACTOR, saved.id, cnic())
     client = api()
     found = client.get("/v1/admin/customers", params={"q": "AB1234567"})
     detail = client.get(f"/v1/admin/customers/{saved.id}")
     for response in (found, detail):
-        assert response.status_code == 200
-        for value in ("AB1234567", "ab1234567", "3520212345671", CNIC, "1990-01-31", "2031-01-01", "3001234567", "ops@example.invalid"):
-            assert value not in response.text, value
+        assert response.status_code == 200 and "•" not in response.text and "_masked" not in response.text
     result = found.json()["results"][0]
-    assert result["birth_year"] == 1990 and result["phone_masked"] == "+92 •••••••567" and result["email_masked"] == "o•••@example.invalid"
-    assert {d["document_number_masked"] for d in result["documents"]} == {"••••••567", "••••••••••671"}
+    assert (result["date_of_birth"], result["phone"], result["email"]) == ("1990-01-31", "+92 3001234567", "ops@example.invalid")
+    assert {d["document_number"] for d in result["documents"]} == {PASSPORT, CNIC}
+    assert {d.get("document_expiry") for d in result["documents"]} == {"2031-01-01", None}
     assert {d.get("document_validity") for d in result["documents"]} == {"valid", None}
-    assert detail.json()["date_of_birth_masked"] == "1990-••-••" and "can_reveal_identity" not in detail.json()
+    assert detail.json()["date_of_birth"] == "1990-01-31" and "can_reveal_identity" not in detail.json()
 
 
 def test_search_needs_three_characters_and_returns_at_most_twenty(db):
@@ -153,7 +152,7 @@ def test_without_q_the_register_lists_the_most_recent_people(db):
     client = api()
     listed = client.get("/v1/admin/customers", params={"limit": 50}).json()
     assert [r["first_name"] for r in listed["results"]] == names and listed["can_manage"] is True
-    assert "3001234567" not in str(listed) and any(r.get("phone_masked") for r in listed["results"])
+    assert any(r.get("phone") == "+92 3001234567" for r in listed["results"])
     assert "match" not in listed["results"][0]
     assert client.get("/v1/admin/customers", params={"limit": 51}).status_code == 422
     assert len(client.get("/v1/admin/customers", params={"limit": 2}).json()["results"]) == 2
@@ -168,7 +167,7 @@ def test_same_name_and_birth_date_with_another_document_is_a_possible_duplicate(
             "document": {"id_type": "PSPT", "document_country": "PAK", "document_number": "CD7654321", "document_expiry": "2033-01-01"}}
     response = client.post("/v1/admin/customers", json=body)
     assert response.status_code == 409 and response.json()["code"] == "possible_duplicate"
-    assert response.json()["possible_duplicate"]["id"] == first.id and "CD7654321" not in response.text and "AB1234567" not in response.text
+    assert response.json()["possible_duplicate"]["id"] == first.id
     added = client.post("/v1/admin/customers", json={**body, "duplicate_choice": {"choice": "add_to_existing", "person_id": first.id}})
     assert added.status_code == 200 and added.json()["outcome"] == "added_to_existing"
     assert len(added.json()["person"]["documents"]) == 2
@@ -332,7 +331,6 @@ def test_the_hold_succeeds_when_saving_needs_a_choice(db):
     assert view.pnr == "63B55C"
     traveler = view.saved_people[1]
     assert (traveler.status, traveler.code, traveler.possible_duplicate.id) == ("needs_choice", "possible_duplicate", existing.id)
-    assert "CD7654321" not in traveler.model_dump_json()
     assert connection.scalar(text("SELECT person_id FROM booking_travelers")) is None
 
 
@@ -387,7 +385,7 @@ def test_resolve_add_to_existing_uses_the_booking_copy_and_links_it(db):
     response = booking_api().post(resolve_url(reference), json={"choice": "add_to_existing", "person_id": existing.id})
     assert response.status_code == 200 and response.json()["outcome"] == "added_to_existing"
     body = response.json()["person"]
-    assert body["id"] == existing.id and len(body["documents"]) == 2 and "AB1234567" not in response.text
+    assert body["id"] == existing.id and len(body["documents"]) == 2
     row = connection.execute(text("SELECT person_id, document_id FROM booking_travelers")).one()
     added = connection.scalar(text("SELECT id FROM saved_person_documents WHERE document_number_normalized = 'AB1234567'"))
     assert (row.person_id, row.document_id) == (existing.id, added)
@@ -499,7 +497,7 @@ def test_a_new_customer_from_the_card_keeps_phone_email_and_document_and_holds_a
     assert (person.phone_code, person.phone, person.email) == ("92", "3001234567", "ops@example.invalid")
     assert [(d.id_type, d.document_country, d.document_number) for d in person.documents] == [("PSPT", "PAK", "AB1234567")]
     detail = api().get(f"/v1/admin/customers/{person.id}").json()
-    assert detail["phone_masked"] and detail["email_masked"]               # Find saved customer shows them (masked)
+    assert (detail["phone"], detail["email"]) == ("+92 3001234567", "ops@example.invalid")   # Find saved customer shows them in full
     # Second booking: pick the saved customer; the hold needs nothing typed.
     again = card_hold([{"type": "ADT", "traveler_id": person.id}], card={"customer_id": person.id, "save_for_next_time": True}, client=hold_client())
     assert again.pnr == "63B55C" and again.saved_people[0].status == "linked"
@@ -590,8 +588,8 @@ def test_customer_search_matches_partial_names_phone_email_and_document_prefix(d
     assert names(typeahead("customers", "sana@exa")) == ["Sana Raza"]                     # email contains
     assert names(typeahead("customers", "ab555")) == ["Usman Tariq"]                      # document number prefix
     result = typeahead("customers", "usm").json()["results"][0]
-    assert result["documents"][0]["document_number_masked"] == "••••••967" and "AB5554967" not in str(result)
-    assert result["phone_masked"] and result["email_masked"]
+    assert result["documents"][0]["document_number"] == "AB5554967"
+    assert (result["phone"], result["email"]) == ("+92 3125551234", "usman.t@example.invalid")
     assert typeahead("customers", "u").status_code == 422                                  # 2 characters at least
     assert names(typeahead("customers", "zzz")) == []
 

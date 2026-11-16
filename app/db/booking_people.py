@@ -1,11 +1,5 @@
-"""A booking's customer, travelers (masked) and audit trail; the logged identity reveal.
-
-Reads return the date of birth and document number masked (computed here from the stored
-plain values, docs/pii-storage.md); the document expiry is masked by the API layer, with a
-validity status. reveal() decrypts one traveler's identity fields and writes an
-"identity_revealed" event (who, which traveler, which fields, reason) in the same
-transaction, so there is no reveal without its log entry. Values are never logged.
-"""
+"""A booking's customer, travelers and audit trail. Identity values (date of birth, document number and expiry) are
+returned in full to back-office readers, as stored (docs/pii-storage.md). Values are never logged."""
 
 from __future__ import annotations
 
@@ -15,7 +9,6 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.core import pii
 from app.db import agencies, booking_payments
 from app.db.supplier_bookings import _event
 
@@ -48,8 +41,8 @@ class Traveler:
     nationality: str | None
     document_expiry: date | None
     infant_of_position: int | None
-    date_of_birth_masked: str
-    document_number_masked: str | None
+    date_of_birth: date
+    document_number: str | None
     ticket_number: str | None = None
     selling_minor: int | None = None  # this traveler's selling price (migration 0021)
     cost_minor: int | None = None     # this traveler's supplier cost; never sent without cost and margin access
@@ -100,39 +93,12 @@ def read(reference: str) -> People | None:
         ).mappings().all()
     return People(
         customer=Customer(**row) if row else None,
-        travelers=[_masked(t) for t in travelers],
+        travelers=[Traveler(**t) for t in travelers],
         events=[AuditEvent(e["action"], e["actor_user_id"], e["created_at"],
                            {k: v for k, v in (e["details"] or {}).items() if k in AUDIT_DETAIL_KEYS}, e["actor_role"]) for e in events],
         payments=payments,
     )
 
 
-def _masked(row) -> Traveler:
-    """The traveler with date of birth and document number masked; the plain values stay here."""
-    values = {k: v for k, v in row.items() if k not in ("date_of_birth", "document_number")}
-    return Traveler(**values, date_of_birth_masked=pii.mask_date(row["date_of_birth"].isoformat()),
-                    document_number_masked=pii.mask_document(row["document_number"]) if row["document_number"] else None)
-
-
 class NotFound(Exception):
     pass
-
-
-def reveal(reference: str, position: int, actor_user_id: str, reason: str) -> dict[str, str | None]:
-    """One traveler's full date of birth, document number and expiry, logged with the reason (one transaction)."""
-    with agencies.application_engine().begin() as connection:
-        booking_id = _booking_id(connection, reference)
-        row = connection.execute(
-            text("SELECT date_of_birth, document_number, document_expiry FROM booking_travelers WHERE booking_id = :b AND position = :p"),
-            {"b": booking_id, "p": position},
-        ).mappings().one_or_none() if booking_id else None
-        if row is None:
-            raise NotFound()
-        values = {
-            "date_of_birth": row["date_of_birth"].isoformat(),
-            "document_number": row["document_number"],
-            "document_expiry": row["document_expiry"].isoformat() if row["document_expiry"] else None,
-        }
-        _event(connection, booking_id, actor_user_id, "identity_revealed",
-               {"traveler_position": position, "fields": [k for k, v in values.items() if v is not None], "reason": reason})
-    return values

@@ -121,7 +121,7 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
     assert view.price_per_adult.amount_minor == 105_000_00 and view.total.amount_minor == 210_000_00
     assert view.amount_due.amount_minor == 210_000_00 and view.adults == 2 and view.stock == "supplier"
     assert (view.flight.airline, view.flight.sector, view.flight.departure_date, view.flight.departure_time) == ("Fly Jinnah", "ISB - JED", "2026-11-22", "06:40")
-    assert [t.document_number_masked for t in view.travelers] == ["••••••567", "••••••321"]
+    assert [t.document_number for t in view.travelers] == ["AB1234567", "CD7654321"]
     body = view.model_dump_json()
     for secret in (SUPPLIER_REF, "AB1234567", "1988-03-14"):
         assert secret not in body

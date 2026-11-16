@@ -1,8 +1,7 @@
-"""Masking for traveler identity data (date of birth, passport / ID number, document expiry).
+"""Helpers for traveler identity data (passport / ID number, phone, email, document expiry).
 
-Sandbox phase: these values are stored as plain text (docs/pii-storage.md). Every read the
-gateway returns is masked here; the full values come only from the logged reveal endpoint.
-Values are never logged. Protecting them in the database is a go-live blocker (docs/roadmap.md
+Sandbox phase: these values are stored as plain text (docs/pii-storage.md) and returned in full
+to the back office; nothing is masked. Values are never logged. Protecting them in the database is a go-live blocker (docs/roadmap.md
 in the frontend repo).
 """
 
@@ -29,36 +28,6 @@ def normalize_phone(phone_code: str | None, phone: str | None) -> str | None:
     """Country code and number as digits only (e.g. 92 + 3001234567 -> 923001234567)."""
     digits = re.sub(r"\D", "", f"{phone_code or ''}{(phone or '').lstrip('0')}")
     return digits or None
-
-
-def mask_phone(phone_code: str | None, phone: str | None) -> str | None:
-    """"+92 •••••••567": the country code and last 3 digits only."""
-    digits = re.sub(r"\D", "", phone or "")
-    if not digits:
-        return None
-    return f"+{phone_code} " * bool(phone_code) + "•" * max(len(digits) - 3, 3) + digits[-3:]
-
-
-def mask_email(email: str | None) -> str | None:
-    """"a•••@example.com": the first character and the domain only."""
-    if not email or "@" not in email:
-        return None
-    local, domain = email.strip().split("@", 1)
-    return f"{local[:1]}•••@{domain}"
-
-
-def mask_document(document_number: str) -> str:
-    """"AB1234567" -> "••••••567": the last 3 characters only."""
-    value = document_number.strip()
-    return "•" * max(len(value) - 3, 3) + value[-3:] if len(value) > 3 else "•" * len(value)
-
-
-def mask_date(iso_date: str) -> str:
-    """Any date shown masked: the year only ("1990-01-31" -> "1990-••-••")."""
-    return f"{iso_date[:4]}-••-••"
-
-
-mask_date_of_birth = mask_date
 
 
 def document_validity(expiry: date | None, today: date) -> str | None:

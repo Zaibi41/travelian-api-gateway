@@ -16,12 +16,12 @@ BOTH = {fv.SEE_SUPPLIER_NAMES, fv.SEE_COST_AND_MARGIN}
     ("staff", {fv.SEE_SUPPLIER_NAMES}, FieldVisibility(supplier_names=True, cost_and_margin=False)),
     ("staff", {fv.SEE_COST_AND_MARGIN}, FieldVisibility(supplier_names=False, cost_and_margin=True)),
     ("staff", BOTH, FieldVisibility(supplier_names=True, cost_and_margin=True)),
-    ("staff", {fv.REVEAL_IDENTITY}, FieldVisibility(supplier_names=False, cost_and_margin=False, reveal_identity=True)),
-    ("staff", BOTH | {fv.REVEAL_IDENTITY}, ALL),
+    ("staff", {"reveal_identity"}, NONE),           # an old reveal_identity grant does nothing now: nothing is masked
+    ("staff", BOTH | {"reveal_identity"}, ALL),
     # Agency and customer roles: never, even when a grant row exists.
-    ("agency_owner", BOTH | {fv.REVEAL_IDENTITY}, NONE),
-    ("customer", BOTH | {fv.REVEAL_IDENTITY}, NONE),
-    ("unknown_role", BOTH | {fv.REVEAL_IDENTITY}, NONE),
+    ("agency_owner", BOTH, NONE),
+    ("customer", BOTH, NONE),
+    ("unknown_role", BOTH, NONE),
 ])
 def test_role_matrix(role, granted, expected):
     assert resolve_visibility(role, granted) == expected

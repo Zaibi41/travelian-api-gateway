@@ -7,8 +7,6 @@ protection. Sensitive fields are left OUT of the response (not sent as null):
 - staff: neither by default. Grantable per role or per user:
   "see_supplier_names" and "see_cost_and_margin".
 - agency_owner, customer (and any other role): never, and grants are ignored.
-- "reveal_identity" (spec 3.2: full passport or CNIC and date of birth, granted staff only,
-  every reveal logged): super_admin always; staff only when granted; others never.
 
 Use `require_back_office` on admin endpoints: it admits super_admin and staff
 (agency and customer roles get 403) and returns the caller's visibility.
@@ -27,14 +25,13 @@ from app.core.authentication import AuthenticatedUser, require_authenticated_use
 
 SEE_SUPPLIER_NAMES = "see_supplier_names"
 SEE_COST_AND_MARGIN = "see_cost_and_margin"
-REVEAL_IDENTITY = "reveal_identity"
 #: Action permissions (what a user may do, not see): super_admin always; staff when granted.
 RECORD_PAYMENTS = "record_payments"
 ISSUE_TICKETS = "issue_tickets"
 MANAGE_PEOPLE = "manage_people"
 MERGE_PEOPLE = "merge_people"
 ACTIONS = (RECORD_PAYMENTS, ISSUE_TICKETS, MANAGE_PEOPLE, MERGE_PEOPLE)
-PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, REVEAL_IDENTITY, *ACTIONS)
+PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, *ACTIONS)  # reveal_identity is gone: nothing is masked
 
 FULL_ACCESS_ROLES = {"super_admin"}
 GRANTABLE_ROLES = {"staff"}
@@ -51,11 +48,10 @@ SEARCH_ROLES = BACK_OFFICE_ROLES | {"agency_owner"}
 class FieldVisibility:
     supplier_names: bool
     cost_and_margin: bool
-    reveal_identity: bool = False
 
 
 NONE = FieldVisibility(supplier_names=False, cost_and_margin=False)
-ALL = FieldVisibility(supplier_names=True, cost_and_margin=True, reveal_identity=True)
+ALL = FieldVisibility(supplier_names=True, cost_and_margin=True)
 
 
 def resolve_visibility(role: str, granted: set[str] | frozenset[str]) -> FieldVisibility:
@@ -66,7 +62,6 @@ def resolve_visibility(role: str, granted: set[str] | frozenset[str]) -> FieldVi
         return FieldVisibility(
             supplier_names=SEE_SUPPLIER_NAMES in granted,
             cost_and_margin=SEE_COST_AND_MARGIN in granted,
-            reveal_identity=REVEAL_IDENTITY in granted,
         )
     return NONE  # agency and customer roles: never, even if a grant row exists
 

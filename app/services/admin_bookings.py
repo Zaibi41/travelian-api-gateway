@@ -229,7 +229,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         booking_id=booking.booking_id, pnr=visible_pnr(booking, visibility), product=booking.product,
         customer_or_agency=customer_or_agency(booking), statuses=_statuses(booking), amount=billable,
         deadline=booking.hold_expires_at, created_at=booking.created_at, updated_at=booking.updated_at,
-        fare=fare, sections_not_available=missing, can_reveal_identity=visibility.reveal_identity,
+        fare=fare, sections_not_available=missing,
         can_record_payments=can_record_payments, can_issue_tickets=can_issue_tickets,
     )
     paid = sum(p.amount_minor for p in people.payments) if people else 0
@@ -250,9 +250,8 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         detail.passengers = [
             BookingPassenger(
                 position=t.position, type=t.passenger_type, title=t.title, first_name=t.first_name, last_name=t.last_name,
-                date_of_birth_masked=t.date_of_birth_masked, id_type=t.id_type, document_number_masked=t.document_number_masked,
-                document_country=t.document_country, nationality=t.nationality,
-                document_expiry_masked=pii.mask_date(t.document_expiry.isoformat()) if t.document_expiry else None,
+                date_of_birth=t.date_of_birth, id_type=t.id_type, document_number=t.document_number,
+                document_country=t.document_country, nationality=t.nationality, document_expiry=t.document_expiry,
                 document_validity=pii.document_validity(t.document_expiry, today or datetime.now().date()),
                 infant_of_position=t.infant_of_position, ticket_number=t.ticket_number,
             )

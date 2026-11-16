@@ -70,11 +70,11 @@ class GroupHoldTraveler(BaseModel):
     first_name: str
     last_name: str
     id_type: str
-    document_number_masked: str | None = None
-    date_of_birth_masked: str
+    document_number: str | None = None
+    date_of_birth: date
     nationality: str | None = None
     document_country: str | None = None
-    document_expiry_masked: str | None = None
+    document_expiry: date | None = None
     ticket_number: str | None = None
 
 

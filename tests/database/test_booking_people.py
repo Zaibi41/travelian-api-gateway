@@ -1,5 +1,5 @@
 """A hold's customer and travelers (migrations 0011, 0015): plain text in the sandbox phase,
-masked on every read, full values only through the logged reveal."""
+returned in full to back-office readers (nothing is masked)."""
 
 from datetime import date, datetime, timezone
 
@@ -53,7 +53,7 @@ def test_stored_as_plain_text_without_encryption_columns(database):
 
 
 @pytest.mark.parametrize("role", list(ROLES))
-def test_list_detail_passengers_and_audit_are_masked_for_every_role(database, role):
+def test_list_detail_passengers_and_audit_show_full_identity_for_every_role(database, role):
     connection, metadata, _ = database
     reference = save(connection, metadata)
     row = admin_bookings.find_booking(store.list_dashboard_bookings(), reference)
@@ -66,36 +66,15 @@ def test_list_detail_passengers_and_audit_are_masked_for_every_role(database, ro
     assert "passengers" not in detail.sections_not_available and "audit" not in detail.sections_not_available
     assert [p.first_name for p in detail.passengers] == ["Test", "Baby"]
     adult, infant = detail.passengers
-    assert (adult.document_number_masked, adult.date_of_birth_masked) == ("••••••567", "1990-••-••")
-    assert (adult.document_expiry_masked, adult.document_validity) == ("2030-••-••", "valid")
-    assert infant.document_number_masked is None and infant.infant_of_position == 0
-    for value in ("AB1234567", "1990-01-31", "2030-05-01", "2025-06-01"):
-        assert value not in body
+    assert (adult.document_number, str(adult.date_of_birth)) == ("AB1234567", "1990-01-31")
+    assert (str(adult.document_expiry), adult.document_validity) == ("2030-05-01", "valid")
+    assert infant.document_number is None and str(infant.date_of_birth) == "2025-06-01" and infant.infant_of_position == 0
+    assert "•" not in body
     assert [(e.action, e.details.get("travelers")) for e in detail.audit] == [("hold_created", 2)]
     assert detail.audit[0].actor_user_id == ACTOR
 
 
-def test_reveal_returns_full_values_and_logs_who_which_and_why_but_no_values(database, caplog):
-    connection, metadata, _ = database
-    caplog.set_level(logging.DEBUG)
-    reference = save(connection, metadata)
-    values = booking_people.reveal(reference, 0, ACTOR, "Ticketing needs the passport number")
-    assert values == {"date_of_birth": "1990-01-31", "document_number": "AB1234567", "document_expiry": "2030-05-01"}
-    assert booking_people.reveal(reference, 1, ACTOR, "Infant date of birth for the airline") == {
-        "date_of_birth": "2025-06-01", "document_number": None, "document_expiry": None}
-    with pytest.raises(booking_people.NotFound):
-        booking_people.reveal(reference, 5, ACTOR, "missing traveler")
-    with pytest.raises(booking_people.NotFound):
-        booking_people.reveal("TRV-NOPE00", 0, ACTOR, "missing booking")
-    events = connection.execute(text("SELECT action, actor_user_id, details FROM booking_events WHERE action='identity_revealed' ORDER BY created_at")).all()
-    assert [(e.action, e.actor_user_id, e.details["traveler_position"], e.details["fields"]) for e in events] == [
-        ("identity_revealed", ACTOR, 0, ["date_of_birth", "document_number", "document_expiry"]), ("identity_revealed", ACTOR, 1, ["date_of_birth"])]
-    all_details = str(connection.execute(text("SELECT details FROM booking_events")).scalars().all())
-    for value in ("AB1234567", "1990-01-31", "2030-05-01", "2025-06-01"):
-        assert value not in all_details and value not in caplog.text
-
-
-def test_reveal_identity_is_a_grantable_permission(database):
+def test_an_old_reveal_identity_grant_row_is_still_accepted_by_the_database(database):
     connection, _, _ = database
     connection.execute(text("INSERT INTO role_permissions (role_id, permission) VALUES (4, 'reveal_identity')"))
     with pytest.raises(IntegrityError), connection.begin_nested():

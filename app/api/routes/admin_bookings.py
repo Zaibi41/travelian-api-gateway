@@ -7,8 +7,7 @@ from the response unless the caller holds the matching permission. Filtering by
 provider without the supplier names permission is refused (403).
 Every response carries `source`; rows from a one-time import are `sample`, and
 the list carries `sample_label` "Sample data".
-Passengers show date of birth and document number masked. The full values need the
-reveal_identity permission and a reason, and every reveal is logged (spec 3.2).
+Passengers carry their full date of birth, document number and expiry, as stored.
 """
 
 from typing import Annotated, Literal
@@ -33,7 +32,7 @@ from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
     BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceChecklist, IssuanceRequest,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
-    RevealRequest, RevealResponse, TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
+    TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -111,8 +110,8 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
     """The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status
     banner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight
     outbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only
-    with the supplier names permission; full passport numbers only with reveal_identity (each one logged).
-    format=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules and reveals)."""
+    with the supplier names permission; full passport numbers.
+    format=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules)."""
     bookings = await run_in_threadpool(_read_bookings)
     booking = service.find_booking(bookings, booking_id)
     if booking is None or not service.visible_to(booking, viewer.visibility):
@@ -121,17 +120,9 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         people = await run_in_threadpool(booking_people.read, booking_id)
     except SQLAlchemyError:
         raise HTTPException(503, "Booking details are not available.") from None
-    # Passport numbers: full for viewers allowed to reveal identity (each reveal logged), masked for everyone else.
     travelers = []
     for traveler in (people.travelers if people else []):
-        passport = traveler.document_number_masked if traveler.id_type == "PSPT" else None
-        if viewer.visibility.reveal_identity and traveler.id_type == "PSPT":
-            try:
-                source = "Itinerary PNG" if format == "png" else "Itinerary PDF"
-                revealed = await run_in_threadpool(booking_people.reveal, booking_id, traveler.position, viewer.user_id, source)
-                passport = revealed.get("document_number") or passport
-            except booking_people.NotFound:
-                pass
+        passport = traveler.document_number if traveler.id_type == "PSPT" else None
         travelers.append(itinerary_pdf_service.Traveler(traveler.passenger_type, traveler.title, traveler.first_name, traveler.last_name,
                                                         passport, traveler.selling_minor, traveler.ticket_number))
     customer = f"{people.customer.first_name} {people.customer.last_name}".strip() if people and people.customer else booking.customer_name
@@ -214,25 +205,6 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
         received_into=payment.received_into, reference=payment.reference, received_at=payment.received_at,
         recorded_by_user_id=payment.recorded_by_user_id, recorded_by_role=payment.recorded_by_role, recorded_at=payment.recorded_at,
     ), payment_status=status)
-
-
-@router.post(
-    "/{booking_id}/travelers/{position}/reveal", response_model=RevealResponse, response_model_exclude_none=True,
-    responses={403: {"description": "Needs the reveal_identity permission."}, 404: {"description": "No such booking or traveler."}},
-)
-async def reveal_traveler_identity(
-    viewer: Viewer, request: RevealRequest, response: Response,
-    booking_id: Annotated[str, Path(max_length=64)], position: Annotated[int, Path(ge=0, le=8)],
-):
-    """Full date of birth and document number for one traveler. Logged with the reason (spec 3.2)."""
-    if not viewer.visibility.reveal_identity:
-        raise HTTPException(403, "Revealing identity details requires the reveal identity permission.")
-    response.headers["Cache-Control"] = "no-store"
-    try:
-        values = await run_in_threadpool(booking_people.reveal, booking_id, position, viewer.user_id, request.reason.strip())
-    except booking_people.NotFound:
-        raise HTTPException(404, "Traveler not found.") from None
-    return RevealResponse(**values)
 
 
 # ---------- issuance ----------

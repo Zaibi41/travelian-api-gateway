@@ -251,24 +251,22 @@ PEOPLE = booking_people.People(
     customer=booking_people.Customer("Test", "Customer", "92", "3001234567", "ops@example.invalid"),
     travelers=[booking_people.Traveler(position=0, passenger_type="ADT", title="MR", first_name="Test", last_name="Passenger", id_type="PSPT",
                                        document_country="PAK", nationality="PAK", document_expiry=date(2027, 1, 15), infant_of_position=None,
-                                       date_of_birth_masked="1990-••-••", document_number_masked="••••••567")],
+                                       date_of_birth=date(1990, 1, 31), document_number="AB1234567")],
     events=[booking_people.AuditEvent("hold_created", "u-1", NOW, {"label": "UAT test data", "pnr": "PNR2"}, "super_admin")],
 )
-REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(supplier_names=False, cost_and_margin=False, reveal_identity=True))
 
 
-def test_detail_shows_customer_masked_passengers_and_audit_when_saved(monkeypatch):
-    body = client(monkeypatch, viewer=STAFF, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()
-    assert body["customer"] == {"first_name": "Test", "last_name": "Customer", "phone": "+92 3001234567", "email": "ops@example.invalid"}
-    assert body["passengers"][0]["document_number_masked"] == "••••••567" and body["passengers"][0]["date_of_birth_masked"] == "1990-••-••"
-    assert [(e["action"], e["actor_role"]) for e in body["audit"]] == [("hold_created", "super_admin")]
-    assert body["can_reveal_identity"] is False
-    assert client(monkeypatch, viewer=REVEALER, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()["can_reveal_identity"] is True
-    passenger = body["passengers"][0]
-    assert passenger["document_expiry_masked"] == "2027-••-••" and "document_expiry" not in passenger
-    assert passenger["document_validity"] == "expiring"  # 15 Jan 2027 is within 6 months of today (5 Nov 2026 in these tests)
-    assert "2027-01-15" not in str(body)
-    assert "passengers" not in body["sections_not_available"] and "audit" not in body["sections_not_available"]
+def test_detail_shows_the_customer_full_passenger_identity_and_audit_to_every_back_office_viewer(monkeypatch):
+    for viewer in (STAFF, STAFF_COST, SUPER_ADMIN):
+        body = client(monkeypatch, viewer=viewer, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-2").json()
+        assert body["customer"] == {"first_name": "Test", "last_name": "Customer", "phone": "+92 3001234567", "email": "ops@example.invalid"}
+        passenger = body["passengers"][0]
+        # Nothing is masked: the stored passport number, date of birth and expiry, in full.
+        assert (passenger["document_number"], passenger["date_of_birth"], passenger["document_expiry"]) == ("AB1234567", "1990-01-31", "2027-01-15")
+        assert passenger["document_validity"] == "expiring"  # 15 Jan 2027 is within 6 months of today (5 Nov 2026 in these tests)
+        assert not [key for key in passenger if key.endswith("_masked")] and "can_reveal_identity" not in body and "•" not in str(body)
+        assert [(e["action"], e["actor_role"]) for e in body["audit"]] == [("hold_created", "super_admin")]
+        assert "passengers" not in body["sections_not_available"] and "audit" not in body["sections_not_available"]
     other = client(monkeypatch, viewer=STAFF, people={"TRV-2": PEOPLE}).get("/v1/admin/bookings/TRV-1").json()
     assert "passengers" in other["sections_not_available"] and "customer" not in other
 
@@ -279,37 +277,10 @@ def test_list_shows_the_customer_when_there_is_no_agency(monkeypatch):
     assert {i["booking_id"]: i["customer_or_agency"] for i in items} == {"TRV-1": "Test Customer", "TRV-2": "Karachi Travels"}
 
 
-@pytest.mark.parametrize("viewer,status", [(STAFF, 403), (STAFF_NAMES, 403), (STAFF_COST, 403), (REVEALER, 200), (SUPER_ADMIN, 200)])
-def test_reveal_needs_the_permission_and_is_not_cached(monkeypatch, viewer, status):
-    calls = []
-    def reveal(reference, position, actor, reason):
-        calls.append((reference, position, actor, reason))
-        return {"date_of_birth": "1990-01-31", "document_number": "AB1234567"}
-    monkeypatch.setattr(booking_people, "reveal", reveal)
-    response = client(monkeypatch, viewer=viewer).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
-    assert response.status_code == status
-    if status == 200:
-        assert response.json() == {"date_of_birth": "1990-01-31", "document_number": "AB1234567"}
-        assert response.headers["cache-control"] == "no-store" and calls == [("TRV-2", 0, viewer.user_id, "Ticketing needs it")]
-    else:
-        assert calls == [] and "AB1234567" not in response.text
-
-
-def test_reveal_needs_a_reason_and_reports_a_missing_traveler(monkeypatch):
-    api = client(monkeypatch, viewer=REVEALER)
-    assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": ""}).status_code == 422
-    assert api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={}).status_code == 422
-    for error, status in ((booking_people.NotFound(), 404),):
-        def reveal(*args, error=error):
-            raise error
-        monkeypatch.setattr(booking_people, "reveal", reveal)
-        response = api.post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
-        assert response.status_code == status
-
-
-def test_agency_and_customer_roles_cannot_reach_the_reveal(monkeypatch):
-    response = client(monkeypatch, viewer=None).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
-    assert response.status_code == 403
+def test_the_reveal_endpoint_is_gone(monkeypatch):
+    response = client(monkeypatch, viewer=SUPER_ADMIN).post("/v1/admin/bookings/TRV-2/travelers/0/reveal", json={"reason": "Ticketing needs it"})
+    assert response.status_code in (404, 405)
+    assert not hasattr(booking_people, "reveal")
 
 
 PAYER = BackOfficeUser("u-6", "staff", NONE, frozenset({"record_payments"}))
@@ -317,7 +288,7 @@ PAYMENT_BODY = {"amount": {"amount_minor": 20_000, "currency": "PKR"}, "method":
                 "reference": "JC-778", "received_at": "2026-11-05T06:30:00+00:00"}
 
 
-@pytest.mark.parametrize("viewer,status", [(STAFF, 403), (STAFF_COST, 403), (REVEALER, 403), (PAYER, 201), (SUPER_ADMIN, 201)])
+@pytest.mark.parametrize("viewer,status", [(STAFF, 403), (STAFF_COST, 403), (PAYER, 201), (SUPER_ADMIN, 201)])
 def test_recording_a_payment_needs_the_permission(monkeypatch, viewer, status):
     from app.db import booking_payments
     calls = []

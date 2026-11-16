@@ -1,7 +1,7 @@
 """Saved customers and travelers (one kind of record: a person). Back office only (super_admin and
 staff; agency and customer roles get 403, like the Bookings endpoints), in Travelian's own scope.
 
-Search and detail are masked (there is no reveal for saved people). Create, edit, documents and
+Search and detail return the stored values in full. Create, edit, documents and
 resolving a hold's possible duplicate need manage_people; merge needs merge_people. Nothing is
 ever merged automatically. Errors carry a stable code and no personal data.
 """
@@ -36,27 +36,26 @@ def owner_of(viewer: BackOfficeUser) -> str | None:
     return None
 
 
-def masked_documents(person: store.Person, today: date | None = None) -> list[SavedDocument]:
+def documents(person: store.Person, today: date | None = None) -> list[SavedDocument]:
     today = today or date.today()
-    return [SavedDocument(id=d.id, id_type=d.id_type, document_country=d.document_country, document_number_masked=pii.mask_document(pii.normalize_document(d.document_number, d.id_type, d.document_country)),
-                          document_expiry_masked=pii.mask_date(d.document_expiry.isoformat()) if d.document_expiry else None,
-                          document_validity=pii.document_validity(d.document_expiry, today)) for d in person.documents]
+    return [SavedDocument(id=d.id, id_type=d.id_type, document_country=d.document_country, document_number=d.document_number,
+                          document_expiry=d.document_expiry, document_validity=pii.document_validity(d.document_expiry, today))
+            for d in person.documents]
 
 
 def summary(person: store.Person) -> SavedPersonSummary:
     return SavedPersonSummary(
         id=person.id, title=person.title, first_name=person.first_name, last_name=person.last_name,
-        birth_year=person.date_of_birth.year if person.date_of_birth else None, nationality=person.nationality,
-        phone_masked=pii.mask_phone(person.phone_code, person.phone), email_masked=pii.mask_email(person.email),
-        documents=masked_documents(person), last_booking_at=person.last_booking_at, match=person.match,
+        date_of_birth=person.date_of_birth, nationality=person.nationality,
+        phone=f"+{person.phone_code} {person.phone}" if person.phone_code and person.phone else person.phone or None, email=person.email,
+        documents=documents(person), last_booking_at=person.last_booking_at, match=person.match,
     )
 
 
 def detail(person: store.Person, bookings: list[dict], viewer: BackOfficeUser) -> SavedPersonDetail:
     base = summary(person).model_dump(exclude={"match"})
     return SavedPersonDetail(
-        **base, date_of_birth_masked=pii.mask_date(person.date_of_birth.isoformat()) if person.date_of_birth else None,
-        merged_into_id=person.merged_into_id, bookings=[SavedPersonBooking(**b) for b in bookings],
+        **base, merged_into_id=person.merged_into_id, bookings=[SavedPersonBooking(**b) for b in bookings],
         can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE),
     )
 
@@ -87,7 +86,7 @@ async def search_people(viewer: Viewer,
                         q: Annotated[str | None, Query(min_length=3, max_length=64, description="Full document number, phone, email, or name prefix. Leave out to list the most recent people.")] = None,
                         limit: Annotated[int, Query(ge=1, le=50)] = 20):
     """With q: exact full document number first, then phone or email, then name prefix. Without q:
-    the most recent people (latest booking first, then the most recently saved). Masked values only."""
+    the most recent people (latest booking first, then the most recently saved)."""
     people = await run_in_threadpool(store.search, owner_of(viewer), q, limit) if q is not None \
         else await run_in_threadpool(store.recent, owner_of(viewer), limit)
     return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
@@ -100,7 +99,7 @@ TypeaheadQuery = Annotated[str, Query(min_length=2, max_length=64, description="
             responses={422: {"description": "Search needs at least 2 characters."}})
 async def search_customers(viewer: Viewer, q: TypeaheadQuery):
     """Live search for "Find saved customer" (hold form): up to 8 people by name (partial: given name, surname or full
-    name), phone or email (contains), or document number (prefix). Masked values only."""
+    name), phone or email (contains), or document number (prefix)."""
     people = await run_in_threadpool(store.typeahead, owner_of(viewer), q, "customer", 8)
     return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
 
@@ -112,7 +111,7 @@ travelers_router = APIRouter(prefix="/admin/travelers", tags=["saved people"], r
                       responses={422: {"description": "Search needs at least 2 characters."}})
 async def search_travelers(viewer: Viewer, q: TypeaheadQuery):
     """Live search for "Use saved traveler" (hold form): up to 8 people by name (partial: given name, surname or full
-    name) or document number (prefix). Masked values only."""
+    name) or document number (prefix)."""
     people = await run_in_threadpool(store.typeahead, owner_of(viewer), q, "traveler", 8)
     return SavedPersonSearch(results=[summary(person) for person in people], can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE))
 

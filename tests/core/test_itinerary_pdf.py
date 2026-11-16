@@ -1,7 +1,7 @@
 """GET /v1/admin/bookings/{id}/itinerary.pdf (ReportLab layout): a PDF named after the booking reference, for
 back-office users. Status banner per state (hold, paid not issued, issued), one block per flight outbound then return,
 the selling price only, no supplier name, group id, cost or profit; a group booking's PNR only with supplier access;
-full passport numbers only with reveal_identity (each reveal logged). The text is read back with pdftotext."""
+full passport numbers for every back-office viewer (nothing is masked). The text is read back with pdftotext."""
 
 import re
 import shutil
@@ -11,14 +11,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.field_visibility import NONE, BackOfficeUser, FieldVisibility
+from app.core.field_visibility import NONE, BackOfficeUser
 from app.db import booking_people
 from tests.core.test_admin_bookings import NOW, STAFF_NAMES, SUPER_ADMIN, booking, client
 
 pytestmark = pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler-utils) reads the PDF text back")
 
 STAFF = BackOfficeUser("u-2", "staff", NONE)
-REVEALER = BackOfficeUser("u-5", "staff", FieldVisibility(False, False, reveal_identity=True))
 OUT = {"direction": "outbound", "origin": "ISB", "destination": "JED", "airline_name": "Fly Jinnah", "flight_number": "9P700",
        "departure_local": "2026-12-02T06:40", "arrival_local": "2026-12-02T10:05", "baggage": "10+20 kg", "meal": "No"}
 BACK = {"direction": "return", "origin": "JED", "destination": "ISB", "airline_name": "Fly Jinnah", "flight_number": "9P701",
@@ -36,7 +35,7 @@ GROUP_ONE_WAY = booking(44, product="group", status="held", payment_status="unpa
 
 def traveler(position, first, last="Raza", kind="ADT", fare=8_800_000, ticket=None):
     return SimpleNamespace(position=position, passenger_type=kind, title="MR", first_name=first, last_name=last, id_type="PSPT",
-                           document_number_masked="ZU•••4251", selling_minor=fare, ticket_number=ticket)
+                           document_number="ZU3124251", selling_minor=fare, ticket_number=ticket)
 
 
 def people(*travelers, paid=0):
@@ -50,10 +49,9 @@ def pdf_text(content: bytes, tmp_path) -> str:
     return subprocess.run(["pdftotext", "-layout", str(path), "-"], capture_output=True, text=True, check=True).stdout
 
 
-def get(monkeypatch, reference, viewer=SUPER_ADMIN, who=None, reveal=None):
+def get(monkeypatch, reference, viewer=SUPER_ADMIN, who=None):
     api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY], viewer=viewer)
     monkeypatch.setattr(booking_people, "read", lambda ref: who)
-    monkeypatch.setattr(booking_people, "reveal", reveal or (lambda *a, **kw: {"document_number": "ZU3124251"}))
     return api.get(f"/v1/admin/bookings/{reference}/itinerary.pdf")
 
 
@@ -95,18 +93,10 @@ def test_group_pnr_needs_supplier_access_and_no_supplier_names_ever(monkeypatch,
     assert "PNR 63B55C" in pdf_text(get(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali"))).content, tmp_path)
 
 
-def test_passports_full_only_with_reveal_identity_and_each_reveal_logged(monkeypatch, tmp_path):
-    reveals = []
-
-    def reveal(reference, position, actor, reason):
-        reveals.append((reference, position, actor, reason))
-        return {"document_number": "ZU3124251"}
-
-    full = pdf_text(get(monkeypatch, "TRV-41", viewer=REVEALER, who=people(traveler(0, "Ali")), reveal=reveal).content, tmp_path)
-    assert "ZU3124251" in full and reveals == [("TRV-41", 0, "u-5", "Itinerary PDF")]
-    reveals.clear()
-    masked = pdf_text(get(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali")), reveal=reveal).content, tmp_path)
-    assert "ZU3124251" not in masked and "4251" in masked and reveals == []
+def test_passport_numbers_print_in_full_for_every_back_office_viewer(monkeypatch, tmp_path):
+    for viewer in (SUPER_ADMIN, STAFF):
+        text = pdf_text(get(monkeypatch, "TRV-41", viewer=viewer, who=people(traveler(0, "Ali"))).content, tmp_path)
+        assert "ZU3124251" in text and "•" not in text
 
 
 def test_three_travelers_and_names_beyond_latin(monkeypatch, tmp_path):

@@ -1,5 +1,5 @@
 """GET /v1/admin/bookings/{id}/itinerary.pdf?format=png: the finished itinerary PDF as one PNG (PyMuPDF, about 150 DPI,
-white background, pages stacked). Same permissions, 403/404, passport masking and logged reveals as the PDF."""
+white background, pages stacked). Same permissions, 403/404 and full passport numbers as the PDF."""
 
 import io
 
@@ -10,17 +10,16 @@ from reportlab.pdfgen import canvas
 from app.db import booking_people
 from app.services.itinerary_pdf import to_png
 from tests.core.test_admin_bookings import SUPER_ADMIN, client
-from tests.core.test_itinerary_pdf import FLIGHT_HOLD, GROUP_ONE_WAY, GROUP_PAID, ISSUED, REVEALER, STAFF, people, traveler
+from tests.core.test_itinerary_pdf import FLIGHT_HOLD, GROUP_ONE_WAY, GROUP_PAID, ISSUED, people, traveler
 from tests.core.test_itinerary_pdf import get as get_pdf
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 A4_PX = (round(A4[0] / 72 * 150), round(A4[1] / 72 * 150))  # about 1240 x 1754 at 150 DPI
 
 
-def fetch(monkeypatch, reference, viewer=SUPER_ADMIN, who=None, reveal=None, fmt="png"):
+def fetch(monkeypatch, reference, viewer=SUPER_ADMIN, who=None, fmt="png"):
     api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY], viewer=viewer)
     monkeypatch.setattr(booking_people, "read", lambda ref: who)
-    monkeypatch.setattr(booking_people, "reveal", reveal or (lambda *a, **kw: {"document_number": "ZU3124251"}))
     return api.get(f"/v1/admin/bookings/{reference}/itinerary.pdf", params={"format": fmt})
 
 
@@ -49,20 +48,6 @@ def test_png_for_hold_paid_and_issued_is_a_valid_a4_image_named_after_the_bookin
 def test_pdf_stays_the_default(monkeypatch):
     response = get_pdf(monkeypatch, "TRV-41", who=people(traveler(0, "Ali")))
     assert response.headers["content-type"] == "application/pdf" and response.content.startswith(b"%PDF-")
-
-
-def test_reveal_logged_as_itinerary_png_only_for_reveal_permission_users(monkeypatch):
-    reveals = []
-
-    def reveal(reference, position, actor, reason):
-        reveals.append((reference, position, actor, reason))
-        return {"document_number": "ZU3124251"}
-
-    assert fetch(monkeypatch, "TRV-41", viewer=REVEALER, who=people(traveler(0, "Ali")), reveal=reveal).status_code == 200
-    assert reveals == [("TRV-41", 0, "u-5", "Itinerary PNG")]
-    reveals.clear()
-    assert fetch(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali")), reveal=reveal).status_code == 200
-    assert reveals == []
 
 
 def test_403_and_404_match_the_pdf(monkeypatch):

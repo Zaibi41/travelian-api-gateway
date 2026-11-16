@@ -1,6 +1,6 @@
 """Grant or revoke a field-visibility permission (spec v3.0 D23); operator access required.
 
-Permissions: see_supplier_names, see_cost_and_margin, reveal_identity, record_payments, issue_tickets. They only take effect for
+Permissions: see_supplier_names, see_cost_and_margin, record_payments, issue_tickets. They only take effect for
 the staff role: super_admin already sees everything, and agency and customer
 roles can never be granted them.
 

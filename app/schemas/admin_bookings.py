@@ -124,19 +124,19 @@ class BookingCustomer(BaseModel):
 
 
 class BookingPassenger(BaseModel):
-    """A traveler. Date of birth and document number are masked; the full values need a logged reveal."""
+    """A traveler, with the full identity values as stored."""
 
-    position: int = Field(description="Order in the booking; used by the reveal endpoint.")
+    position: int = Field(description="Order in the booking.")
     type: Literal["ADT", "CHD", "INF"]
     title: str
     first_name: str
     last_name: str
-    date_of_birth_masked: str = Field(description="Year only, e.g. 1990-••-••.")
+    date_of_birth: date
     id_type: Literal["PSPT", "NATI"]
-    document_number_masked: str | None = Field(None, description="Last 3 characters only.")
+    document_number: str | None = None
     document_country: str | None = None
     nationality: str | None = None
-    document_expiry_masked: str | None = Field(None, description="Year only, e.g. 2031-••-••. The full date needs a logged reveal.")
+    document_expiry: date | None = None
     document_validity: Literal["valid", "expiring", "expired"] | None = Field(
         None, description="From the expiry date today: expired, expiring within 6 months, or valid. Omitted without an expiry.")
     infant_of_position: int | None = Field(None, description="For an infant: the position of the adult it travels with.")
@@ -271,16 +271,6 @@ class IssuanceResult(BaseModel):
     tickets: list[TicketNumber] = []
 
 
-class RevealRequest(BaseModel):
-    reason: str = Field(min_length=5, max_length=500, description="Why the full values are needed. Logged with the reveal.")
-
-
-class RevealResponse(BaseModel):
-    date_of_birth: date
-    document_number: str | None = None
-    document_expiry: date | None = None
-
-
 class BookingSegment(BaseModel):
     """One flight of the Itinerary tab, as the supplier described it when the booking was held."""
 
@@ -321,7 +311,6 @@ class BookingDetail(BaseModel):
     passengers: list[BookingPassenger] | None = Field(None, description="The Passengers tab. Omitted when no travelers were saved.")
     itinerary: list[BookingSegment] | None = Field(None, description="The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 14 Nov 2026).")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
-    can_reveal_identity: bool = Field(False, description="Whether this viewer may call the reveal endpoint (the endpoint still checks).")
     payments: list[BookingPayment] | None = Field(None, description="The Payments tab. Omitted when no payment is recorded.")
     amount_paid: BookingMoney | None = Field(None, description="Sum of recorded payments.")
     amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")

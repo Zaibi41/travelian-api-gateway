@@ -1,4 +1,4 @@
-# Passenger identity data: storage, saved people, masking and reveal
+# Passenger identity data: storage, saved people and reads
 
 **Sandbox phase:** identity data is stored as plain text. There are no encryption keys or
 settings; holds, the Passengers tab and saved people work with no extra setup.
@@ -26,15 +26,12 @@ settings; holds, the Passengers tab and saved people work with no extra setup.
   document is a **possible duplicate**: nothing is merged automatically. Staff choose (add to that
   person, or keep separate) or merge two people deliberately (permission, reason, logged).
 
-## Masked on read, reveal logged
-- Every API response carries masked values only: document number last 3 characters, date of birth
-  and document expiry year only, a document validity status (valid, expiring within 6 months,
-  expired), phone country code and last 3 digits, email first letter and domain. This applies to
-  every role, in search, lists and details.
-- Full values come only from the booking traveler reveal (`/v1/admin/bookings/{id}/travelers/{position}/reveal`),
-  which needs the `reveal_identity` permission and a reason, and writes an audit event (who, which
-  record, which fields, the reason) with no values. Saved people have no reveal (decided by Zohaib,
-  10 November 2026): their search, detail and edit screens show masked values only.
+## Full values on read (no masking)
+- Back-office API responses carry the stored values in full: document number, date of birth, document
+  expiry (with a validity status: valid, expiring within 6 months, expired), phone and email. This
+  applies in search, lists, details and the itinerary PDF/PNG (decided by Zohaib, 16 November 2026;
+  masking, the reveal endpoint, its audit event and the `reveal_identity` permission were removed).
+- Identity values are still never written to logs or booking events.
 - A hold's possible duplicate (`needs_choice`) is resolved with
   `POST /v1/admin/bookings/{id}/saved-people/{role}/{position}/resolve`: the gateway reads the values
   from that booking's own customer or traveler row, so the browser never resends identity values.

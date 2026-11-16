@@ -1,9 +1,5 @@
-"""Saved people (customers and travelers): requests and masked responses.
-
-Search, list and detail never carry full document numbers, dates of birth, phones or emails: the
-document shows its last 3 characters, the date of birth its year, expiry a status, phone and email
-are masked. There is no reveal for saved people.
-"""
+"""Saved people (customers and travelers): requests and responses. Back-office reads carry the stored values in
+full (document numbers, dates of birth, phones and emails); the document expiry also comes with a validity status."""
 
 import re
 from datetime import date, datetime
@@ -20,8 +16,8 @@ class SavedDocument(BaseModel):
     id: str
     id_type: IdType
     document_country: str
-    document_number_masked: str = Field(description="Last 3 characters only.")
-    document_expiry_masked: str | None = Field(None, description="Year only.")
+    document_number: str
+    document_expiry: date | None = None
     document_validity: Literal["valid", "expiring", "expired"] | None = None
 
 
@@ -30,10 +26,10 @@ class SavedPersonSummary(BaseModel):
     title: Title | None = None
     first_name: str
     last_name: str
-    birth_year: int | None = None
+    date_of_birth: date | None = None
     nationality: str | None = None
-    phone_masked: str | None = None
-    email_masked: str | None = None
+    phone: str | None = Field(None, description="With country code, e.g. +92 3001234567.")
+    email: str | None = None
     documents: list[SavedDocument] = []
     last_booking_at: datetime | None = None
     match: Literal["document", "contact", "name"] | None = Field(None, description="Search only: what matched.")
@@ -46,7 +42,6 @@ class SavedPersonBooking(BaseModel):
 
 
 class SavedPersonDetail(SavedPersonSummary):
-    date_of_birth_masked: str | None = None
     merged_into_id: str | None = None
     bookings: list[SavedPersonBooking] = []
     can_manage: bool = Field(False, description="May create, edit and change documents (manage_people).")
@@ -132,6 +127,6 @@ class SaveOutcomeView(BaseModel):
     status: Literal["saved", "linked", "updated", "needs_choice", "conflict", "not_saved", "skipped"]
     person_id: str | None = None
     document_id: str | None = None
-    possible_duplicate: SavedPersonSummary | None = Field(None, description="needs_choice: the saved person this may be (masked).")
+    possible_duplicate: SavedPersonSummary | None = Field(None, description="needs_choice: the saved person this may be.")
     reason: str | None = None
     code: str | None = None

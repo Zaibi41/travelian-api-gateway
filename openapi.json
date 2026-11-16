@@ -533,12 +533,6 @@
             "title": "Can Record Payments",
             "type": "boolean"
           },
-          "can_reveal_identity": {
-            "default": false,
-            "description": "Whether this viewer may call the reveal endpoint (the endpoint still checks).",
-            "title": "Can Reveal Identity",
-            "type": "boolean"
-          },
           "can_set_selling_price": {
             "default": false,
             "description": "Whether this viewer may change the selling price now: on hold, not issued, nothing paid, Super Admin or record payments (the endpoint still checks).",
@@ -3612,8 +3606,9 @@
       },
       "GroupHoldTraveler": {
         "properties": {
-          "date_of_birth_masked": {
-            "title": "Date Of Birth Masked",
+          "date_of_birth": {
+            "format": "date",
+            "title": "Date Of Birth",
             "type": "string"
           },
           "document_country": {
@@ -3627,18 +3622,19 @@
             ],
             "title": "Document Country"
           },
-          "document_expiry_masked": {
+          "document_expiry": {
             "anyOf": [
               {
+                "format": "date",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Document Expiry Masked"
+            "title": "Document Expiry"
           },
-          "document_number_masked": {
+          "document_number": {
             "anyOf": [
               {
                 "type": "string"
@@ -3647,7 +3643,7 @@
                 "type": "null"
               }
             ],
-            "title": "Document Number Masked"
+            "title": "Document Number"
           },
           "first_name": {
             "title": "First Name",
@@ -3698,7 +3694,7 @@
           "first_name",
           "last_name",
           "id_type",
-          "date_of_birth_masked"
+          "date_of_birth"
         ],
         "title": "GroupHoldTraveler",
         "type": "object"
@@ -6198,59 +6194,6 @@
         "title": "ResetPasswordRequest",
         "type": "object"
       },
-      "RevealRequest": {
-        "properties": {
-          "reason": {
-            "description": "Why the full values are needed. Logged with the reveal.",
-            "maxLength": 500,
-            "minLength": 5,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reason"
-        ],
-        "title": "RevealRequest",
-        "type": "object"
-      },
-      "RevealResponse": {
-        "properties": {
-          "date_of_birth": {
-            "format": "date",
-            "title": "Date Of Birth",
-            "type": "string"
-          },
-          "document_expiry": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Expiry"
-          },
-          "document_number": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Number"
-          }
-        },
-        "required": [
-          "date_of_birth"
-        ],
-        "title": "RevealResponse",
-        "type": "object"
-      },
       "RoleRecord": {
         "properties": {
           "id": {
@@ -6326,7 +6269,7 @@
                 "type": "null"
               }
             ],
-            "description": "needs_choice: the saved person this may be (masked)."
+            "description": "needs_choice: the saved person this may be."
           },
           "reason": {
             "anyOf": [
@@ -6374,21 +6317,20 @@
             "title": "Document Country",
             "type": "string"
           },
-          "document_expiry_masked": {
+          "document_expiry": {
             "anyOf": [
               {
+                "format": "date",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Year only.",
-            "title": "Document Expiry Masked"
+            "title": "Document Expiry"
           },
-          "document_number_masked": {
-            "description": "Last 3 characters only.",
-            "title": "Document Number Masked",
+          "document_number": {
+            "title": "Document Number",
             "type": "string"
           },
           "document_validity": {
@@ -6424,7 +6366,7 @@
           "id",
           "id_type",
           "document_country",
-          "document_number_masked"
+          "document_number"
         ],
         "title": "SavedDocument",
         "type": "object"
@@ -6600,17 +6542,6 @@
       },
       "SavedPersonDetail": {
         "properties": {
-          "birth_year": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Birth Year"
-          },
           "bookings": {
             "default": [],
             "items": {
@@ -6631,16 +6562,17 @@
             "title": "Can Merge",
             "type": "boolean"
           },
-          "date_of_birth_masked": {
+          "date_of_birth": {
             "anyOf": [
               {
+                "format": "date",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Date Of Birth Masked"
+            "title": "Date Of Birth"
           },
           "documents": {
             "default": [],
@@ -6650,7 +6582,7 @@
             "title": "Documents",
             "type": "array"
           },
-          "email_masked": {
+          "email": {
             "anyOf": [
               {
                 "type": "string"
@@ -6659,7 +6591,7 @@
                 "type": "null"
               }
             ],
-            "title": "Email Masked"
+            "title": "Email"
           },
           "first_name": {
             "title": "First Name",
@@ -6724,7 +6656,7 @@
             ],
             "title": "Nationality"
           },
-          "phone_masked": {
+          "phone": {
             "anyOf": [
               {
                 "type": "string"
@@ -6733,7 +6665,8 @@
                 "type": "null"
               }
             ],
-            "title": "Phone Masked"
+            "description": "With country code, e.g. +92 3001234567.",
+            "title": "Phone"
           },
           "title": {
             "anyOf": [
@@ -6828,16 +6761,17 @@
       },
       "SavedPersonSummary": {
         "properties": {
-          "birth_year": {
+          "date_of_birth": {
             "anyOf": [
               {
-                "type": "integer"
+                "format": "date",
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Birth Year"
+            "title": "Date Of Birth"
           },
           "documents": {
             "default": [],
@@ -6847,7 +6781,7 @@
             "title": "Documents",
             "type": "array"
           },
-          "email_masked": {
+          "email": {
             "anyOf": [
               {
                 "type": "string"
@@ -6856,7 +6790,7 @@
                 "type": "null"
               }
             ],
-            "title": "Email Masked"
+            "title": "Email"
           },
           "first_name": {
             "title": "First Name",
@@ -6910,7 +6844,7 @@
             ],
             "title": "Nationality"
           },
-          "phone_masked": {
+          "phone": {
             "anyOf": [
               {
                 "type": "string"
@@ -6919,7 +6853,8 @@
                 "type": "null"
               }
             ],
-            "title": "Phone Masked"
+            "description": "With country code, e.g. +92 3001234567.",
+            "title": "Phone"
           },
           "title": {
             "anyOf": [
@@ -7640,11 +7575,11 @@
         "type": "object"
       },
       "app__schemas__admin_bookings__BookingPassenger": {
-        "description": "A traveler. Date of birth and document number are masked; the full values need a logged reveal.",
+        "description": "A traveler, with the full identity values as stored.",
         "properties": {
-          "date_of_birth_masked": {
-            "description": "Year only, e.g. 1990-\u2022\u2022-\u2022\u2022.",
-            "title": "Date Of Birth Masked",
+          "date_of_birth": {
+            "format": "date",
+            "title": "Date Of Birth",
             "type": "string"
           },
           "document_country": {
@@ -7658,19 +7593,19 @@
             ],
             "title": "Document Country"
           },
-          "document_expiry_masked": {
+          "document_expiry": {
             "anyOf": [
               {
+                "format": "date",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Year only, e.g. 2031-\u2022\u2022-\u2022\u2022. The full date needs a logged reveal.",
-            "title": "Document Expiry Masked"
+            "title": "Document Expiry"
           },
-          "document_number_masked": {
+          "document_number": {
             "anyOf": [
               {
                 "type": "string"
@@ -7679,8 +7614,7 @@
                 "type": "null"
               }
             ],
-            "description": "Last 3 characters only.",
-            "title": "Document Number Masked"
+            "title": "Document Number"
           },
           "document_validity": {
             "anyOf": [
@@ -7739,7 +7673,7 @@
             "title": "Nationality"
           },
           "position": {
-            "description": "Order in the booking; used by the reveal endpoint.",
+            "description": "Order in the booking.",
             "title": "Position",
             "type": "integer"
           },
@@ -7775,7 +7709,7 @@
           "title",
           "first_name",
           "last_name",
-          "date_of_birth_masked",
+          "date_of_birth",
           "id_type"
         ],
         "title": "BookingPassenger",
@@ -9363,7 +9297,7 @@
     },
     "/v1/admin/bookings/{booking_id}/itinerary.pdf": {
       "get": {
-        "description": "The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status\nbanner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight\noutbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only\nwith the supplier names permission; full passport numbers only with reveal_identity (each one logged).\nformat=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules and reveals).",
+        "description": "The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status\nbanner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight\noutbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only\nwith the supplier names permission; full passport numbers.\nformat=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules).",
         "operationId": "itinerary_pdf_v1_admin_bookings__booking_id__itinerary_pdf_get",
         "parameters": [
           {
@@ -9645,88 +9579,9 @@
         ]
       }
     },
-    "/v1/admin/bookings/{booking_id}/travelers/{position}/reveal": {
-      "post": {
-        "description": "Full date of birth and document number for one traveler. Logged with the reason (spec 3.2).",
-        "operationId": "reveal_traveler_identity_v1_admin_bookings__booking_id__travelers__position__reveal_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "booking_id",
-            "required": true,
-            "schema": {
-              "maxLength": 64,
-              "title": "Booking Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "position",
-            "required": true,
-            "schema": {
-              "maximum": 8,
-              "minimum": 0,
-              "title": "Position",
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevealRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RevealResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Needs the reveal_identity permission."
-          },
-          "404": {
-            "description": "No such booking or traveler."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "description": "Booking data is not available."
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Reveal Traveler Identity",
-        "tags": [
-          "admin bookings"
-        ]
-      }
-    },
     "/v1/admin/customers": {
       "get": {
-        "description": "With q: exact full document number first, then phone or email, then name prefix. Without q:\nthe most recent people (latest booking first, then the most recently saved). Masked values only.",
+        "description": "With q: exact full document number first, then phone or email, then name prefix. Without q:\nthe most recent people (latest booking first, then the most recently saved).",
         "operationId": "search_people_v1_admin_customers_get",
         "parameters": [
           {
@@ -9849,7 +9704,7 @@
     },
     "/v1/admin/customers/search": {
       "get": {
-        "description": "Live search for \"Find saved customer\" (hold form): up to 8 people by name (partial: given name, surname or full\nname), phone or email (contains), or document number (prefix). Masked values only.",
+        "description": "Live search for \"Find saved customer\" (hold form): up to 8 people by name (partial: given name, surname or full\nname), phone or email (contains), or document number (prefix).",
         "operationId": "search_customers_v1_admin_customers_search_get",
         "parameters": [
           {
@@ -10709,7 +10564,7 @@
     },
     "/v1/admin/travelers/search": {
       "get": {
-        "description": "Live search for \"Use saved traveler\" (hold form): up to 8 people by name (partial: given name, surname or full\nname) or document number (prefix). Masked values only.",
+        "description": "Live search for \"Use saved traveler\" (hold form): up to 8 people by name (partial: given name, surname or full\nname) or document number (prefix).",
         "operationId": "search_travelers_v1_admin_travelers_search_get",
         "parameters": [
           {

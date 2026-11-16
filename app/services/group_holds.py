@@ -33,7 +33,6 @@ from typing import Protocol
 from pydantic import BaseModel, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from app.core import pii
 from app.core.config import settings
 from app.core.field_visibility import BACK_OFFICE_ROLES, ISSUE_TICKETS, RECORD_PAYMENTS, BackOfficeUser
 from app.db import booking_people, group_holds as store
@@ -453,8 +452,8 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
             view.customer = GroupHoldCustomer(name=f"{c.first_name} {c.last_name}".strip(), phone=f"+{c.phone_code} {c.phone}", email=c.email)
         view.travelers = [GroupHoldTraveler(
             position=t.position, title=t.title, first_name=t.first_name, last_name=t.last_name, id_type=t.id_type,
-            document_number_masked=t.document_number_masked, date_of_birth_masked=t.date_of_birth_masked, nationality=t.nationality,
-            document_country=t.document_country, document_expiry_masked=pii.mask_date(t.document_expiry.isoformat()) if t.document_expiry else None,
+            document_number=t.document_number, date_of_birth=t.date_of_birth, nationality=t.nationality,
+            document_country=t.document_country, document_expiry=t.document_expiry,
             ticket_number=t.ticket_number,
         ) for t in people.travelers]
         view.payments = [GroupHoldPayment(id=p.id, method=p.method, received_into=p.received_into, amount=money(p.amount_minor),
