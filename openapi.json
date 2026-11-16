@@ -6372,15 +6372,75 @@
         "type": "object"
       },
       "SavedPersonBooking": {
+        "description": "One booking of a saved person's history. Cost and profit only with the cost and margin permission.",
         "properties": {
           "booking_id": {
             "title": "Booking Id",
             "type": "string"
           },
+          "cost_unknown": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only: the supplier cost was not recorded.",
+            "title": "Cost Unknown"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "departure_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's local departure, e.g. 2026-11-19T00:25.",
+            "title": "Departure Local"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Airline PNR; a group booking's only with the supplier names permission.",
+            "title": "Pnr"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "flight or group (also hotel / umrah).",
+            "title": "Product"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling price minus supplier cost. Cost and margin permission only."
           },
           "role": {
             "enum": [
@@ -6389,6 +6449,57 @@
             ],
             "title": "Role",
             "type": "string"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Airports in travel order, e.g. \"LHE \u2192 DXB \u2192 LHE\". Omitted when the flights were not recorded.",
+            "title": "Route"
+          },
+          "selling_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "statuses": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingStatuses"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only."
+          },
+          "ticket_numbers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Ticket Numbers",
+            "type": "array"
           }
         },
         "required": [

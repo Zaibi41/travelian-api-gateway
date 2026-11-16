@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.booking_common import BookingMoney, BookingStatuses
+
 _NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"
 Title = Literal["MR", "MRS", "MISS", "MASTER"]
 IdType = Literal["PSPT", "NATI"]
@@ -36,9 +38,21 @@ class SavedPersonSummary(BaseModel):
 
 
 class SavedPersonBooking(BaseModel):
+    """One booking of a saved person's history. Cost and profit only with the cost and margin permission."""
+
     booking_id: str
     created_at: datetime
     role: Literal["customer", "traveler"]
+    pnr: str | None = Field(None, description="Airline PNR; a group booking's only with the supplier names permission.")
+    product: str | None = Field(None, description="flight or group (also hotel / umrah).")
+    route: str | None = Field(None, description='Airports in travel order, e.g. "LHE → DXB → LHE". Omitted when the flights were not recorded.')
+    departure_local: str | None = Field(None, description="First flight's local departure, e.g. 2026-11-19T00:25.")
+    statuses: BookingStatuses | None = None
+    ticket_numbers: list[str] = []
+    selling_price: BookingMoney | None = None
+    supplier_cost: BookingMoney | None = Field(None, description="Cost and margin permission only.")
+    profit: BookingMoney | None = Field(None, description="Selling price minus supplier cost. Cost and margin permission only.")
+    cost_unknown: bool | None = Field(None, description="Cost and margin permission only: the supplier cost was not recorded.")
 
 
 class SavedPersonDetail(SavedPersonSummary):

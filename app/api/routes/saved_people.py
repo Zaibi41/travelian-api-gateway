@@ -9,15 +9,19 @@ ever merged automatically. Errors carry a stable code and no personal data.
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query, Response
+import logging
+
+from fastapi import APIRouter, HTTPException, Path, Query, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.api.routes.admin_dashboard import Viewer
+from app.api.routes.admin_dashboard import Viewer, _read_bookings
 from app.core import pii
 from app.core.field_visibility import MANAGE_PEOPLE, MERGE_PEOPLE, BackOfficeUser
 from app.db import saved_people as store
+from app.db.bookings import BookingRow
+from app.services import admin_bookings as bookings_service
 from app.schemas.saved_people import (
     BookingPersonRole, DocumentInput, DuplicateChoice, MergeRequest, SavedDocument, SavedPersonBooking, SavedPersonCreate, SavedPersonCreated,
     SavedPersonDetail, SavedPersonEvent, SavedPersonSearch, SavedPersonSummary, SavedPersonUpdate,
@@ -28,6 +32,7 @@ router = APIRouter(
     tags=["saved people"],
     responses={403: {"description": "Not back office, or missing the permission."}, 404: {"description": "No such person or document."}},
 )
+logger = logging.getLogger(__name__)
 PersonId = Annotated[str, Path(min_length=8, max_length=36)]
 
 
@@ -52,10 +57,24 @@ def summary(person: store.Person) -> SavedPersonSummary:
     )
 
 
-def detail(person: store.Person, bookings: list[dict], viewer: BackOfficeUser) -> SavedPersonDetail:
+def history(bookings: list[dict], rows: list[BookingRow] | None, viewer: BackOfficeUser) -> list[SavedPersonBooking]:
+    """Each linked booking with its PNR, route, statuses, tickets and price from the bookings table (cost and profit
+    only with cost and margin). Without the bookings table the rows keep the booking ID, role and date."""
+    by_id = {row.booking_id: row for row in rows or []}
+    out = []
+    for entry in bookings:
+        tickets = entry.get("ticket_numbers") or []
+        base = {"booking_id": entry["booking_id"], "created_at": entry["created_at"], "role": entry["role"]}
+        row = by_id.get(entry["booking_id"])
+        out.append(SavedPersonBooking(**base, **bookings_service.person_booking(row, viewer.visibility, list(tickets))) if row
+                   else SavedPersonBooking(**base))
+    return out
+
+
+def detail(person: store.Person, bookings: list[dict], viewer: BackOfficeUser, rows: list[BookingRow] | None = None) -> SavedPersonDetail:
     base = summary(person).model_dump(exclude={"match"})
     return SavedPersonDetail(
-        **base, merged_into_id=person.merged_into_id, bookings=[SavedPersonBooking(**b) for b in bookings],
+        **base, merged_into_id=person.merged_into_id, bookings=history(bookings, rows, viewer),
         can_manage=viewer.can(MANAGE_PEOPLE), can_merge=viewer.can(MERGE_PEOPLE),
     )
 
@@ -77,7 +96,13 @@ def _document(body: DocumentInput) -> store.DocumentInput:
 
 async def _detail(viewer: BackOfficeUser, person_id: str) -> SavedPersonDetail:
     person, bookings = await run_in_threadpool(store.get, owner_of(viewer), person_id)
-    return detail(person, bookings, viewer)
+    rows = None
+    if bookings:
+        try:
+            rows = await run_in_threadpool(_read_bookings)
+        except HTTPException:
+            logger.warning("Bookings read failed for a saved person's history")
+    return detail(person, bookings, viewer, rows)
 
 
 @router.get("", response_model=SavedPersonSearch, response_model_exclude_none=True,

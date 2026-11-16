@@ -327,12 +327,14 @@ def get(owner: str | None, person_id: str) -> tuple[Person, list[dict[str, Any]]
     with agencies.application_engine().begin() as connection:
         person = load(connection, owner, person_id)
         bookings = connection.execute(
-            text("SELECT b.reference AS booking_id, b.created_at, 'customer' AS role FROM booking_customers c JOIN bookings b ON b.id = c.booking_id"
-                 " WHERE c.person_id = :p UNION ALL SELECT b.reference, b.created_at, 'traveler' FROM booking_travelers t"
-                 " JOIN bookings b ON b.id = t.booking_id WHERE t.person_id = :p ORDER BY created_at DESC"),
+            text("SELECT r.*, ARRAY(SELECT x.ticket_number FROM booking_travelers x WHERE x.booking_id = r.id AND x.ticket_number IS NOT NULL"
+                 " ORDER BY x.position) AS ticket_numbers FROM ("
+                 "SELECT b.id, b.reference AS booking_id, b.created_at, 'customer' AS role FROM booking_customers c JOIN bookings b ON b.id = c.booking_id"
+                 " WHERE c.person_id = :p UNION ALL SELECT b.id, b.reference, b.created_at, 'traveler' FROM booking_travelers t"
+                 " JOIN bookings b ON b.id = t.booking_id WHERE t.person_id = :p) r ORDER BY r.created_at DESC"),
             {"p": person_id},
         ).mappings().all()
-    return person, [dict(row) for row in bookings]
+    return person, [{key: value for key, value in row.items() if key != "id"} for row in bookings]
 
 
 def _create_in(connection, owner: str | None, actor: str, values: dict[str, Any], document: DocumentInput | None,

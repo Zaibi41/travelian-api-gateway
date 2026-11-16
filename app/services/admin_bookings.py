@@ -205,6 +205,34 @@ def build_list(
     )
 
 
+def route_of(itinerary: list[dict] | None) -> str | None:
+    """"LHE → DXB → LHE": the airports in travel order, a connection's airport once."""
+    if not itinerary:
+        return None
+    airports: list[str] = []
+    for segment in itinerary:
+        for code in (segment.get("origin"), segment.get("destination")):
+            if code and (not airports or airports[-1] != code):
+                airports.append(code)
+    return " → ".join(airports) or None
+
+
+def person_booking(booking: BookingRow, visibility: FieldVisibility, ticket_numbers: list[str]) -> dict:
+    """A saved person's booking history row (Customers & Travelers). Cost and profit only with cost and margin."""
+    row = {
+        "pnr": visible_pnr(booking, visibility), "product": booking.product, "route": route_of(booking.itinerary),
+        "departure_local": (booking.itinerary or [{}])[0].get("departure_local"), "statuses": _statuses(booking),
+        "ticket_numbers": ticket_numbers, "selling_price": _money(booking.total_minor, booking.currency),
+    }
+    if visibility.cost_and_margin:
+        if cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor):
+            row["cost_unknown"] = True
+        else:
+            row["supplier_cost"] = _money(booking.supplier_cost_minor, booking.currency)
+            row["profit"] = _money((booking.total_minor or 0) - (booking.supplier_cost_minor or 0), booking.currency)
+    return row
+
+
 def find_booking(bookings: Iterable[BookingRow], booking_id: str) -> BookingRow | None:
     return next((b for b in bookings if b.booking_id == booking_id and b.product in BOOKING_PRODUCTS), None)
 

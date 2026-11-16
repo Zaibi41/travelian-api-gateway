@@ -207,6 +207,46 @@ def test_remove_a_document(db):
     assert store.search(None, "AB1234567") == []
 
 
+# ---------- booking history ----------
+
+def _booking_with_history(connection, metadata, saved):
+    reference = save(connection, metadata)
+    connection.execute(text("UPDATE booking_customers SET person_id = :p"), {"p": saved.id})
+    connection.execute(text("UPDATE booking_travelers SET ticket_number = '2142345678901' WHERE position = 0"))
+    itinerary = '[{"direction": "outbound", "origin": "LHE", "destination": "DXB", "departure_local": "2026-11-19T00:25"},' \
+                ' {"direction": "return", "origin": "DXB", "destination": "LHE", "departure_local": "2026-11-26T09:10"}]'
+    connection.execute(text("UPDATE bookings SET itinerary = CAST(:i AS jsonb)"), {"i": itinerary})
+    return reference
+
+
+def test_history_lists_each_booking_with_pnr_route_statuses_tickets_and_price_and_cost_with_margin_access(db):
+    connection, metadata = db
+    saved, _ = person(document=passport())
+    reference = _booking_with_history(connection, metadata, saved)
+    [row] = api().get(f"/v1/admin/customers/{saved.id}").json()["bookings"]
+    assert row["booking_id"] == reference and row["role"] == "customer"
+    assert row["pnr"] == "63B55C" and row["product"] == "flight"
+    assert row["route"] == "LHE → DXB → LHE" and row["departure_local"] == "2026-11-19T00:25"
+    assert row["statuses"] == {"booking": "held", "payment": "unpaid", "issuance": "not_issued"}
+    assert row["ticket_numbers"] == ["2142345678901"]
+    assert row["selling_price"] == {"amount_minor": 46_700, "currency": "PKR"}
+    assert row["supplier_cost"] == {"amount_minor": 45_770, "currency": "PKR"}
+    assert row["profit"] == {"amount_minor": 930, "currency": "PKR"}
+    with_cost = BackOfficeUser(ACTOR, "staff", FieldVisibility(False, True))
+    assert api(with_cost).get(f"/v1/admin/customers/{saved.id}").json()["bookings"][0]["profit"] == {"amount_minor": 930, "currency": "PKR"}
+
+
+def test_history_without_the_cost_and_margin_permission_has_no_cost_or_profit(db):
+    connection, metadata = db
+    saved, _ = person(document=passport())
+    _booking_with_history(connection, metadata, saved)
+    response = api(STAFF).get(f"/v1/admin/customers/{saved.id}")
+    [row] = response.json()["bookings"]
+    assert row["selling_price"] == {"amount_minor": 46_700, "currency": "PKR"} and row["ticket_numbers"] == ["2142345678901"]
+    assert not {"supplier_cost", "profit", "cost_unknown"} & row.keys()
+    assert "45770" not in response.text and "supplier_cost" not in response.text
+
+
 # ---------- merge ----------
 
 def test_merge_moves_documents_and_booking_links_and_is_logged(db):

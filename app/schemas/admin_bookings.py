@@ -14,14 +14,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.admin_dashboard import FilterOption
+from app.schemas.booking_common import BookingMoney, BookingStatus, BookingStatuses, IssuanceStatus, PaymentStatus  # noqa: F401 (re-exported)
 from app.schemas.group_holds import FareTermsView
 
 
 Product = Literal["flight", "group", "hotel", "umrah"]
-BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired", "hold_unrecorded"]
-PaymentStatus = Literal["paid", "unpaid", "part_paid"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
-IssuanceStatus = Literal["not_issued", "requested", "processing", "issued", "unknown"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
@@ -30,17 +28,6 @@ DataLabel = Literal["Sample data", "UAT test data"]
 
 SOURCE = "gateway_bookings"
 SAMPLE_LABEL = "Sample data"
-
-
-class BookingMoney(BaseModel):
-    amount_minor: int = Field(description="Amount in minor units (paisa for PKR).")
-    currency: str = Field(min_length=3, max_length=3)
-
-
-class BookingStatuses(BaseModel):
-    booking: BookingStatus
-    payment: PaymentStatus
-    issuance: IssuanceStatus
 
 
 class BookingListCards(BaseModel):
