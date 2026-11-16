@@ -15,11 +15,13 @@ from datetime import date, datetime, timedelta
 from app.services.pricing import cost_unknown
 from app.schemas.admin_dashboard import (
     AttentionItem, AttentionQueue, BookingReport, BusinessResults, DashboardFilterOptions,
-    CurrencyAmount, DashboardSummary, FilterOption, NeedsAction, Period, Product, ReportBucket,
+    CurrencyAmount, DashboardSummary, FilterOption, NeedsAction, Period, Product, ProductResults, ReportBucket,
 )
 from app.db.bookings import BookingRow
 
-DASHBOARD_PRODUCTS: dict[str, str] = {"flight": "Flights", "hotel": "Hotels", "umrah": "Umrah"}
+DASHBOARD_PRODUCTS: dict[str, str] = {"flight": "Flights", "group": "Group", "hotel": "Hotels", "umrah": "Umrah"}
+#: The Product filter and the per-product split (All / Flights / Group). Hotel and Umrah count under All.
+TRACKED_PRODUCTS: dict[str, str] = {"flight": "Flights", "group": "Group"}
 OPEN_HOLD = {"held", "pending_payment"}
 CLOSED = {"cancelled", "expired"}
 
@@ -139,9 +141,18 @@ def attention_kind(booking: BookingRow, now: datetime, window: timedelta) -> str
 
 
 def is_issued_ticket(booking: BookingRow) -> bool:
-    return booking.product == "flight" and booking.status not in CLOSED and (
+    return booking.product in TRACKED_PRODUCTS and booking.status not in CLOSED and (
         booking.status == "ticket_issued" or booking.ticket_status == "issued"
     )
+
+
+def is_open_hold(booking: BookingRow, now: datetime) -> bool:
+    """Held (the Bookings "On hold" card): held or pending payment with the expiry still ahead."""
+    return booking.status in OPEN_HOLD and due_ahead(booking, now)
+
+
+def is_paid(booking: BookingRow) -> bool:
+    return booking.payment_status == "paid" and booking.status not in CLOSED
 
 
 def is_sale(booking: BookingRow) -> bool:
@@ -173,6 +184,17 @@ def build_summary(
     sales = [booking for booking in period_rows if is_sale(booking)]
 
     total_sales, gross_profit = money_by_currency(sales)
+    by_product = None
+    if query.product is None:
+        by_product = []
+        for product, label in TRACKED_PRODUCTS.items():
+            rows = [booking for booking in period_rows if booking.product == product]
+            product_sales, product_profit = money_by_currency([booking for booking in rows if is_sale(booking)])
+            by_product.append(ProductResults(
+                product=product, label=label, total_bookings=len(rows), held=sum(is_open_hold(b, now) for b in rows),
+                paid=sum(is_paid(b) for b in rows), issued_tickets=sum(is_issued_ticket(b) for b in rows),
+                total_sales=product_sales, gross_profit=product_profit if can_see_margin else None,
+            ))
 
     return DashboardSummary(
         generated_at=now,
@@ -187,9 +209,12 @@ def build_summary(
         ),
         business=BusinessResults(
             total_bookings=len(period_rows),
+            held=sum(is_open_hold(booking, now) for booking in period_rows),
+            paid=sum(is_paid(booking) for booking in period_rows),
             issued_tickets=sum(is_issued_ticket(booking) for booking in period_rows),
             total_sales=total_sales,
             gross_profit=gross_profit if can_see_margin else None,
+            by_product=by_product,
         ),
     )
 
@@ -290,6 +315,6 @@ def build_filter_options(bookings: Iterable[BookingRow]) -> DashboardFilterOptio
         if booking.provider:
             providers.setdefault(booking.provider.lower(), booking.provider)
     return DashboardFilterOptions(
-        products=[FilterOption(value=value, label=label) for value, label in DASHBOARD_PRODUCTS.items()],
+        products=[FilterOption(value=value, label=label) for value, label in TRACKED_PRODUCTS.items()],
         providers=[FilterOption(value=value, label=label) for value, label in sorted(providers.items(), key=lambda pair: pair[1].lower())],
     )

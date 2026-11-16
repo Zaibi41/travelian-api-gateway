@@ -41,7 +41,7 @@ def test_dashboard_omits_margin_and_supplier_names_for_plain_staff(monkeypatch):
     assert summary["business"]["total_sales"] == [{"amount_minor": 1_500_000, "currency": "PKR"}]
     options = api.get("/v1/admin/dashboard/filter-options").json()
     assert "providers" not in options                          # supplier names: absent
-    assert [o["value"] for o in options["products"]] == ["flight", "hotel", "umrah"]
+    assert [o["value"] for o in options["products"]] == ["flight", "group"]
     assert "SooperFare" not in api.get("/v1/admin/dashboard/filter-options").text
     for path in ("/v1/admin/dashboard/summary", "/v1/admin/attention-queue"):
         assert api.get(path, params={"provider": "sooperfare"}).status_code == 403

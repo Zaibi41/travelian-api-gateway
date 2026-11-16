@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.api.routes import admin_dashboard as routes
-from app.core.field_visibility import ALL, BackOfficeUser, require_back_office
+from app.core.field_visibility import ALL, NONE, BackOfficeUser, require_back_office
 from app.core.config import Settings
 from app.db import bookings as booking_store
 from app.db.bookings import BookingRow, BookingsUnavailable
@@ -118,7 +118,7 @@ def test_attention_queue_dedupes_sorts_and_limits():
 
 def test_filter_options():
     options = figures.build_filter_options(RECORDS + [booking(9, provider="AirSial")])
-    assert [o.value for o in options.products] == ["flight", "hotel", "umrah"]
+    assert [o.value for o in options.products] == ["flight", "group"]
     assert [(o.value, o.label) for o in options.providers] == [("airsial", "AirSial"), ("sooperfare", "SooperFare")]
 
 
@@ -185,7 +185,7 @@ def test_summary_flags_sample_data_from_imports(monkeypatch):
     real = client(monkeypatch, [booking(1)]).get("/v1/admin/dashboard/summary").json()
     assert real["contains_sample_data"] is False
     mixed = client(monkeypatch, [booking(1), booking(2, import_source="legacy_test_csv")]).get(
-        "/v1/admin/dashboard/summary", params={"period": "today", "product": "hotel"}
+        "/v1/admin/dashboard/summary", params={"period": "today", "product": "group"}
     ).json()
     assert mixed["contains_sample_data"] is True  # regardless of filters
 
@@ -246,3 +246,43 @@ def test_each_card_count_equals_its_rows_in_the_queue_soonest_first():
     assert cards.expiring_holds == kinds.count("hold_expiring") == 2  # B34, B31
     assert [item.booking_id for item in queue.items] == ["B34", "B31", "B30", "B33"]
     assert all(item.due_at > NOW for item in queue.items)
+
+
+# ---------- Flights and Group separately ----------
+
+PER_PRODUCT = [
+    booking(1),                                                                         # flight: issued, paid, sale
+    booking(2, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=NOW + timedelta(hours=30)),
+    booking(3, product="group", status="held", payment_status="paid", ticket_status="not_issued",
+            hold_expires_at=NOW + timedelta(hours=5), total_minor=4_000_000, supplier_cost_minor=3_600_000),
+    booking(4, product="group", currency="SAR", total_minor=50_000, supplier_cost_minor=45_000),    # group, issued, SAR
+    booking(5, product="hotel", total_minor=200_000, supplier_cost_minor=150_000),        # counts under All only
+]
+
+
+def test_group_bookings_count_and_each_tile_splits_into_flights_and_group():
+    business = figures.build_summary(PER_PRODUCT, figures.DashboardQuery(), NOW, 24, can_see_margin=True).business
+    assert (business.total_bookings, business.held, business.paid, business.issued_tickets) == (5, 2, 4, 2)
+    flights, group = business.by_product
+    assert (flights.product, flights.label, group.product, group.label) == ("flight", "Flights", "group", "Group")
+    assert (flights.total_bookings, flights.held, flights.paid, flights.issued_tickets) == (2, 1, 1, 1)
+    assert (group.total_bookings, group.held, group.paid, group.issued_tickets) == (2, 1, 2, 1)
+    as_dict = lambda items: {i.currency: i.amount_minor for i in items}  # noqa: E731
+    assert as_dict(flights.total_sales) == {"PKR": 1_000_000} and as_dict(flights.gross_profit) == {"PKR": 100_000}
+    assert as_dict(group.total_sales) == {"PKR": 4_000_000, "SAR": 50_000}          # per currency, never converted
+    assert as_dict(group.gross_profit) == {"PKR": 400_000, "SAR": 5_000}
+    assert as_dict(business.total_sales) == {"PKR": 5_200_000, "SAR": 50_000}       # hotel in the All total
+
+
+def test_product_filter_narrows_to_one_product_without_a_split():
+    business = figures.build_summary(PER_PRODUCT, figures.DashboardQuery(product="group"), NOW, 24, can_see_margin=True).business
+    assert business.total_bookings == 2 and business.by_product is None
+    assert {i.currency: i.amount_minor for i in business.total_sales} == {"PKR": 4_000_000, "SAR": 50_000}
+
+
+def test_per_product_profit_is_omitted_without_margin_access(monkeypatch):
+    staff = BackOfficeUser(user_id="u-staff", role="staff", visibility=NONE)
+    body = client(monkeypatch, PER_PRODUCT, viewer=staff).get("/v1/admin/dashboard/summary").json()
+    assert [p["product"] for p in body["business"]["by_product"]] == ["flight", "group"]
+    assert all("gross_profit" not in p for p in body["business"]["by_product"]) and "gross_profit" not in body["business"]
+    assert client(monkeypatch, PER_PRODUCT).get("/v1/admin/dashboard/summary", params={"product": "hotel"}).status_code == 422

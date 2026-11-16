@@ -1815,6 +1815,21 @@
       "BusinessResults": {
         "description": "Follows all filters. Money is summed per currency, never converted.",
         "properties": {
+          "by_product": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductResults"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights and Group separately, only when no product filter is set (All). Hotel and Umrah count in the totals only.",
+            "title": "By Product"
+          },
           "gross_profit": {
             "anyOf": [
               {
@@ -1830,8 +1845,20 @@
             "description": "Per currency, as total_sales. amount_minor omitted (n/a) when a paid booking in that currency has no real supplier cost (none recorded, or an imported booking whose cost was filled in as its total). Omitted for roles without margin visibility.",
             "title": "Gross Profit"
           },
+          "held": {
+            "default": 0,
+            "description": "Holds still open (held or pending payment, expiry ahead).",
+            "title": "Held",
+            "type": "integer"
+          },
           "issued_tickets": {
             "title": "Issued Tickets",
+            "type": "integer"
+          },
+          "paid": {
+            "default": 0,
+            "description": "Paid in full, not cancelled or expired.",
+            "title": "Paid",
             "type": "integer"
           },
           "total_bookings": {
@@ -5822,6 +5849,72 @@
         "title": "PaymentAccountList",
         "type": "object"
       },
+      "ProductResults": {
+        "description": "One product's share of the business results (same rules, same filters).",
+        "properties": {
+          "gross_profit": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CurrencyAmount"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted for roles without margin visibility.",
+            "title": "Gross Profit"
+          },
+          "held": {
+            "title": "Held",
+            "type": "integer"
+          },
+          "issued_tickets": {
+            "title": "Issued Tickets",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "paid": {
+            "title": "Paid",
+            "type": "integer"
+          },
+          "product": {
+            "enum": [
+              "flight",
+              "group"
+            ],
+            "title": "Product",
+            "type": "string"
+          },
+          "total_bookings": {
+            "title": "Total Bookings",
+            "type": "integer"
+          },
+          "total_sales": {
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "title": "Total Sales",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product",
+          "label",
+          "total_bookings",
+          "held",
+          "paid",
+          "issued_tickets",
+          "total_sales"
+        ],
+        "title": "ProductResults",
+        "type": "object"
+      },
       "ProviderStatus": {
         "properties": {
           "name": {
@@ -8652,8 +8745,7 @@
                 {
                   "enum": [
                     "flight",
-                    "hotel",
-                    "umrah"
+                    "group"
                   ],
                   "type": "string"
                 },
@@ -10402,8 +10494,7 @@
                 {
                   "enum": [
                     "flight",
-                    "hotel",
-                    "umrah"
+                    "group"
                   ],
                   "type": "string"
                 },

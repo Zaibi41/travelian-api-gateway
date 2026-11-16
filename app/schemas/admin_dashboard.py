@@ -9,7 +9,7 @@ Period = Literal[
     "all", "today", "yesterday", "last-week", "last-two-weeks", "this-month",
     "last-month", "last-three-months", "last-six-months", "this-year", "last-year",
 ]
-Product = Literal["flight", "hotel", "umrah"]
+Product = Literal["flight", "group"]  # the filter: All (none), Flights or Group; hotel and umrah count under All
 AttentionType = Literal["pending_issuance", "payment_pending", "hold_expiring"]
 
 
@@ -27,16 +27,34 @@ class CurrencyAmount(BaseModel):
     amount_minor: int | None = Field(None, description="Amount in minor units (paisa for PKR). Omitted = n/a: it can't be computed exactly.")
 
 
+class ProductResults(BaseModel):
+    """One product's share of the business results (same rules, same filters)."""
+
+    product: Product
+    label: str
+    total_bookings: int
+    held: int
+    paid: int
+    issued_tickets: int
+    total_sales: list[CurrencyAmount]
+    gross_profit: list[CurrencyAmount] | None = Field(None, description="Omitted for roles without margin visibility.")
+
+
 class BusinessResults(BaseModel):
     """Follows all filters. Money is summed per currency, never converted."""
 
     total_bookings: int
+    held: int = Field(0, description="Holds still open (held or pending payment, expiry ahead).")
+    paid: int = Field(0, description="Paid in full, not cancelled or expired.")
     issued_tickets: int
     total_sales: list[CurrencyAmount] = Field(description="One entry per currency of the paid bookings (PKR when there are none).")
     gross_profit: list[CurrencyAmount] | None = Field(
         None, description="Per currency, as total_sales. amount_minor omitted (n/a) when a paid booking in that currency has no real "
                           "supplier cost (none recorded, or an imported booking whose cost was filled in as its total). "
                           "Omitted for roles without margin visibility.",
+    )
+    by_product: list[ProductResults] | None = Field(
+        None, description="Flights and Group separately, only when no product filter is set (All). Hotel and Umrah count in the totals only.",
     )
 
 
