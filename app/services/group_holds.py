@@ -44,6 +44,7 @@ from app.schemas.group_holds import (
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
 from app.services import flight_holds, group_terms, pricing
+from app.services.group_ticketing_status import ticketing_status
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
 from app.services.live_flights import money_text
@@ -295,6 +296,8 @@ def _status(booking: store.GroupBooking, now: datetime) -> str:
         return booking.issuance_status
     if booking.booking_status == "ticket_issued" or booking.issuance_status == "issued":
         return "issued"
+    if booking.booking_status == "confirmed":
+        return "confirmed"
     if booking.booking_status == "cancelled":
         return "released"
     if booking.booking_status == "expired" or (booking.booking_status == "held" and store.is_over(booking, now)):
@@ -437,6 +440,11 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
         view.supplier_cost = money(booking.supplier_cost_minor)
         view.profit = money(booking.total_minor - booking.supplier_cost_minor)
     view.can_set_selling_price = open_hold and booking.paid_minor == 0 and viewer.can(RECORD_PAYMENTS)
+    view.final_pnr = booking.final_pnr
+    view.ticketing_status = ticketing_status(booking.booking_status, booking.issuance_status, booking.final_pnr, due == 0)
+    view.can_edit_tickets = (viewer.can(ISSUE_TICKETS) and due == 0 and booking.booking_status in store.TICKETABLE
+                             and not (status == "held" and store.is_over(booking, now)))
+    view.itinerary_available = view.ticketing_status == "ticketed"
     if viewer.visibility.supplier_names:
         # Supplier name and the supplier's PNR: only with the supplier names permission.
         view.supplier = booking.provider or None
@@ -827,5 +835,19 @@ async def issue(reference: str, viewer: BackOfficeUser, accepted_cost: GroupMone
                             hold=await read(reference, viewer))
 
 
+async def record_tickets(reference: str, viewer: BackOfficeUser, final_pnr: str, tickets: dict[int, str | None]) -> GroupHoldView:
+    """Staff record the final PNR and ticket numbers (issue tickets permission, paid in full)."""
+    if not viewer.can(ISSUE_TICKETS):
+        raise GroupHoldError(403, "Recording the final PNR and tickets requires the issue tickets permission.", "not_allowed")
+    try:
+        booking = await run_in_threadpool(store.load, reference)
+        if booking.booking_status == "held" and store.is_over(booking, _now()):
+            raise GroupHoldError(409, "This hold has expired.", "hold_expired")
+        await run_in_threadpool(store.record_tickets, reference, viewer.user_id, final_pnr, tickets)
+    except store.GroupHoldRefused as error:
+        raise _refused(error) from None
+    return await read(reference, viewer)
+
+
 __all__ = ["GroupHoldError", "GroupHoldProvider", "HeldRef", "HeldSeats", "NO_ISSUE_REASON", "PROVIDERS", "SUPPORT", "SupplierRefused",
-           "hold", "hold_expiry", "issue", "price_check", "provider_for", "read", "release", "supports_issue"]
+           "hold", "hold_expiry", "issue", "price_check", "provider_for", "read", "record_tickets", "release", "supports_issue"]

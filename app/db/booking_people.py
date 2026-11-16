@@ -17,7 +17,7 @@ AUDIT_DETAIL_KEYS = ("label", "pnr", "time_limit", "fare_info", "pax_count", "tr
                      "amount_minor", "currency", "method", "received_into", "payer_reference", "payment_status",
                      "note", "previous_status", "reason_code", "supplier_answer", "supplier_error", "pnr_status", "tickets", "outcome",
                      "total_source", "pnr_info_error", "fare_info_error", "previous_amount_minor",
-                     "terms_version", "terms_text", "acknowledged_by")
+                     "terms_version", "terms_text", "acknowledged_by", "final_pnr", "previous_final_pnr")
 
 
 @dataclass(frozen=True)

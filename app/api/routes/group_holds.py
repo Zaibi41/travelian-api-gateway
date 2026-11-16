@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 
 from app.core.field_visibility import BackOfficeUser, require_back_office
-from app.schemas.group_holds import GroupHoldRequest, GroupHoldView, GroupIssueRequest, GroupIssueResult, GroupPriceCheck
+from app.schemas.group_holds import GroupHoldRequest, GroupHoldView, GroupIssueRequest, GroupIssueResult, GroupPriceCheck, GroupTicketsRequest
 from app.services import group_holds
 
 router = APIRouter(
@@ -93,5 +93,18 @@ async def issue_group_tickets(request: GroupIssueRequest, booking_id: Reference,
     Needs full payment and the issue tickets permission. One issue call, never retried."""
     try:
         return await group_holds.issue(booking_id, viewer, request.accepted_supplier_cost, request.accept_below_cost)
+    except group_holds.GroupHoldError as error:
+        return _error(error)
+
+
+@router.post("/{booking_id}/tickets", response_model=GroupHoldView, response_model_exclude_none=True,
+             responses={409: {"description": "payment_due, hold_expired or not_ticketable."},
+                        422: {"description": "A bad final PNR or ticket number, a repeated ticket number, or a traveler not on the booking."}})
+async def record_group_tickets(request: GroupTicketsRequest, booking_id: Reference, viewer: Staff):
+    """Record the airline's final PNR and per-traveler ticket numbers (issue tickets permission, paid in full; logged).
+    With a ticket number for every traveler the booking becomes Ticketed and its itinerary can be printed."""
+    try:
+        return await group_holds.record_tickets(booking_id, viewer, request.final_pnr,
+                                                {ticket.position: ticket.ticket_number for ticket in request.tickets})
     except group_holds.GroupHoldError as error:
         return _error(error)

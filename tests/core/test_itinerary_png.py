@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from app.db import booking_people
 from app.services.itinerary_pdf import to_png
 from tests.core.test_admin_bookings import SUPER_ADMIN, client
-from tests.core.test_itinerary_pdf import FLIGHT_HOLD, GROUP_ONE_WAY, GROUP_PAID, ISSUED, people, traveler
+from tests.core.test_itinerary_pdf import FLIGHT_HOLD, GROUP_ONE_WAY, GROUP_PAID, GROUP_TICKETED, GROUP_TICKETS, ISSUED, people, traveler
 from tests.core.test_itinerary_pdf import get as get_pdf
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -18,7 +18,7 @@ A4_PX = (round(A4[0] / 72 * 150), round(A4[1] / 72 * 150))  # about 1240 x 1754 
 
 
 def fetch(monkeypatch, reference, viewer=SUPER_ADMIN, who=None, fmt="png"):
-    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY], viewer=viewer)
+    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY, GROUP_TICKETED], viewer=viewer)
     monkeypatch.setattr(booking_people, "read", lambda ref: who)
     return api.get(f"/v1/admin/bookings/{reference}/itinerary.pdf", params={"format": fmt})
 
@@ -31,7 +31,7 @@ def image_of(content: bytes) -> Image.Image:
 
 def test_png_for_hold_paid_and_issued_is_a_valid_a4_image_named_after_the_booking(monkeypatch):
     cases = {"TRV-41": people(traveler(0, "Ali")),
-             "TRV-42": people(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000),
+             "TRV-45": GROUP_TICKETS(),
              "TRV-43": people(traveler(0, "Ali", ticket="2147483647001"), traveler(1, "Sana", ticket="2147483647002"), paid=17_600_000)}
     for reference, who in cases.items():
         response = fetch(monkeypatch, reference, who=who)
@@ -48,6 +48,11 @@ def test_png_for_hold_paid_and_issued_is_a_valid_a4_image_named_after_the_bookin
 def test_pdf_stays_the_default(monkeypatch):
     response = get_pdf(monkeypatch, "TRV-41", who=people(traveler(0, "Ali")))
     assert response.headers["content-type"] == "application/pdf" and response.content.startswith(b"%PDF-")
+
+
+def test_a_group_png_is_refused_until_ticketed_like_the_pdf(monkeypatch):
+    who = people(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000)
+    assert fetch(monkeypatch, "TRV-42", who=who).status_code == get_pdf(monkeypatch, "TRV-42", who=who).status_code == 409
 
 
 def test_403_and_404_match_the_pdf(monkeypatch):

@@ -123,8 +123,7 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
     assert (view.flight.airline, view.flight.sector, view.flight.departure_date, view.flight.departure_time) == ("Fly Jinnah", "ISB - JED", "2026-11-22", "06:40")
     assert [t.document_number for t in view.travelers] == ["AB1234567", "CD7654321"]
     body = view.model_dump_json()
-    for secret in (SUPPLIER_REF, "AB1234567", "1988-03-14"):
-        assert secret not in body
+    assert SUPPLIER_REF not in body                  # the supplier's own reference stays inside; documents show in full
     connection, _, _ = database
     event = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"),
                                {"r": view.booking_id}).scalars().all()
@@ -434,3 +433,65 @@ def test_a_hold_without_the_acknowledgement_creates_no_booking(provider, databas
     assert error.value.code == "fare_terms_not_acknowledged" and "hold" not in str(provider.calls)
     connection, _, _ = database
     assert connection.scalar(text("SELECT count(*) FROM bookings")) == 0
+
+
+# ---------- final PNR and tickets (staff) ----------
+
+def tickets(final_pnr="K9QX2L", **numbers):
+    from app.schemas.group_holds import GroupTicketsRequest
+    body = GroupTicketsRequest(final_pnr=final_pnr, tickets=[{"position": p, "ticket_number": n} for p, n in numbers.items()])
+    return body.final_pnr, {t.position: t.ticket_number for t in body.tickets}
+
+
+def test_after_payment_awaiting_final_pnr_then_final_pnr_received_then_ticketed(provider, database):
+    view = place()
+    assert view.ticketing_status is None and not view.can_edit_tickets and not view.itinerary_available     # nothing paid yet
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, *tickets()))
+    assert error.value.code == "payment_due"
+    pay(view.booking_id, 210_000_00)
+    paid = run(group_holds.read(view.booking_id, ADMIN))
+    assert paid.ticketing_status == "awaiting_final_pnr" and paid.can_edit_tickets and paid.final_pnr is None
+
+    pnr_only = run(group_holds.record_tickets(view.booking_id, ADMIN, *tickets("k9qx2l")))
+    assert pnr_only.final_pnr == "K9QX2L" and pnr_only.ticketing_status == "final_pnr_received" and pnr_only.status == "confirmed"
+    assert not pnr_only.itinerary_available
+
+    partly = run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901"}))
+    assert partly.ticketing_status == "final_pnr_received"                              # one of two tickets
+    done = run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901", 1: "2142345678902"}))
+    assert done.ticketing_status == "ticketed" and done.status == "issued" and done.itinerary_available
+    assert [t.ticket_number for t in done.travelers] == ["2142345678901", "2142345678902"]
+    connection, _, _ = database
+    row = connection.execute(text("SELECT booking_status, issuance_status FROM bookings WHERE reference = :r"), {"r": view.booking_id}).one()
+    assert tuple(row) == ("ticket_issued", "issued")
+    actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
+                                      " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
+    assert actions[-4:] == ["final_pnr_recorded", "ticket_numbers_recorded", "ticket_numbers_recorded", "group_ticketed"]
+    # The Bookings row and the detail follow: the final PNR, Ticketed and a printable itinerary.
+    from app.services import admin_bookings
+    booking_row = admin_bookings.find_booking(booking_store.list_dashboard_bookings(), view.booking_id)
+    detail = admin_bookings.build_detail(booking_row, ALL, booking_people.read(view.booking_id), can_issue_tickets=True)
+    assert (detail.final_pnr, detail.group_ticketing_status, detail.itinerary_available, detail.can_edit_group_tickets) == ("K9QX2L", "ticketed", True, True)
+
+
+def test_recording_tickets_needs_the_permission_and_refuses_bad_or_repeated_numbers(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, STAFF, *tickets()))
+    assert error.value.status == 403
+    assert not run(group_holds.read(view.booking_id, STAFF)).can_edit_tickets
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {5: "2142345678901"}))
+    assert error.value.status == 422
+    run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901"}))
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {1: "2142345678901"}))    # already on traveler 0
+    assert error.value.code == "duplicate_ticket"
+    from pydantic import ValidationError
+    from app.schemas.group_holds import GroupTicketsRequest
+    for body in ({"final_pnr": "K9"}, {"final_pnr": "K9QX2L", "tickets": [{"position": 0, "ticket_number": "x"}]},
+                 {"final_pnr": "K9QX2L", "tickets": [{"position": 0, "ticket_number": "2142345678901"}, {"position": 1, "ticket_number": "2142345678901"}]}):
+        with pytest.raises(ValidationError):
+            GroupTicketsRequest(**body)

@@ -7,6 +7,7 @@ permission; `stock` ("supplier" or "owned") is for everyone.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
@@ -87,7 +88,9 @@ class GroupHoldPayment(BaseModel):
     received_at: datetime
 
 
-GroupHoldStatus = Literal["held", "expired", "released", "processing", "issued", "unknown", "not_recorded"]
+GroupHoldStatus = Literal["held", "confirmed", "expired", "released", "processing", "issued", "unknown", "not_recorded"]
+#: After payment: "Paid – awaiting final PNR" -> "Final PNR received" -> "Ticketed" (final PNR and every ticket number).
+GroupTicketingStatus = Literal["awaiting_final_pnr", "final_pnr_received", "ticketed"]
 
 
 class GroupHeldPriceChange(BaseModel):
@@ -115,7 +118,7 @@ class FareTermsView(BaseModel):
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
     pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
-    status: GroupHoldStatus = Field(description="held; expired (time limit passed, can't be held again: search again); released; "
+    status: GroupHoldStatus = Field(description="held; confirmed (paid, the final PNR is recorded); expired (time limit passed, can't be held again: search again); released; "
                                                 "processing (issuing); issued; unknown (issuing outcome unclear); not_recorded (the supplier held "
                                                 "but the booking couldn't be completed; only viewers with supplier access can open it).")
     hold_expires_at: datetime | None = Field(None, description="Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.")
@@ -131,7 +134,7 @@ class GroupHoldView(BaseModel):
     amount_due: GroupMoney
     payment_status: Literal["unpaid", "part_paid", "paid"]
     customer: GroupHoldCustomer | None = None
-    travelers: list[GroupHoldTraveler] = Field(default_factory=list, description="Masked documents and dates of birth.")
+    travelers: list[GroupHoldTraveler] = Field(default_factory=list, description="Documents and dates of birth in full.")
     payments: list[GroupHoldPayment] = Field(default_factory=list)
     can_record_payments: bool = Field(False, description="This viewer may record a payment now (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="This viewer may issue now: held, not expired, nothing due, provider supports it (the endpoint still checks).")
@@ -150,6 +153,48 @@ class GroupHoldView(BaseModel):
     supplier_notice: str | None = Field(None, description="What happens to the seats at the supplier, e.g. 'Cancelled at the supplier'. Only with the supplier names permission.")
     fare_terms: FareTermsView | None = Field(None, description="The non-refundable, non-changeable acknowledgement stored at the hold.")
     saved_people: list[SaveOutcomeView] | None = Field(None, description="Only in the hold answer: what happened to the saved customer and travelers.")
+    final_pnr: str | None = Field(None, description="The airline's final PNR for this booking, recorded by staff after payment.")
+    ticketing_status: GroupTicketingStatus | None = Field(None, description="After full payment: awaiting_final_pnr, final_pnr_received, ticketed.")
+    can_edit_tickets: bool = Field(False, description="This viewer may record the final PNR and ticket numbers now (issue tickets permission, "
+                                                      "paid in full; the endpoint still checks).")
+    itinerary_available: bool = Field(True, description="The itinerary / e-ticket PDF and PNG can be downloaded: a group booking only once Ticketed.")
+
+
+class GroupTicketNumber(BaseModel):
+    position: int = Field(ge=0, description="The traveler's booking position.")
+    ticket_number: str | None = Field(None, max_length=20, description="Empty clears it. Letters, digits and dashes, 6 to 20.")
+
+
+class GroupTicketsRequest(BaseModel):
+    """The final PNR and per-traveler ticket numbers, typed by staff from the airline / supplier."""
+
+    final_pnr: str = Field(min_length=5, max_length=8, description="The airline's final PNR, 5 to 8 letters and digits.")
+    tickets: list[GroupTicketNumber] = Field(default_factory=list, max_length=99)
+
+    @field_validator("final_pnr")
+    @classmethod
+    def _pnr(cls, value: str) -> str:
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{5,8}", value):
+            raise ValueError("Final PNR is 5 to 8 letters and digits.")
+        return value
+
+    @field_validator("tickets")
+    @classmethod
+    def _tickets(cls, tickets: list[GroupTicketNumber]) -> list[GroupTicketNumber]:
+        numbers = []
+        for ticket in tickets:
+            value = (ticket.ticket_number or "").strip().upper().replace(" ", "")
+            if value and not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{4,18}[A-Z0-9]", value):
+                raise ValueError("A ticket number is 6 to 20 letters, digits and dashes.")
+            ticket.ticket_number = value or None
+            if value:
+                numbers.append(value)
+        if len(numbers) != len(set(numbers)):
+            raise ValueError("Each traveler needs a different ticket number.")
+        if len({ticket.position for ticket in tickets}) != len(tickets):
+            raise ValueError("Each traveler appears once.")
+        return tickets
 
 
 class GroupPriceCheck(BaseModel):

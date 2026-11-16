@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
 from app.db import booking_payments, booking_people, booking_pricing
 from app.db import issuance as issuance_store
+from app.services.group_ticketing_status import ITINERARY_NOT_YET, ticketing_status
 from app.services import group_terms
 from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
@@ -103,14 +104,15 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
 @router.get(
     "/{booking_id}/itinerary.pdf", response_class=Response,
     responses={200: {"content": {"application/pdf": {}, "image/png": {}}, "description": "The itinerary, named after the booking reference."},
-               403: {"description": "Back-office users only."}, 404: {"description": "No such booking."}},
+               403: {"description": "Back-office users only."}, 404: {"description": "No such booking."},
+               409: {"description": "A group booking that isn't Ticketed yet (final PNR and every ticket number)."}},
 )
 async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)],
                         format: Annotated[Literal["pdf", "png"], Query(description="pdf (default) or png: the same document as one image.")] = "pdf"):
     """The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status
     banner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight
-    outbound then return. Never a supplier name, group id, cost or profit; a group booking's PNR (the supplier's) only
-    with the supplier names permission; full passport numbers.
+    outbound then return. Never a supplier name, group id, cost or profit; full passport numbers. A group booking prints
+    only once Ticketed, with the airline's final PNR (409 before).
     format=png: the finished PDF rendered at about 150 DPI, pages stacked into one image (same rules)."""
     bookings = await run_in_threadpool(_read_bookings)
     booking = service.find_booking(bookings, booking_id)
@@ -127,8 +129,14 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
                                                         passport, traveler.selling_minor, traveler.ticket_number))
     customer = f"{people.customer.first_name} {people.customer.last_name}".strip() if people and people.customer else booking.customer_name
     paid = sum(payment.amount_minor for payment in people.payments) if people else 0
+    pnr = service.visible_pnr(booking, viewer.visibility)
+    if booking.product == "group":
+        # A group itinerary / e-ticket prints only once Ticketed, with the airline's final PNR.
+        if ticketing_status(booking.status, booking.ticket_status, booking.final_pnr, paid >= (booking.total_minor or 0)) != "ticketed":
+            raise HTTPException(409, ITINERARY_NOT_YET)
+        pnr = booking.final_pnr
     document = itinerary_pdf_service.Itinerary(
-        reference=booking.booking_id, product=booking.product, pnr=service.visible_pnr(booking, viewer.visibility),
+        reference=booking.booking_id, product=booking.product, pnr=pnr,
         booking_status=booking.status, issuance_status=booking.ticket_status, payment_status=booking.payment_status,
         created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, currency=booking.currency, total_minor=booking.total_minor,
         paid_minor=paid, travelers=travelers, segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)],

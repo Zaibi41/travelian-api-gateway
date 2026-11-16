@@ -308,3 +308,9 @@ class BookingDetail(BaseModel):
     sections_not_available: list[DetailSection] = Field(
         description="Tabs whose data the gateway doesn't record yet; the page shows them as not available."
     )
+    final_pnr: str | None = Field(None, description="Group bookings: the airline's final PNR, recorded by staff after payment.")
+    group_ticketing_status: Literal["awaiting_final_pnr", "final_pnr_received", "ticketed"] | None = Field(
+        None, description="Group bookings after full payment: Paid – awaiting final PNR, Final PNR received, Ticketed.")
+    can_edit_group_tickets: bool = Field(False, description="Group bookings: this viewer may record the final PNR and ticket numbers on the Tickets tab "
+                                                            "(issue tickets permission, paid in full; the endpoint still checks).")
+    itinerary_available: bool = Field(True, description="The itinerary PDF / PNG can be downloaded. Group bookings: only once Ticketed.")

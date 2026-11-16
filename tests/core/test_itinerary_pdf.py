@@ -1,7 +1,7 @@
 """GET /v1/admin/bookings/{id}/itinerary.pdf (ReportLab layout): a PDF named after the booking reference, for
 back-office users. Status banner per state (hold, paid not issued, issued), one block per flight outbound then return,
-the selling price only, no supplier name, group id, cost or profit; a group booking's PNR only with supplier access;
-full passport numbers for every back-office viewer (nothing is masked). The text is read back with pdftotext."""
+the selling price only, no supplier name, group id, cost or profit; a group booking only once Ticketed, with the
+airline's final PNR (409 before); full passport numbers for every back-office viewer (nothing is masked). The text is read back with pdftotext."""
 
 import re
 import shutil
@@ -31,6 +31,10 @@ ISSUED = booking(43, status="ticket_issued", payment_status="paid", ticket_statu
 GROUP_ONE_WAY = booking(44, product="group", status="held", payment_status="unpaid", ticket_status="not_issued", pnr="41SDS4", provider="dhillu_sahi",
                         hold_expires_at=NOW + timedelta(minutes=40), itinerary=[{**OUT, "origin": "LHE", "destination": "DMM", "airline_name": "PF",
                                                                                   "flight_number": "PF742", "meal": "0"}])
+GROUP_TICKETED = booking(45, product="group", status="ticket_issued", payment_status="paid", ticket_status="issued", pnr="4YB8HL-4VK1MF",
+                         provider="skypass", final_pnr="K7P2QX", total_minor=17_640_000, supplier_cost_minor=17_600_000, itinerary=[OUT, BACK])
+GROUP_TICKETS = (lambda: people(traveler(0, "Ali", fare=8_820_000, ticket="2147483647011"), traveler(1, "Sana", fare=8_820_000, ticket="2147483647012"),
+                                paid=17_640_000))
 
 
 def traveler(position, first, last="Raza", kind="ADT", fare=8_800_000, ticket=None):
@@ -50,7 +54,7 @@ def pdf_text(content: bytes, tmp_path) -> str:
 
 
 def get(monkeypatch, reference, viewer=SUPER_ADMIN, who=None):
-    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY], viewer=viewer)
+    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY, GROUP_TICKETED], viewer=viewer)
     monkeypatch.setattr(booking_people, "read", lambda ref: who)
     return api.get(f"/v1/admin/bookings/{reference}/itinerary.pdf")
 
@@ -69,10 +73,10 @@ def test_hold_pdf_status_banner_pkt_expiry_and_one_flight(monkeypatch, tmp_path)
     assert "Mr Ali Raza" in text and "Rs 88,000" in text and "Travelian" in text and "+92 324 4440014" in text
 
 
-def test_paid_group_return_shows_both_flights_and_the_selling_price_only(monkeypatch, tmp_path):
-    who = people(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000)
-    text = pdf_text(get(monkeypatch, "TRV-42", who=who).content, tmp_path)
-    assert "Payment received, ticket not yet issued" in text
+def test_ticketed_group_return_shows_both_flights_the_final_pnr_and_the_selling_price_only(monkeypatch, tmp_path):
+    text = pdf_text(get(monkeypatch, "TRV-45", who=GROUP_TICKETS()).content, tmp_path)
+    assert "E-ticket issued" in text and "PNR K7P2QX" in text and "4YB8HL" not in text
+    assert "2147483647011" in text and "2147483647012" in text
     assert text.index("Outbound") < text.index("Return") and "Jeddah to Islamabad" in text and "Flight 9P 701" in text
     assert "Rs 176,400" in text and "176,000" not in text and "Profit" not in text and "cost" not in text.lower()
     assert "skypass" not in text.lower() and not re.search(r"Group \d", text)
@@ -85,11 +89,18 @@ def test_issued_pdf_is_an_e_ticket_with_ticket_numbers(monkeypatch, tmp_path):
     assert "2147483647001" in text and "2147483647002" in text and "Rs 0" in text
 
 
-def test_group_pnr_needs_supplier_access_and_no_supplier_names_ever(monkeypatch, tmp_path):
-    for viewer, sees in ((SUPER_ADMIN, True), (STAFF_NAMES, True), (STAFF, False)):
-        text = pdf_text(get(monkeypatch, "TRV-44", viewer=viewer, who=people(traveler(0, "Ali"))).content, tmp_path)
-        assert ("41SDS4" in text) is sees
-        assert "dhillu" not in text.lower() and "No meal" in text and "AirSial" in text  # airline from its code, never the supplier
+def test_a_group_itinerary_is_refused_until_ticketed(monkeypatch):
+    for reference, who in (("TRV-44", people(traveler(0, "Ali"))),                                     # held, unpaid
+                           ("TRV-42", people(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000))):  # paid
+        response = get(monkeypatch, reference, who=who)
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Available once the tickets are issued (final PNR)"
+
+
+def test_a_ticketed_group_prints_the_final_pnr_for_every_viewer_and_never_the_supplier(monkeypatch, tmp_path):
+    for viewer in (SUPER_ADMIN, STAFF_NAMES, STAFF):
+        text = pdf_text(get(monkeypatch, "TRV-45", viewer=viewer, who=GROUP_TICKETS()).content, tmp_path)
+        assert "PNR K7P2QX" in text and "4YB8HL" not in text and "skypass" not in text.lower()
     assert "PNR 63B55C" in pdf_text(get(monkeypatch, "TRV-41", viewer=STAFF, who=people(traveler(0, "Ali"))).content, tmp_path)
 
 
@@ -120,13 +131,12 @@ def acknowledged(*travelers, paid=0):
 
 
 def test_group_pdf_carries_non_refundable_next_to_the_fare_and_the_full_line_in_the_terms_box(monkeypatch, tmp_path):
-    who = acknowledged(traveler(0, "Ali", fare=8_820_000), traveler(1, "Sana", fare=8_820_000), paid=17_640_000)
-    text = " ".join(pdf_text(get(monkeypatch, "TRV-42", who=who).content, tmp_path).split())
+    who = acknowledged(traveler(0, "Ali", fare=8_820_000, ticket="2147483647011"), traveler(1, "Sana", fare=8_820_000, ticket="2147483647012"),
+                       paid=17_640_000)
+    text = " ".join(pdf_text(get(monkeypatch, "TRV-45", who=who).content, tmp_path).split())
     assert "Non-refundable · Non-changeable" in text
     assert "TERMS 1 Group fares are non-refundable and non-changeable. Names and dates cannot be altered after booking." in text
     assert text.index("Rs 176,400") < text.index("Non-refundable · Non-changeable") < text.index("FLIGHTS")   # right under the fare
-    issued = acknowledged(traveler(0, "Ali", ticket="2147483647001"), paid=8_800_000)                           # the e-ticket state too
-    assert "Non-refundable · Non-changeable" in pdf_text(get(monkeypatch, "TRV-44", who=issued).content, tmp_path)
 
 
 def test_a_booking_without_the_stored_term_has_no_terms_box(monkeypatch, tmp_path):

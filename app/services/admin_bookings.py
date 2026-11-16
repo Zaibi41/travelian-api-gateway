@@ -20,6 +20,7 @@ from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
 from app.services import group_terms
+from app.services.group_ticketing_status import ticketing_status
 from app.services.pricing import cost_unknown
 from app.schemas.admin_bookings import (
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
@@ -305,6 +306,14 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
                 if visibility.cost_and_margin and not unknown_cost and all(t.cost_minor is not None for t in group):
                     item.supplier_cost_each = _money(max(t.cost_minor for t in group), booking.currency)
                 fare.per_passenger.append(item)
+    if booking.product == "group":
+        due_zero = people is not None and paid >= (booking.total_minor or 0)
+        detail.final_pnr = booking.final_pnr
+        detail.group_ticketing_status = ticketing_status(booking.status, booking.ticket_status, booking.final_pnr, due_zero)
+        detail.itinerary_available = detail.group_ticketing_status == "ticketed"
+        detail.can_edit_group_tickets = (can_issue_tickets and due_zero and booking.status in ("held", "confirmed", "ticket_issued")
+                                         and not (booking.status == "held" and booking.hold_expires_at is not None
+                                                  and booking.hold_expires_at <= datetime.now(booking.hold_expires_at.tzinfo)))
     detail.can_set_selling_price = (can_record_payments and booking.status in ("held", "pending_payment") and issuance_status(booking) == "not_issued"
                                     and not (people and people.payments) and bool(fare.per_passenger))
     if visibility.supplier_names and booking.provider:

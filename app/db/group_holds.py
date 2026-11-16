@@ -64,6 +64,8 @@ class GroupBooking:
     ticket_id: str | None = None
     #: Where the hold time came from: {"source": "default", "minutes": 45, "from": ...}; {} for GROUP_HOLD_MINUTES holds.
     hold_time: dict[str, Any] = field(default_factory=dict)
+    #: The airline's final PNR, recorded by staff after payment (supplier_response -> 'final_pnr').
+    final_pnr: str | None = None
 
     @property
     def price_change_pending(self) -> bool:
@@ -89,7 +91,7 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
              " supplier_response -> 'release' AS release, supplier_response -> 'source' AS source,"
              " supplier_response -> 'unrecorded' AS unrecorded, supplier_response -> 'price_change' AS price_change,"
              " supplier_response -> 'supplier_amounts' AS supplier_amounts, supplier_response -> 'ticket' ->> 'id' AS ticket_id,"
-             " supplier_response -> 'hold_time' AS hold_time"
+             " supplier_response -> 'hold_time' AS hold_time, supplier_response ->> 'final_pnr' AS final_pnr"
              " FROM bookings WHERE reference = :r AND product = 'group'" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
@@ -106,7 +108,7 @@ def _load(connection, reference: str, lock: bool) -> GroupBooking:
                         row["unrecorded"] if isinstance(row["unrecorded"], dict) else {},
                         row["price_change"] if isinstance(row["price_change"], dict) else {},
                         row["supplier_amounts"] if isinstance(row["supplier_amounts"], dict) else {}, row["ticket_id"],
-                        row["hold_time"] if isinstance(row["hold_time"], dict) else {})
+                        row["hold_time"] if isinstance(row["hold_time"], dict) else {}, row["final_pnr"] or None)
 
 
 def load(reference: str) -> GroupBooking:
@@ -376,4 +378,47 @@ def accept_held_price(reference: str, actor: str) -> GroupBooking:
                  " updated_at = now(), revision = revision + 1 WHERE id = :b"), {"b": booking.id})
         _event(connection, booking.id, actor, "held_price_accepted",
                {"amount_minor": booking.total_minor, "currency": booking.currency})
+        return _load(connection, reference, lock=False)
+
+
+#: Booking statuses on which staff may record the final PNR and ticket numbers (paid in full is checked too).
+TICKETABLE = ("held", "confirmed", "ticket_issued")
+
+
+def record_tickets(reference: str, actor: str, final_pnr: str, tickets: dict[int, str | None]) -> GroupBooking:
+    """Save the final PNR and the given travelers' ticket numbers (logged). The booking becomes confirmed; with the final
+    PNR and a ticket number for every traveler it becomes ticketed (ticket_issued / issued)."""
+    with agencies.application_engine().begin() as connection:
+        booking = _load(connection, reference, lock=True)
+        if booking.booking_status not in TICKETABLE:
+            raise GroupHoldRefused(409, "The final PNR and tickets can only be recorded on a held, confirmed or ticketed booking.", "not_ticketable")
+        if booking.paid_minor < booking.total_minor:
+            raise GroupHoldRefused(409, "Record the full payment first.", "payment_due")
+        current = dict(connection.execute(text("SELECT position, ticket_number FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                          {"b": booking.id}).all())
+        unknown = sorted(set(tickets) - set(current))
+        if unknown:
+            raise GroupHoldRefused(422, f"No traveler at position {unknown[0]} on this booking.", "unknown_traveler")
+        merged = {**current, **tickets}
+        taken = [n for n in merged.values() if n]
+        if len(taken) != len(set(taken)):
+            raise GroupHoldRefused(422, "Each traveler needs a different ticket number.", "duplicate_ticket")
+        for position, number in tickets.items():
+            if number != current[position]:
+                connection.execute(text("UPDATE booking_travelers SET ticket_number = :n WHERE booking_id = :b AND position = :p"),
+                                   {"n": number, "b": booking.id, "p": position})
+        ticketed = bool(merged) and all(merged.values())
+        connection.execute(
+            text("UPDATE bookings SET supplier_response = COALESCE(supplier_response, '{}'::jsonb) || jsonb_build_object('final_pnr', CAST(:p AS text)),"
+                 " booking_status = :s, issuance_status = :i, updated_at = now(), revision = revision + 1 WHERE id = :b"),
+            {"p": final_pnr, "s": "ticket_issued" if ticketed else "confirmed",
+             "i": "issued" if ticketed else ("not_issued" if booking.issuance_status == "issued" else booking.issuance_status), "b": booking.id},
+        )
+        if final_pnr != booking.final_pnr:
+            _event(connection, booking.id, actor, "final_pnr_recorded", {"final_pnr": final_pnr, "previous_final_pnr": booking.final_pnr})
+        changed = [position for position, number in tickets.items() if number != current[position]]
+        if changed:
+            _event(connection, booking.id, actor, "ticket_numbers_recorded", {"tickets": len(taken), "travelers": len(merged)})
+        if ticketed and booking.booking_status != "ticket_issued":
+            _event(connection, booking.id, actor, "group_ticketed", {"final_pnr": final_pnr, "tickets": len(taken)})
         return _load(connection, reference, lock=False)
