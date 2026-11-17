@@ -1125,7 +1125,7 @@
                 "type": "null"
               }
             ],
-            "description": "Flights tab only: open holds not yet expired.",
+            "description": "Flights and Group Ticketing tabs: open holds not yet expired.",
             "title": "Hold Deadlines"
           },
           "on_hold": {
@@ -2211,6 +2211,91 @@
           "business"
         ],
         "title": "DashboardSummary",
+        "type": "object"
+      },
+      "DestinationSuggestRequest": {
+        "properties": {
+          "query": {
+            "examples": [
+              "Dubai"
+            ],
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "DestinationSuggestRequest",
+        "type": "object"
+      },
+      "DestinationSuggestView": {
+        "properties": {
+          "destinations": {
+            "items": {
+              "$ref": "#/components/schemas/DestinationView"
+            },
+            "title": "Destinations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "destinations"
+        ],
+        "title": "DestinationSuggestView",
+        "type": "object"
+      },
+      "DestinationView": {
+        "properties": {
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "id": {
+            "description": "Pass back as destination_id with this kind.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "region",
+              "hotel"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For regions, e.g. City, Airport.",
+            "title": "Region Type"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "title": "DestinationView",
         "type": "object"
       },
       "DocumentInput": {
@@ -5497,15 +5582,122 @@
         "title": "HoldView",
         "type": "object"
       },
-      "HotelSearchRequest": {
+      "HotelMoney": {
         "properties": {
-          "adults": {
-            "default": 2,
-            "maximum": 40.0,
-            "minimum": 1.0,
-            "title": "Adults",
+          "amount_minor": {
+            "description": "Integer minor units (cents for USD, paisa for PKR).",
+            "title": "Amount Minor",
             "type": "integer"
           },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "currency"
+        ],
+        "title": "HotelMoney",
+        "type": "object"
+      },
+      "HotelProviderStatus": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "responded",
+              "failed",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "HotelProviderStatus",
+        "type": "object"
+      },
+      "HotelRateView": {
+        "properties": {
+          "board": {
+            "title": "Board",
+            "type": "string"
+          },
+          "cancellation": {
+            "enum": [
+              "free_until",
+              "non_refundable",
+              "charges_apply"
+            ],
+            "title": "Cancellation",
+            "type": "string"
+          },
+          "free_cancellation_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier time (UTC), when cancellation is free until then.",
+            "title": "Free Cancellation Until"
+          },
+          "id": {
+            "description": "Opaque rate ID, valid until the search expires.",
+            "title": "Id",
+            "type": "string"
+          },
+          "nights": {
+            "title": "Nights",
+            "type": "integer"
+          },
+          "per_night": {
+            "$ref": "#/components/schemas/HotelMoney"
+          },
+          "room_type": {
+            "title": "Room Type",
+            "type": "string"
+          },
+          "supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HotelMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whole stay. Only with the cost and margin permission."
+          },
+          "total": {
+            "$ref": "#/components/schemas/HotelMoney",
+            "description": "Selling price for the whole stay, all rooms."
+          }
+        },
+        "required": [
+          "id",
+          "room_type",
+          "board",
+          "nights",
+          "total",
+          "per_night",
+          "cancellation"
+        ],
+        "title": "HotelRateView",
+        "type": "object"
+      },
+      "HotelSearchRequest": {
+        "properties": {
           "check_in": {
             "format": "date",
             "title": "Check In",
@@ -5516,21 +5708,8 @@
             "title": "Check Out",
             "type": "string"
           },
-          "children": {
-            "default": 0,
-            "maximum": 20.0,
-            "minimum": 0.0,
-            "title": "Children",
-            "type": "integer"
-          },
-          "currency": {
-            "default": "PKR",
-            "maxLength": 3,
-            "minLength": 3,
-            "title": "Currency",
-            "type": "string"
-          },
           "destination": {
+            "description": "Destination text. Without destination_id the gateway takes its first matching city.",
             "examples": [
               "Dubai"
             ],
@@ -5539,68 +5718,204 @@
             "title": "Destination",
             "type": "string"
           },
+          "destination_id": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination Id"
+          },
+          "destination_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "region",
+                  "hotel"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination Kind"
+          },
           "rooms": {
-            "default": 1,
-            "maximum": 20.0,
-            "minimum": 1.0,
+            "items": {
+              "$ref": "#/components/schemas/RoomRequest"
+            },
+            "maxItems": 9,
+            "minItems": 1,
             "title": "Rooms",
-            "type": "integer"
+            "type": "array"
           }
         },
         "required": [
           "destination",
           "check_in",
-          "check_out"
+          "check_out",
+          "rooms"
         ],
         "title": "HotelSearchRequest",
         "type": "object"
       },
-      "HotelSearchResponse": {
+      "HotelSearchView": {
         "properties": {
-          "offers": {
+          "destination": {
+            "description": "The destination searched, as resolved.",
+            "title": "Destination",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Rates and rate IDs from this search are valid until then.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "hotels": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/HotelView"
             },
-            "title": "Offers",
+            "title": "Hotels",
             "type": "array"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D24: \"Some results may be missing.\" when part of the results failed. No provider names.",
+            "title": "Notice"
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HotelProviderStatus"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the supplier names permission.",
+            "title": "Providers"
           },
           "search_id": {
             "title": "Search Id",
             "type": "string"
           },
           "status": {
+            "enum": [
+              "complete",
+              "unavailable"
+            ],
             "title": "Status",
             "type": "string"
-          },
-          "vendors_failed": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Vendors Failed",
-            "type": "array"
-          },
-          "vendors_queried": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Queried",
-            "type": "array"
-          },
-          "vendors_succeeded": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Vendors Succeeded",
-            "type": "array"
           }
         },
         "required": [
           "search_id",
-          "status"
+          "expires_at",
+          "status",
+          "destination",
+          "hotels"
         ],
-        "title": "HotelSearchResponse",
+        "title": "HotelSearchView",
+        "type": "object"
+      },
+      "HotelView": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "id": {
+            "description": "Opaque hotel ID, valid until the search expires.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rates": {
+            "description": "Cheapest first.",
+            "items": {
+              "$ref": "#/components/schemas/HotelRateView"
+            },
+            "title": "Rates",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D25: provider name or 'Hotel Inventory'. Only with the supplier names permission.",
+            "title": "Source"
+          },
+          "star_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Star Rating"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "rates"
+        ],
+        "title": "HotelView",
         "type": "object"
       },
       "IntegrationRecord": {
@@ -5989,6 +6304,87 @@
           "expiring_window_hours"
         ],
         "title": "NeedsAction",
+        "type": "object"
+      },
+      "OperationCall": {
+        "properties": {
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The operation's documented request body (for GET operations, the `data` query object). Omit for operations without input.",
+            "title": "Payload"
+          }
+        },
+        "title": "OperationCall",
+        "type": "object"
+      },
+      "OperationInfo": {
+        "properties": {
+          "download": {
+            "description": "Answers with a file.",
+            "title": "Download",
+            "type": "boolean"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "supplier_method": {
+            "title": "Supplier Method",
+            "type": "string"
+          },
+          "supplier_path": {
+            "title": "Supplier Path",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "writes": {
+            "description": "Changes supplier state; needs RATEHAWK_WRITE_ENABLED.",
+            "title": "Writes",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "group",
+          "supplier_method",
+          "supplier_path",
+          "writes",
+          "download"
+        ],
+        "title": "OperationInfo",
+        "type": "object"
+      },
+      "OperationResult": {
+        "properties": {
+          "data": {
+            "title": "Data"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "data"
+        ],
+        "title": "OperationResult",
         "type": "object"
       },
       "PassengerPrice": {
@@ -6531,6 +6927,30 @@
           "name"
         ],
         "title": "RoleRecord",
+        "type": "object"
+      },
+      "RoomRequest": {
+        "properties": {
+          "adults": {
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "children_ages": {
+            "description": "One age (0-17) per child.",
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "title": "Children Ages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "adults"
+        ],
+        "title": "RoomRequest",
         "type": "object"
       },
       "SaveOutcomeView": {
@@ -11028,6 +11448,3158 @@
         ]
       }
     },
+    "/v1/admin/suppliers/ratehawk/operations": {
+      "get": {
+        "description": "All RateHawk operations the gateway can call.",
+        "operationId": "list_operations_v1_admin_suppliers_ratehawk_operations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OperationInfo"
+                  },
+                  "title": "Response List Operations V1 Admin Suppliers Ratehawk Operations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Operations",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/booking_finish": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/order/booking/finish/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_booking_finish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start booking",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/booking_form": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/order/booking/form/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_booking_form",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create booking process",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/booking_status": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/order/booking/finish/status/.",
+        "operationId": "ratehawk_booking_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Check booking status",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/closing_documents_download": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/general/document/closing_documents/download/.",
+        "operationId": "ratehawk_closing_documents_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            },
+            "description": "The file."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download closing documents",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/closing_documents_info": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/general/document/closing_documents/info/.",
+        "operationId": "ratehawk_closing_documents_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Closing documents info",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/content_by_ids": {
+      "post": {
+        "description": "RateHawk POST /api/content/v1/hotel_content_by_ids/.",
+        "operationId": "ratehawk_content_by_ids",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotels content by IDs",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/content_filter_values": {
+      "post": {
+        "description": "RateHawk GET /api/content/v1/filter_values/.",
+        "operationId": "ratehawk_content_filter_values",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Content filter values",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/content_ids_by_filter": {
+      "post": {
+        "description": "RateHawk POST /api/content/v1/hotel_ids_by_filter/.",
+        "operationId": "ratehawk_content_ids_by_filter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel IDs by filter",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/content_reviews_by_ids": {
+      "post": {
+        "description": "RateHawk POST /api/content/v1/hotel_reviews_by_ids/.",
+        "operationId": "ratehawk_content_reviews_by_ids",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel reviews by IDs",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/contract_info": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/general/contract/data/info/.",
+        "operationId": "ratehawk_contract_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Contract information",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/custom_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/custom/dump/.",
+        "operationId": "ratehawk_custom_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Custom hotel dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/financial_info": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/general/financial/info/.",
+        "operationId": "ratehawk_financial_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Financial information",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/hotel_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/info/dump/.",
+        "operationId": "ratehawk_hotel_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/hotel_info": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/info/.",
+        "operationId": "ratehawk_hotel_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel content",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/hotel_page": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/hp/.",
+        "operationId": "ratehawk_hotel_page",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotelpage",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/hotel_sort": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/hotelsort/.",
+        "operationId": "ratehawk_hotel_sort",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sort hotels",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/hotel_static": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/hotel/static/.",
+        "operationId": "ratehawk_hotel_static",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel static reference data",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/incremental_hotel_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/info/incremental_dump/.",
+        "operationId": "ratehawk_incremental_hotel_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Incremental hotel dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/incremental_reviews_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/incremental_reviews/dump/.",
+        "operationId": "ratehawk_incremental_reviews_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Incremental reviews dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/invoice_info_download": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/hotel/order/document/info_invoice/download/.",
+        "operationId": "ratehawk_invoice_info_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            },
+            "description": "The file."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download booking invoice info",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/lookup_rate": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/lookuprate/.",
+        "operationId": "ratehawk_lookup_rate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve rate info",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/multicomplete": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/multicomplete/.",
+        "operationId": "ratehawk_multicomplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Suggest hotels and regions",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_cancel": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/order/cancel/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel booking",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_add": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/order/add/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_group_add",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add booking to group",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_create": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/create/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_group_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create order group",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_disband": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/disband/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_group_disband",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disband order group",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_info": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/ordergroup/info/.",
+        "operationId": "ratehawk_order_group_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve order groups",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_invoice_download": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/document/invoice/download/.",
+        "operationId": "ratehawk_order_group_invoice_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            },
+            "description": "The file."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download order group invoice",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_pay_overpay": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/pay/overpay/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_group_pay_overpay",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pay order group overpay",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_group_remove": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/ordergroup/order/remove/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_order_group_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove booking from group",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/order_info": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/order/info/.",
+        "operationId": "ratehawk_order_info",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retrieve booking",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/overview": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/overview/.",
+        "operationId": "ratehawk_overview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Check access",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/poi_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/poi/dump/.",
+        "operationId": "ratehawk_poi_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Points of interest dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/prebook": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/prebook/.",
+        "operationId": "ratehawk_prebook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prebook",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_create": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/profiles/create/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_profile_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create profile",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_delete": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/profiles/delete/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_profile_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete profile",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_disable": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/profiles/disable/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_profile_disable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable profile",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_edit": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/profiles/edit/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_profile_edit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Edit profile",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_list": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/profiles/list/.",
+        "operationId": "ratehawk_profile_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List profiles",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/profile_restore": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/profiles/restore/. Changes supplier state: needs RATEHAWK_WRITE_ENABLED, never retried.",
+        "operationId": "ratehawk_profile_restore",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restore profile",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/region_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/region/dump/.",
+        "operationId": "ratehawk_region_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Regions dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/reviews_dump": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/hotel/reviews/dump/.",
+        "operationId": "ratehawk_reviews_dump",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Hotel reviews dump",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/search_geo": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/serp/geo/.",
+        "operationId": "ratehawk_search_geo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search by coordinates",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/search_hotels": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/serp/hotels/.",
+        "operationId": "ratehawk_search_hotels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search hotels",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/search_region": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/search/serp/region/.",
+        "operationId": "ratehawk_search_region",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search by region",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/serp_prebook": {
+      "post": {
+        "description": "RateHawk POST /api/b2b/v3/serp/prebook/.",
+        "operationId": "ratehawk_serp_prebook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prebook from search",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/single_act_download": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/hotel/order/document/single_act/download/.",
+        "operationId": "ratehawk_single_act_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            },
+            "description": "The file."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download single act",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/ratehawk/operations/voucher_download": {
+      "post": {
+        "description": "RateHawk GET /api/b2b/v3/hotel/order/document/voucher/download/.",
+        "operationId": "ratehawk_voucher_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            },
+            "description": "The file."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Write operations are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "RateHawk error."
+          },
+          "503": {
+            "description": "RateHawk isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download voucher",
+        "tags": [
+          "ratehawk supplier"
+        ]
+      }
+    },
     "/v1/admin/travelers/search": {
       "get": {
         "description": "Live search for \"Use saved traveler\" (hold form): up to 8 people by name (partial: given name, surname or full\nname) or document number (prefix).",
@@ -12785,9 +16357,68 @@
         ]
       }
     },
+    "/v1/hotels/destinations": {
+      "post": {
+        "description": "Cities, regions and hotels matching the text, for the Destination field.",
+        "operationId": "suggest_destinations_v1_hotels_destinations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DestinationSuggestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationSuggestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "Supplier failed."
+          },
+          "503": {
+            "description": "Hotel search isn't connected."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Suggest Destinations",
+        "tags": [
+          "hotels"
+        ]
+      }
+    },
     "/v1/hotels/search": {
       "post": {
-        "description": "Hotel search contract; supplier adapters will populate offers.",
+        "description": "Hotels with their rates, cheapest first. Rate IDs stay valid for 15 minutes, for the user who searched.",
         "operationId": "search_hotels_v1_hotels_search_post",
         "requestBody": {
           "content": {
@@ -12804,23 +16435,27 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HotelSearchResponse"
+                  "$ref": "#/components/schemas/HotelSearchView"
                 }
               }
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "Invalid stay, or destination not found."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Search Hotels",
         "tags": [
           "hotels"

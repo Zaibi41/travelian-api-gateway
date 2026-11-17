@@ -41,7 +41,7 @@ class BookingListCards(BaseModel):
     expiring_soon: int
     expiring_window_hours: int
     awaiting_issuance: int | None = Field(None, description="Flights tab only.")
-    hold_deadlines: int | None = Field(None, description="Flights tab only: open holds not yet expired.")
+    hold_deadlines: int | None = Field(None, description="Flights and Group Ticketing tabs: open holds not yet expired.")
     payment_pending: int | None = Field(
         None, description="Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
     )

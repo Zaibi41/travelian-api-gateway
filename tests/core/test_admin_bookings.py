@@ -123,6 +123,8 @@ def test_cards_follow_the_filters_and_a_card_filters_the_list(monkeypatch):
     flights = api.get("/v1/admin/bookings", params={"product": "flight"}).json()["cards"]
     assert flights["all_bookings"] == 7 and flights["awaiting_issuance"] == 1 and flights["hold_deadlines"] == 2
     assert ids("awaiting_issuance", product="flight") == ["TRV-4"]
+    group = api.get("/v1/admin/bookings", params={"product": "group"}).json()["cards"]
+    assert group["hold_deadlines"] is not None and "awaiting_issuance" not in group and "payment_pending" not in group
     hotels = api.get("/v1/admin/bookings", params={"product": "hotel"}).json()["cards"]
     assert hotels["all_bookings"] == 1 and "awaiting_issuance" not in hotels
 

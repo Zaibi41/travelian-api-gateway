@@ -91,13 +91,26 @@ class Settings(BaseSettings):
     # The expiry job: how often it runs, and how many times a failed supplier release is retried.
     group_hold_job_interval_seconds: int = Field(30, ge=5, le=3600)
     group_hold_release_attempts: int = Field(5, ge=1, le=50)
+    # RateHawk (ETG B2B API v3 + Content API v1, hotels). HTTP Basic: key id + API key, server only.
+    ratehawk_endpoint: str | None = None
+    ratehawk_key_id: str | None = None
+    ratehawk_api_key: SecretStr | None = None
+    ratehawk_timeout_seconds: float = Field(30.0, gt=0, le=120)
+    # Search defaults. The sandbox rejects PKR (invalid_params, checked 17 Nov 2026), so USD.
+    ratehawk_currency: str = Field("USD", pattern=r"^[A-Z]{3}$")
+    ratehawk_residency: str = Field("pk", pattern=r"^[a-z]{2}$")
+    ratehawk_language: str = Field("en", pattern=r"^[a-z]{2}$")
+    # Calls that change supplier state (booking finish, cancel, order groups, profiles): off by default.
+    ratehawk_write_enabled: bool = False
+    # Hotel selling price = supplier price + this percent. Unset (or empty) counts as 0.
+    hotel_markup_percent: Decimal | None = Field(None, ge=0, le=100)
     # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
     cors_allowed_origins: list[str] = []
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
 
-    @field_validator("group_ticketing_markup_percent", "group_ticketing_markup_fixed_minor", mode="before")
+    @field_validator("group_ticketing_markup_percent", "group_ticketing_markup_fixed_minor", "hotel_markup_percent", mode="before")
     @classmethod
     def empty_markup_is_unset(cls, value):
         """GROUP_TICKETING_MARKUP_*= (empty, as in .env.example) means not set (markup 0)."""

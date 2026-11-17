@@ -160,9 +160,11 @@ def build_cards(rows: list[BookingRow], product: str | None, now: datetime, wind
         all_bookings=len(rows), confirmed=count("confirmed"), on_hold=count("on_hold"), cancelled=count("cancelled"),
         unpaid=count("unpaid"), expiring_soon=count("expiring_soon"), expiring_window_hours=window_hours,
     )
-    if product == "flight":
-        cards.awaiting_issuance = count("awaiting_issuance")
+    if product in ("flight", "group"):
         cards.hold_deadlines = count("hold_deadlines")
+    if product == "flight":
+        # The dashboard's issuance and payment rules cover flights only; a group tab would show a false 0.
+        cards.awaiting_issuance = count("awaiting_issuance")
         cards.payment_pending = count("payment_pending")
     return cards
 

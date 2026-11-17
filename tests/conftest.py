@@ -17,7 +17,12 @@ def southair_settings_from_tests_only():
          patch.object(settings, "southair_ticketing_enabled", False), \
          patch.object(settings, "southair_base_url", None), \
          patch.object(settings, "southair_username", None), \
-         patch.object(settings, "southair_password", None):
+         patch.object(settings, "southair_password", None), \
+         patch.object(settings, "ratehawk_endpoint", None), \
+         patch.object(settings, "ratehawk_key_id", None), \
+         patch.object(settings, "ratehawk_api_key", None), \
+         patch.object(settings, "ratehawk_write_enabled", False), \
+         patch.object(settings, "hotel_markup_percent", None):
         yield
 
 

@@ -128,3 +128,10 @@ async def require_search_viewer(
 ) -> BackOfficeUser:
     """Internal or agency role. Customers are refused. Visibility as resolve_visibility."""
     return await run_in_threadpool(_back_office_user, user, SEARCH_ROLES, "Search access denied.")
+
+
+async def require_super_admin(
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> BackOfficeUser:
+    """Super Admin only (supplier consoles that return raw supplier data). Everyone else 403."""
+    return await run_in_threadpool(_back_office_user, user, FULL_ACCESS_ROLES, "Super Admin only.")
