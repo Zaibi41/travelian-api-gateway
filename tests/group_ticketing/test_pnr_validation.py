@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routes.group_ticketing import router
+from app.core.booking_security import require_booking_authorization
+from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient
 
 
@@ -41,7 +43,11 @@ def gateway():
     client = DhilluSahiAuthClient(
         "https://supplier.invalid", transport=httpx.MockTransport(supplier)
     )
+    client.agent_id = 1  # Synthetic supplier-authenticated agent for mapping tests.
     app = FastAPI()
+    # Isolate PNR mapping tests; production booking access remains disabled.
+    app.dependency_overrides[require_booking_authorization] = lambda: None
+    app.dependency_overrides[require_search_viewer] = lambda: BackOfficeUser("u-admin", "super_admin", ALL)
     app.include_router(router, prefix="/v1")
     with (
         patch(
@@ -141,5 +147,74 @@ def test_invalid_booking_details_id_never_reaches_supplier(gateway, booking_id):
     response = api.post(
         "/v1/group-ticketing/booking-details", json={"booking_id": booking_id}
     )
+    assert response.status_code == 422
+    assert seen == []
+
+
+def test_booking_derives_agent_and_preserves_supplier_timestamp(gateway):
+    api, seen = gateway
+    body = payload("bookings", "MOCK-001")
+    body.pop("agent")
+    body["updated_at"] = "2026-05-08T05:39:41.000000Z"
+    response = api.post("/v1/group-ticketing/bookings", json=body)
+    assert response.json()["status"] == "complete"
+    assert seen[0][1]["agent"] == 1
+    assert seen[0][1]["updated_at"] == body["updated_at"]
+
+
+def test_booking_rejects_agent_impersonation_before_creation(gateway):
+    api, seen = gateway
+    body = payload("bookings", "MOCK-001")
+    body["agent"] = 999
+    response = api.post("/v1/group-ticketing/bookings", json=body)
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["vendors_failed"][0]["code"] == "agent_identity_mismatch"
+    assert seen == []
+
+
+def test_passenger_types_combine_children_and_infants(gateway):
+    api, seen = gateway
+    response = api.post(
+        "/v1/group-ticketing/check-availability",
+        json={
+            "pnr": "MOCK-001",
+            "price": 100,
+            "passenger_types": ["adult", "child", "infant"],
+        },
+    )
+    assert response.json()["status"] == "complete"
+    assert seen[0][1] == {"pnr": "MOCK-001", "price": 100, "adult": 1, "child": 2}
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"passenger_types": ["adult"], "adult": 1, "child": 0},
+        {"adult": 0, "child": 0},
+        {"adult": 1},
+        {},
+        {"passenger_types": []},
+    ],
+)
+def test_invalid_or_ambiguous_counts_never_call_supplier(gateway, counts):
+    api, seen = gateway
+    response = api.post(
+        "/v1/group-ticketing/check-availability",
+        json={
+            "pnr": "MOCK-001",
+            "price": 100,
+            **counts,
+        },
+    )
+    assert response.status_code == 422
+    assert seen == []
+
+
+@pytest.mark.parametrize("timestamp", ["not-a-date", "2026-05-08T05:39:41", "", None])
+def test_invalid_booking_timestamp_never_reaches_supplier(gateway, timestamp):
+    api, seen = gateway
+    body = payload("bookings", "MOCK-001")
+    body["updated_at"] = timestamp
+    response = api.post("/v1/group-ticketing/bookings", json=body)
     assert response.status_code == 422
     assert seen == []

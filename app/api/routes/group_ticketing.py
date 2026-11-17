@@ -3,23 +3,34 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.booking_security import require_booking_authorization
+from app.core.field_visibility import BackOfficeUser, FieldVisibility, require_search_viewer
+from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, ticket_view
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
+    TicketNotFound,
     fetch_all_group_inventory,
     filter_group_inventory,
+    find_ticket,
 )
 from app.schemas.flights import VendorIssue, VendorResult
 from app.services.vendor_fanout import gather_vendor_calls
-from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient
-from app.schemas.group_ticketing import GroupInventory
+from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient, DhilluSahiAuthError
 
-router = APIRouter(prefix="/group-ticketing", tags=["group ticketing"])
+# Sign-in required (internal or agency role; customers get 403). What each caller
+# receives is decided in app.services.group_ticketing_view (D23).
+router = APIRouter(
+    prefix="/group-ticketing",
+    tags=["group ticketing"],
+    responses={401: {"description": "Not signed in."}, 403: {"description": "Role may not search."}},
+)
+Viewer = Annotated[BackOfficeUser, Depends(require_search_viewer)]
 VENDOR_NAME = "dhillu_sahi"
 
 
@@ -45,47 +56,31 @@ class GroupQuoteAcknowledgement(BaseModel):
     message: str
 
 
-class GroupInventoryResponse(BaseModel):
-    data: list[PublicGroupInventory]
-
-
-class PublicGroupTicket(BaseModel):
-    pnr: str | None = None
-    departure_date: str | None = None
-    sector: str | None = None
-    airline: str | None = None
-    airline_logo: str | None = None
-    price: str | int | float | None = None
-    currency: str | None = None
-    remaining: int | None = None
-    baggage: str | int | None = None
-    meal: str | int | None = None
-    ticket_type: str | int | None = None
-    subparts: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class PublicGroupInventory(BaseModel):
-    id: str
-    sector: str
-    airline: str | None = None
-    airline_logo: str | None = None
-    tickets: list[PublicGroupTicket]
-
-
 class GroupSearchRequest(BaseModel):
-    origin: str = Field(min_length=3, max_length=3, examples=["LHE"])
-    destination: str = Field(min_length=3, max_length=3, examples=["RUH"])
-    departure_date: date
+    """Any one of origin, destination or departure date is enough; the others may be left out (or null)."""
+
+    origin: str | None = Field(None, min_length=3, max_length=3, examples=["LHE"])
+    destination: str | None = Field(None, min_length=3, max_length=3, examples=["RUH"])
+    departure_date: date | None = None
     adults: int = Field(default=1, ge=1, le=9)
 
     @field_validator("origin", "destination", mode="before")
     @classmethod
-    def normalize_airport_codes(cls, value: str) -> str:
-        return value.strip().upper() if isinstance(value, str) else value
+    def normalize_airport_codes(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            return value.strip().upper() or None
+        return value
+
+    @field_validator("departure_date", mode="before")
+    @classmethod
+    def empty_date_is_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
-    def origin_and_destination_must_differ(self):
-        if self.origin == self.destination:
+    def at_least_one_and_different(self):
+        if not (self.origin or self.destination or self.departure_date):
+            raise ValueError("enter a departure airport, an arrival airport or a departure date")
+        if self.origin and self.origin == self.destination:
             raise ValueError("origin and destination must be different")
         return self
 
@@ -99,25 +94,41 @@ GroupPNR = Annotated[
 
 class GroupAvailabilityRequest(BaseModel):
     pnr: GroupPNR
-    adult: int = Field(ge=0, le=100)
-    child: int = Field(ge=0, le=100)
+    adult: int | None = Field(default=None, ge=0, le=100)
+    child: int | None = Field(default=None, ge=0, le=100)
+    passenger_types: list[Literal["adult", "child", "infant"]] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
     price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+    @model_validator(mode="after")
+    def resolve_passenger_counts(self):
+        if self.passenger_types is not None:
+            if self.adult is not None or self.child is not None:
+                raise ValueError("Use passenger_types or adult/child counts, not both")
+            self.adult = self.passenger_types.count("adult")
+            self.child = sum(kind in ("child", "infant") for kind in self.passenger_types)
+        elif self.adult is None or self.child is None:
+            raise ValueError("Both adult and child counts are required")
+        if self.adult + self.child == 0:
+            raise ValueError("At least one passenger is required")
+        return self
 
 
 class GroupAvailabilityResponse(BaseModel):
     request_id: str
     status: Literal["complete", "unavailable"]
     available: bool | None
-    vendors_queried: list[str]
-    vendors_succeeded: list[str]
-    vendors_failed: list[VendorIssue]
-    vendor_results: list[VendorResult]
+    vendors_queried: list[str] | None = None
+    vendors_succeeded: list[str] | None = None
+    vendors_failed: list[VendorIssue] | None = None
+    vendor_results: list[VendorResult] | None = None
 
 
 class GroupBookingRequest(BaseModel):
     pnr: GroupPNR
-    agent: int = Field(gt=0)
-    updated_at: datetime
+    agent: int | None = Field(default=None, gt=0, deprecated=True)
+    updated_at: str = Field(min_length=1, max_length=64)
     remarks: str = Field(default="", max_length=2000)
     titles: list[Literal["MR", "MRS", "MS", "MSTR", "MISS"]] = Field(min_length=1, max_length=100)
     firstname: list[str] = Field(min_length=1, max_length=100)
@@ -129,8 +140,9 @@ class GroupBookingRequest(BaseModel):
 
     @field_validator("updated_at")
     @classmethod
-    def timestamp_must_include_timezone(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
+    def timestamp_must_include_timezone(cls, value: str) -> str:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError("updated_at must include a timezone")
         return value
 
@@ -226,7 +238,7 @@ class BookingDetailsResponse(BaseModel):
     vendor_results: list[VendorResult]
 
 
-@router.post("/flight-quotes", response_model=GroupQuoteAcknowledgement, status_code=202)
+@router.post("/flight-quotes", response_model=GroupQuoteAcknowledgement, status_code=202, dependencies=[Depends(require_search_viewer)])
 async def request_group_quote(request: GroupQuoteRequest) -> GroupQuoteAcknowledgement:
     """Accept a group quote request; sourcing workflow is not wired yet."""
     return GroupQuoteAcknowledgement(
@@ -236,58 +248,56 @@ async def request_group_quote(request: GroupQuoteRequest) -> GroupQuoteAcknowled
     )
 
 
-@router.get("/inventory", response_model=GroupInventoryResponse)
-async def fetch_group_inventory() -> GroupInventoryResponse:
-    """Fetch and combine all group inventory from configured suppliers."""
+async def inventory_for(visibility: FieldVisibility) -> GroupInventoryView:
+    """All group inventory from configured suppliers, as `visibility` may see it."""
     try:
         groups = await fetch_all_group_inventory()
     except GroupInventoryUnavailable as exc:
         raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
-    return GroupInventoryResponse(data=_public_group_inventory(groups))
+    return inventory_view(groups, visibility)
 
 
-@router.post("/search", response_model=GroupInventoryResponse)
-async def search_group_inventory(request: GroupSearchRequest) -> GroupInventoryResponse:
-    """Search combined one-way inventory; adult count defaults to one."""
+async def search_for(request: "GroupSearchRequest", visibility: FieldVisibility) -> GroupInventoryView:
+    """Combined one-way inventory matching the search, as `visibility` may see it."""
     try:
         groups = await fetch_all_group_inventory()
     except GroupInventoryUnavailable as exc:
         raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
     matches = filter_group_inventory(
-        groups,
-        origin=request.origin,
-        destination=request.destination,
-        departure_date=request.departure_date,
-        adults=request.adults,
+        groups, origin=request.origin, destination=request.destination, departure_date=request.departure_date, adults=request.adults,
     )
-    return GroupInventoryResponse(data=_public_group_inventory(matches))
+    return inventory_view(matches, visibility)
 
 
-def _public_group_inventory(groups: list[GroupInventory]) -> list[PublicGroupInventory]:
-    """Remove supplier-routing metadata from the public inventory response."""
-    return [
-        PublicGroupInventory(
-            id=uuid5(NAMESPACE_URL, f"travelian:group-ticketing:{group.vendor}:{group.id}").hex,
-            sector=group.sector,
-            airline=group.airline,
-            airline_logo=group.airline_logo,
-            tickets=[
-                PublicGroupTicket(**ticket.model_dump(exclude={"vendor"}))
-                for ticket in group.tickets
-            ],
-        )
-        for group in groups
-    ]
+@router.get("/inventory", response_model=GroupInventoryView, response_model_exclude_none=True)
+async def fetch_group_inventory(viewer: Viewer) -> GroupInventoryView:
+    """Fetch and combine all group inventory from configured suppliers."""
+    return await inventory_for(viewer.visibility)
 
 
-@router.post("/check-availability", response_model=GroupAvailabilityResponse)
-async def check_group_availability(request: GroupAvailabilityRequest) -> GroupAvailabilityResponse:
+@router.post("/search", response_model=GroupInventoryView, response_model_exclude_none=True)
+async def search_group_inventory(request: GroupSearchRequest, viewer: Viewer) -> GroupInventoryView:
+    """Search combined one-way inventory; adult count defaults to one."""
+    return await search_for(request, viewer.visibility)
+
+
+@router.get("/tickets/{ticket_id}", response_model=GroupTicketView, response_model_exclude_none=True)
+async def fetch_group_ticket(ticket_id: UUID, viewer: Viewer) -> GroupTicketView:
+    """Select one record from refreshed inventory; no invented supplier endpoint."""
+    try:
+        ticket = await find_ticket(str(ticket_id), fetch_all_group_inventory)
+    except TicketNotFound as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    return ticket_view(ticket, viewer.visibility)
+
+
+@router.post("/check-availability", response_model=GroupAvailabilityResponse, response_model_exclude_unset=True)
+async def check_group_availability(request: GroupAvailabilityRequest, viewer: Viewer) -> GroupAvailabilityResponse:
     if not _credentials_configured():
         issues, results = _not_configured_outcome()
         return GroupAvailabilityResponse(
             request_id=str(uuid4()), status="unavailable", available=None,
-            vendors_queried=[VENDOR_NAME], vendors_succeeded=[],
-            vendors_failed=issues, vendor_results=results,
+            **_availability_metadata(viewer, [], issues, results),
         )
     values, issues, results = await gather_vendor_calls(
         [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(request))],
@@ -296,12 +306,24 @@ async def check_group_availability(request: GroupAvailabilityRequest) -> GroupAv
     succeeded = [result.vendor for result in results if result.status == "success"]
     return GroupAvailabilityResponse(
         request_id=str(uuid4()), status="complete" if succeeded else "unavailable",
-        available=values.get(VENDOR_NAME), vendors_queried=[VENDOR_NAME],
-        vendors_succeeded=succeeded, vendors_failed=issues, vendor_results=results,
+        available=values.get(VENDOR_NAME),
+        **_availability_metadata(viewer, succeeded, issues, results),
     )
 
 
-@router.post("/bookings", response_model=GroupBookingResponse)
+def _availability_metadata(viewer: BackOfficeUser, succeeded, issues, results) -> dict:
+    if not viewer.visibility.supplier_names:
+        return {}
+    return {"vendors_queried": [VENDOR_NAME], "vendors_succeeded": succeeded,
+            "vendors_failed": issues, "vendor_results": results}
+
+
+@router.post(
+    "/bookings",
+    response_model=GroupBookingResponse,
+    dependencies=[Depends(require_booking_authorization)],
+    responses={503: {"description": "Booking authorization is not configured"}},
+)
 async def create_group_booking(request: GroupBookingRequest) -> GroupBookingResponse:
     if not _credentials_configured():
         issues, results = _not_configured_outcome()
@@ -323,7 +345,12 @@ async def create_group_booking(request: GroupBookingRequest) -> GroupBookingResp
     )
 
 
-@router.post("/booking-details", response_model=BookingDetailsResponse)
+@router.post(
+    "/booking-details",
+    response_model=BookingDetailsResponse,
+    dependencies=[Depends(require_booking_authorization)],
+    responses={503: {"description": "Booking authorization is not configured"}},
+)
 async def fetch_booking_details(request: "BookingDetailsRequest") -> BookingDetailsResponse:
     if not _credentials_configured():
         issues, results = _not_configured_outcome()
@@ -384,7 +411,13 @@ async def _check_dhillu_sahi_availability(request: GroupAvailabilityRequest) -> 
 
 async def _create_dhillu_sahi_booking(request: GroupBookingRequest) -> int:
     client, token = await _authenticated_dhillu_sahi_client()
-    return await client.add_booking(token, request.model_dump(mode="json"))
+    if client.agent_id is None:
+        raise DhilluSahiAuthError("Supplier login did not establish an agent", error_code="agent_identity_unavailable")
+    body = request.model_dump(mode="json")
+    if body.get("agent") is not None and body["agent"] != client.agent_id:
+        raise DhilluSahiAuthError("Requested agent does not match supplier login", error_code="agent_identity_mismatch")
+    body["agent"] = client.agent_id
+    return await client.add_booking(token, body)
 
 
 async def _fetch_dhillu_sahi_booking(booking_id: int) -> BookingDetailsData:

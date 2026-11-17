@@ -1,46 +1,38 @@
-from datetime import date
+"""Hotels (spec v3.0 Search > Hotels). Sign-in required: internal or agency role (customers 403).
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field, model_validator
+What each caller receives is decided in app.services.hotel_search (D23): opaque IDs and the selling
+price for everyone; provider name and supplier cost only with permission; supplier hashes never.
+"""
 
-router = APIRouter(prefix="/hotels", tags=["hotels"])
+from typing import Annotated
 
+from fastapi import APIRouter, Depends
 
-class HotelSearchRequest(BaseModel):
-    destination: str = Field(min_length=2, max_length=120, examples=["Dubai"])
-    check_in: date
-    check_out: date
-    rooms: int = Field(default=1, ge=1, le=20)
-    adults: int = Field(default=2, ge=1, le=40)
-    children: int = Field(default=0, ge=0, le=20)
-    currency: str = Field(default="PKR", min_length=3, max_length=3)
+from app.core.field_visibility import BackOfficeUser, require_search_viewer
+from app.schemas.hotels import DestinationSuggestRequest, DestinationSuggestView, HotelSearchRequest, HotelSearchView
+from app.services import hotel_search
 
-    @model_validator(mode="after")
-    def validate_dates(self):
-        if self.check_out <= self.check_in:
-            raise ValueError("check_out must be after check_in")
-        return self
+router = APIRouter(
+    prefix="/hotels",
+    tags=["hotels"],
+    responses={401: {"description": "Not signed in."}, 403: {"description": "Role may not search."}},
+)
+Viewer = Annotated[BackOfficeUser, Depends(require_search_viewer)]
 
 
-class HotelSearchResponse(BaseModel):
-    search_id: str
-    status: str
-    offers: list[dict] = Field(default_factory=list)
-    vendors_queried: list[str] = Field(default_factory=list)
-    vendors_succeeded: list[str] = Field(default_factory=list)
-    vendors_failed: list[dict] = Field(default_factory=list)
+@router.post(
+    "/destinations", response_model=DestinationSuggestView,
+    responses={502: {"description": "Supplier failed."}, 503: {"description": "Hotel search isn't connected."}},
+)
+async def suggest_destinations(request: DestinationSuggestRequest, viewer: Viewer) -> DestinationSuggestView:
+    """Cities, regions and hotels matching the text, for the Destination field."""
+    return await hotel_search.suggest(request.query)
 
 
-@router.post("/search", response_model=HotelSearchResponse)
-async def search_hotels(request: HotelSearchRequest) -> HotelSearchResponse:
-    """Hotel search contract; supplier adapters will populate offers."""
-    from uuid import uuid4
-
-    return HotelSearchResponse(
-        search_id=str(uuid4()),
-        status="unavailable",
-        offers=[],
-        vendors_queried=[],
-        vendors_succeeded=[],
-        vendors_failed=[],
-    )
+@router.post(
+    "/search", response_model=HotelSearchView, response_model_exclude_none=True,
+    responses={422: {"description": "Invalid stay, or destination not found."}},
+)
+async def search_hotels(request: HotelSearchRequest, viewer: Viewer) -> HotelSearchView:
+    """Hotels with their rates, cheapest first. Rate IDs stay valid for 15 minutes, for the user who searched."""
+    return await hotel_search.search(request, viewer)

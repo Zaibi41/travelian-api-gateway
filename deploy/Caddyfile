@@ -1,0 +1,44 @@
+# Travelian public entry point on the Lightsail instance (static IP 52.76.26.224).
+#
+#   https://api.travelian.pk/v1/*   -> travelian-api-gateway (127.0.0.1:8000)
+#   https://api.travelian.pk/*      -> legacy API Gateway + Lambda (/content/*, /flights/*,
+#                                      /hotels/search, /payments/*, /health) until it is retired
+#
+# LEGACY_API_TARGET is the "API Gateway domain name" of the api.travelian.pk custom
+# domain (d-xxxxxxxxxx.execute-api.us-east-1.amazonaws.com). It is set in
+# /etc/systemd/system/caddy.service.d/travelian.conf by deploy/server-setup.sh.
+# The legacy API is reached with Host and TLS name api.travelian.pk, so its custom
+# domain and base-path mappings keep working after DNS moves here.
+#
+# Certificates come from Let's Encrypt automatically once DNS points at this server
+# and ports 80 and 443 are open in the Lightsail firewall.
+
+{
+	email {$ACME_EMAIL}
+}
+
+(travelian_routes) {
+	encode gzip
+
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		reverse_proxy https://{$LEGACY_API_TARGET} {
+			header_up Host api.travelian.pk
+			transport http {
+				tls_server_name api.travelian.pk
+			}
+		}
+	}
+}
+
+api.travelian.pk {
+	import travelian_routes
+}
+
+# Test name used before moving api.travelian.pk; remove after cutover.
+gw-test.travelian.pk {
+	import travelian_routes
+}

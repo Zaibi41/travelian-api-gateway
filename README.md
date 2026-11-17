@@ -20,6 +20,10 @@ Open `http://127.0.0.1:8000/docs` for the interactive API docs.
 
 These endpoints are also available under `/v1` (or the configured API prefix). Readiness tracks application startup and shutdown; it does not call supplier APIs.
 
+## Caller identity
+
+See [local Cognito token verification](docs/api/cognito-authentication.md) for configuration and `GET /v1/auth/me`. Identity verification alone does not enable bookings or establish agency membership.
+
 ## Product APIs
 
 All product APIs are versioned under `/v1` and grouped by domain:
@@ -30,14 +34,18 @@ All product APIs are versioned under `/v1` and grouped by domain:
 | Group Ticketing | `POST /v1/group-ticketing/flight-quotes` | Submit a group flight quote request (10+ passengers) | Accepts request with `202`; sourcing workflow pending |
 | Group Ticketing | `GET /v1/group-ticketing/inventory` | Fetch all group inventory from configured suppliers | Concurrent Dhillu & Sahi and Skypass fan-out; combined Travelian `data` response |
 | Group Ticketing | `POST /v1/group-ticketing/search` | Filter one-way inventory by route, date, and adults | Defaults to one adult; same combined response |
+| Group Ticketing | `GET /v1/group-ticketing/tickets/{ticket_id}` | Retrieve one current inventory ticket by opaque ID | Refreshes combined inventory; no seat reservation |
 | Group Ticketing | `POST /v1/group-ticketing/check-availability` | Check PNR seats and current price | Dhillu & Sahi authenticated availability check |
 | Group Ticketing | `POST /v1/group-ticketing/bookings` | Book passengers against a group PNR | Dhillu & Sahi authenticated booking; no automatic retries |
 | Group Ticketing | `POST /v1/group-ticketing/booking-details` | Fetch booking, passenger, payment, and group details | Dhillu & Sahi authenticated lookup |
-| Hotels | `POST /v1/hotels/search` | Search hotel inventory by destination and stay dates | Contract in place; supplier adapters pending |
+| Hotels | `POST /v1/hotels/destinations`, `POST /v1/hotels/search` | Destination suggestions; hotels with rates by destination, dates and rooms | RateHawk (docs/api/hotels-ratehawk.md) |
+| RateHawk console | `GET /v1/admin/suppliers/ratehawk/operations`, `POST /v1/admin/suppliers/ratehawk/operations/{key}` | All 48 RateHawk operations, Super Admin only | Writes behind `RATEHAWK_WRITE_ENABLED` |
 
 Each area has its own route module and vendor package. Keep one supplier per module/package so credentials, mapping, logs, and debugging stay isolated. Supplier outcomes are recorded internally. Group inventory and search return a single Travelian response containing combined group records, without gateway-added per-vendor status fields.
 
 ## Group Ticketing inventory and search
+
+See the [combined inventory response contract](docs/api/group-ticketing-inventory.md) for fields, current vendor coverage, empty results, and partial-failure behavior.
 
 Fetch all currently available groups:
 
@@ -87,9 +95,11 @@ The included `DemoVendor` returns sample data so the API can be exercised before
 
 ### Dhillu & Sahi
 
-Dhillu & Sahi is a **Group Ticketing vendor**. Its inventory, availability, booking, and booking-details operations belong to Group Ticketing. The supplied integration details define `POST https://api.dhilluandsahi.com/api/login` with JSON `email` and `password`, returning a token under `success.token`. Group inventory uses `POST /api/pnr-respect-to-mysector-user` with a Bearer token and optional JSON `my_sector_id`. The isolated client and response normalizer live in `app/vendors/group_ticketing/dhillu_sahi/`. Set `DHILLU_SAHI_EMAIL`, `DHILLU_SAHI_PASSWORD`, and the supplier's account sector value as `DHILLU_SAHI_GROUP_SECTOR_ID` in a deployment secret manager or local ignored `.env`; do not commit credentials. The gateway fetches inventory at `GET /v1/group-ticketing/inventory`, or filters it at `POST /v1/group-ticketing/search`. The supplier returned HTTP 404 when inventory was requested without `my_sector_id`; the documented example `9` previously returned groups, but it has not been confirmed as the account-wide inventory selector. Configure the confirmed value before using inventory/search. When no configured supplier can provide inventory, these routes return a generic HTTP 503. The supplier is not called for live flight searches because no live-flight contract was provided.
+Dhillu & Sahi is a **Group Ticketing vendor**. Its inventory, availability, booking, and booking-details operations belong to Group Ticketing. The supplied integration details define `POST https://api.dhilluandsahi.com/api/login` with JSON `email` and `password`, returning a token under `success.token`. Group inventory uses `POST /api/pnr-respect-to-mysector-user` with a Bearer token and optional JSON `my_sector_id`. The isolated client and response normalizer live in `app/vendors/group_ticketing/dhillu_sahi/`. Set `DHILLU_SAHI_EMAIL` and `DHILLU_SAHI_PASSWORD` in a deployment secret manager or local ignored `.env`; do not commit credentials. `my_sector_id` is a sector group id; there is no call that lists them. Set the ids as `DHILLU_SAHI_SECTOR_GROUP_IDS` (comma-separated; there is no default): the gateway makes one listing call per id and merges them, dropping repeats by supplier ticket id; a failing id is logged and the others are still shown. Unset or empty: the listing is never called, Dhillu & Sahi is left out like any unconfigured supplier, and one warning naming the setting is logged at startup. `DHILLU_SAHI_GROUP_SECTOR_ID` is no longer read. The gateway fetches inventory at `GET /v1/group-ticketing/inventory`, or filters it at `POST /v1/group-ticketing/search`. When no configured supplier can provide inventory, these routes return a generic HTTP 503. The supplier is not called for live flight searches because no live-flight contract was provided.
 
 For local development, copy `.env.example` to `.env` in the project root and set `DHILLU_SAHI_EMAIL` and `DHILLU_SAHI_PASSWORD`. `.env` is git-ignored; do not paste credentials into source files or commit them. For deployment, provide the same names through your platform's secret/environment configuration. The app reads them through `pydantic-settings` when it starts. Exercise integrations through the actual versioned Group Ticketing routes in the API docs or with HTTP requests to the running application.
+
+See the [Skypass integration coverage and contract blocker](docs/api/skypass-integration-status.md) for the supplied guide, existing inventory support, and missing lifecycle documentation.
 
 Skypass Group Ticketing inventory uses `SKYPASS_ENDPOINT`, `SKYPASS_CLIENT_ID` (sent as the documented `api_key` form field), and `SKYPASS_CLIENT_SECRET` (sent as `api_secret`). The adapter authenticates with `POST /auth`, reads `access_token`, and requests `GET /tickets` with Bearer authorization. It maps all documented Skypass ticket types and their outbound sector legs into the shared inventory schema. Both inventory and filtered search can include `Two Way` records. Seat availability is left unknown because `open_seats_slot` is an identifier, not a seat count.
 
@@ -122,6 +132,12 @@ The API workload should use its AWS IAM role; do not put AWS access keys in `.en
 
 Group availability checks use `POST /v1/group-ticketing/check-availability` with `{ "pnr": "33MBD5", "adult": 1, "child": 1, "price": 78000 }`. The adapter logs in and calls the documented `/api/check-availbility` endpoint with the Bearer token and those JSON fields. A valid upstream `data.status: false` means the vendor successfully answered that seats are unavailable; it is distinct from a vendor request failure or timeout.
 
+**Booking security — integration blocked:** `POST /v1/group-ticketing/bookings` and `POST /v1/group-ticketing/booking-details` verify configured Cognito access tokens first (401 for missing/invalid identity; 503 if authentication is unconfigured/unavailable). The local [agency authorization policy](docs/api/booking-authorization.md) denies unapproved groups or missing agency claims with 403 when configured; otherwise it returns 503. Even an entitled identity receives 503 until authoritative agency assignment and booking ownership are integrated. Supplier access remains blocked. This intentionally breaks previously unauthenticated booking access. Supplier credentials, caller-provided agent IDs, and identity/role headers cannot enable these endpoints. Inventory, search, availability, and PNR handling are unchanged. `GET /v1/group-ticketing/bookings/{booking_id}` is not implemented; it must not be introduced as an unprotected alternative.
+
+To enable bookings, supply the existing trusted identity-provider verification contract, authenticated subject-to-agency/supplier-agent mapping, approved role/permission policy, and an authoritative booking-to-agency ownership source (including bookings created outside this gateway). Then replace the fail-closed guard with verification and per-operation authorization; retain protection on the existing POST details route. No production identities or credentials are provisioned by this repository. Valid-role, agent-impersonation, and cross-agency authorization acceptance tests remain blocked until those contracts exist. Test-only dependency overrides in PNR mapping tests do not enable production access.
+
+See the [Dhillu & Sahi selection and booking mapping](docs/api/dhillu-sahi-workflow.md) for ticket IDs, preserved supplier timestamps/sold counts, passenger-aware availability and login-derived supplier agent identity. Booking remains fail-closed pending trusted caller authorization.
+
 Group booking uses `POST /v1/group-ticketing/bookings`. It validates that every passenger array (`titles`, `firstname`, `lastname`, `dob`, `passport_no`, `passport_expiry_date`, `type`) has the same nonzero length and that `updated_at` is timezone-aware. It maps directly to the supplier's `/api/add-booking` contract. This is a state-changing operation and is not automatically retried; a timeout is reported as an indeterminate vendor failure and should be reconciled with the supplier before the client retries.
 
 Booking details use `POST /v1/group-ticketing/booking-details` with `{ "booking_id": 2749 }`. The supplier adapter calls `/api/agent-booking-detail` using Bearer authentication and returns normalized booking and group objects. Known fields are typed; additional supplier fields are preserved to accommodate optional admin/payment/flight details.
@@ -140,11 +156,15 @@ app/
     demo.py                   # Local sample live-flight supplier
 ```
 
+## Architecture roadmap
+
+The [production architecture and migration specification](docs/architecture/production-architecture.md) covers the portal and gateway redesign, identity and agency ownership, booking reliability, mandatory static outbound IPs, high availability, migration gates, and unresolved decisions. It is a draft for review, not approval to provision resources or enable bookings. It distinguishes current user-reported production status from historical deployment-audit observations below.
+
 ## Production deployment
 
 Pull requests into `main` run CI on Python 3.12. A push to `main` runs the production workflow: test, package that commit and its resolved runtime dependencies, verify SHA-256 locally and remotely, upload over verified SSH, activate a release, restart systemd, and verify `GET /health`. Manual workflow runs deploy only when the selected branch is `main`. Merging into `main` triggers deployment, so merge only after deployment approval and the prerequisites below are complete.
 
-Production uses the existing Lightsail instance `travelian-api-prod-02` in `ap-southeast-1`, outbound IP `52.76.26.224`, SSH user `deploy`, and `/opt/travelian-api`. The service binds to `127.0.0.1:8000` with one Uvicorn worker. No DNS, proxy, firewall, or other service changes are part of deployment.
+Production uses the existing Lightsail instance `travelian-api-prod-02` in `ap-southeast-1`, outbound IP `52.76.26.224`, SSH user `deploy`, and `/opt/travelian-api`. The service binds to `127.0.0.1:8000` with one Uvicorn worker. Public traffic reaches it through Caddy on the same instance: `https://api.travelian.pk/v1/*` goes to the gateway and every other path goes on to the legacy API Gateway + Lambda (`deploy/Caddyfile`). PostgreSQL runs on the same instance. One-time server setup, migrations and the DNS cutover are in [deploy/CUTOVER.md](deploy/CUTOVER.md) (`deploy/server-setup.sh`, `deploy/migrate.sh`); the CI deployment itself still changes no DNS, proxy or firewall settings.
 
 Before the first merge:
 
@@ -168,3 +188,17 @@ Rollback restarts and verifies the target; if it fails, it restores and verifies
 After deployment, verify `systemctl is-active travelian-api.service`, `systemctl is-enabled travelian-api.service`, and `curl --fail http://127.0.0.1:8000/health` over SSH. Expected health is `{"status":"ok"}`. Check `/ready` and `journalctl -u travelian-api.service` for startup failures. A localhost health check does not verify the separate public `/v2` routing.
 
 See [the production audit](deploy/PRODUCTION_AUDIT.md) for findings, validation, and the approval boundary.
+
+Agency onboarding: [local application submission and applicant status](docs/api/agency-applications.md). Applications remain pending and agencies suspended; booking dispatch is blocked.
+
+Agency management: [profile, admin review and audit APIs](docs/api/agencies.md). Documents are optional; admin policies deny access by default.
+
+Cognito session APIs: [login, refresh, logout and current identity](docs/api/auth-sessions.md). Challenge completion and immediate offline access-token revocation remain outside this increment.
+
+Agency machine integration: [client credentials, mapping and scoped inventory/search](docs/api/agency-integrations.md). AWS provisioning remains pending; no client secrets are stored by the gateway.
+
+Agency registration requires business contact name, email and international phone. See [contact fields and migration](docs/api/agency-contacts.md) before using name-only registration examples.
+
+Human roles now come from PostgreSQL `users`/`roles`, not Cognito groups. See [users, roles and mandatory local admin bootstrap](docs/api/users-and-roles.md) before migrating. Booking dispatch remains blocked.
+
+OTA scope: [researched API gap review](docs/research/ota-api-gap-review.md). New [super-admin user management and overview](docs/api/admin-users.md) are local-only; supplier/payment work remains contract-gated.

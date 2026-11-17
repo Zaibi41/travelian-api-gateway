@@ -1,0 +1,497 @@
+"""Group Ticketing holds against a fake hold provider: hold (price only after it), failures, adults
+only, release, price re-check (changed: refused until the customer agrees), payment before issue,
+expiry, supplier name hidden from staff, saved customer found by document number."""
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock, patch
+from uuid import UUID
+
+import pytest
+from sqlalchemy import text
+
+from app.core.config import settings
+from app.core.field_visibility import ALL, NONE, BackOfficeUser, resolve_actions
+from app.db import booking_payments, booking_people, payment_accounts, saved_people
+from app.db import bookings as booking_store
+from app.schemas.group_holds import GroupHoldRequest
+from app.services import group_holds
+from app.services.group_holds import GroupHoldError, HeldSeats, SupplierRefused
+from app.services.group_ticketing import group_ticket_id
+from app.services.group_ticketing_view import GroupMoney
+from app.vendors.group_ticketing.dhillu_sahi.groups import normalize_groups
+from tests.database.test_booking_people import ACTOR
+
+ADMIN = BackOfficeUser(ACTOR, "super_admin", ALL, resolve_actions("super_admin", set()))
+STAFF = BackOfficeUser(ACTOR, "staff", NONE)  # no permissions: can't record payments or issue
+VENDOR = "dhillu_sahi"
+SUPPLIER_REF = "SUPPLIER-HOLD-SECRET-77"
+
+
+def inventory(remaining=12):
+    return normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": remaining, "baggage": "20+7",
+        "subpart": [{"departure_time": "06:40"}]}]}])
+
+
+TICKET_ID = group_ticket_id(inventory()[0].tickets[0])
+
+
+class FakeProvider:
+    """A provider that holds, prices and releases; `supports_issue` lets the generic issue path be tested
+    (no real group provider issues yet)."""
+
+    issue_unavailable_reason = group_holds.NO_ISSUE_REASON
+
+    def __init__(self, cost=100_000_00, issue_answer=None, hold_error=None, supports_issue=True, release_errors=0):
+        self.cost = cost
+        self.issue_answer = issue_answer
+        self.hold_error = hold_error
+        self.supports_issue = supports_issue
+        self.release_errors = release_errors
+        self.calls = []
+
+    async def hold(self, ticket, passengers, contact):
+        self.calls.append(("hold", len(passengers)))
+        if self.hold_error:
+            raise self.hold_error
+        total = getattr(self, "supplier_total", None)
+        return HeldSeats(getattr(self, "pnr", "K7P2QX"), SUPPLIER_REF, GroupMoney(amount_minor=self.cost, currency="PKR"),
+                         supplier_total=GroupMoney(amount_minor=total, currency="PKR") if total else None)
+
+    async def price(self, held):
+        self.calls.append("price")
+        return GroupMoney(amount_minor=self.cost * held.adults, currency="PKR")  # all held seats
+
+    async def release(self, held):
+        self.calls.append(("release", held.supplier_ref))
+        if self.release_errors:
+            self.release_errors -= 1
+            raise RuntimeError("supplier down")
+
+    async def issue(self, held, cost):
+        self.calls.append(("issue", cost.amount_minor))
+        if isinstance(self.issue_answer, Exception):
+            raise self.issue_answer
+        return self.issue_answer if self.issue_answer is not None else [f"98765432100{i}" for i in range(held.adults)]
+
+
+ADULT_1 = {"type": "ADT", "title": "MR", "first_name": "Ali", "last_name": "Raza", "date_of_birth": "1988-03-14", "id_type": "PSPT",
+           "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2031-09-30", "nationality": "PAK"}
+ADULT_2 = {**ADULT_1, "title": "MRS", "first_name": "Sana", "date_of_birth": "1990-05-02", "document_number": "CD7654321"}
+
+
+def request(passengers=None, adults=2, **contact):
+    return GroupHoldRequest(fare_terms_acknowledged=True, ticket_id=UUID(TICKET_ID), adults=adults, passengers=passengers or [ADULT_1, ADULT_2], contact={
+        "full_name": "Ali Raza", "phone": "+92 300 1234567", "email": "ali.raza@example.invalid", "id_type": "PSPT",
+        "document_number": "AB1234567", **contact})
+
+
+@pytest.fixture
+def provider(database):
+    connection, metadata, _ = database
+    if not connection.execute(text("SELECT 1 FROM users WHERE id=:id"), {"id": ACTOR}).first():
+        connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
+    fake = FakeProvider()
+    with patch.dict(group_holds.PROVIDERS, {VENDOR: lambda: fake}), \
+         patch.object(settings, "group_ticketing_markup_percent", Decimal("5")), patch.object(settings, "group_ticketing_markup_fixed_minor", 0):
+        yield fake
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+def place(viewer=ADMIN, req=None, stock=None):
+    return run(group_holds.hold(req or request(), viewer, fetch=AsyncMock(return_value=stock or inventory())))
+
+
+def pay(reference, amount):
+    account = next((a for a in payment_accounts.list_accounts() if a.active and a.method == "bank_transfer"), None) \
+        or payment_accounts.add("bank_transfer", "Meezan Bank, Travelian current account")
+    return booking_payments.record(reference, amount_minor=amount, currency="PKR", method="bank_transfer", account_id=account.id,
+                                   payer_reference=f"TXN-{amount}", received_at=datetime.now(timezone.utc), actor_user_id=ACTOR)
+
+
+def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_inside(provider, database):
+    view = place()
+    assert view.booking_id.startswith("TRV-GRP-") and view.pnr == "K7P2QX" and view.status == "held"
+    # supplier 100,000 + 5% = 105,000 per adult; two adults.
+    assert view.price_per_adult.amount_minor == 105_000_00 and view.total.amount_minor == 210_000_00
+    assert view.amount_due.amount_minor == 210_000_00 and view.adults == 2 and view.stock == "supplier"
+    assert (view.flight.airline, view.flight.sector, view.flight.departure_date, view.flight.departure_time) == ("Fly Jinnah", "ISB - JED", "2026-11-22", "06:40")
+    assert [t.document_number for t in view.travelers] == ["AB1234567", "CD7654321"]
+    body = view.model_dump_json()
+    assert SUPPLIER_REF not in body                  # the supplier's own reference stays inside; documents show in full
+    connection, _, _ = database
+    event = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"),
+                               {"r": view.booking_id}).scalars().all()
+    assert event == ["hold_created"]
+    assert connection.scalar(text("SELECT product FROM bookings WHERE reference = :r"), {"r": view.booking_id}) == "group"
+
+
+def test_no_markup_set_holds_at_the_listing_price(provider):
+    with patch.object(settings, "group_ticketing_markup_percent", None), patch.object(settings, "group_ticketing_markup_fixed_minor", None):
+        view = place()
+    assert view.status == "held" and view.price_per_adult.amount_minor == 100_000_00 and view.total.amount_minor == 200_000_00
+
+
+def test_held_flight_baggage_shows_hand_carry_first(provider):
+    stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "30", "departure_handcarry": "10",
+        "subpart": [{"departure_time": "06:40"}]}]}])
+    req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
+    assert place(req=req, stock=stock).flight.baggage == "10+30 kg"
+
+
+def test_supplier_name_only_for_viewers_allowed_to_see_it(provider):
+    view = place()
+    assert view.supplier == VENDOR
+    assert view.pnr == "K7P2QX"
+    staff_view = run(group_holds.read(view.booking_id, STAFF))
+    assert staff_view.supplier is None and staff_view.pnr is None and staff_view.stock == "supplier"
+    body = staff_view.model_dump_json()
+    assert VENDOR not in body and "K7P2QX" not in body
+
+
+def test_hold_copies_the_group_identity_onto_the_booking(provider, database):
+    connection, _, _ = database
+    stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "20+7",
+        "subpart": [{"id": 10817, "group_id": 3056, "departure_time": "06:40"}]}]}])
+    req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
+    view = place(req=req, stock=stock)
+    kept = connection.execute(text("SELECT supplier_response -> 'source' FROM bookings WHERE reference = :r"), {"r": view.booking_id}).scalar_one()
+    assert kept == {"provider": VENDOR, "supplier_pnr": "K7P2QX", "supplier_group_id": "3056", "supplier_ticket_id": "10817"}
+    assert (view.group_source.supplier_group_id, view.group_source.supplier_ticket_id, view.group_source.supplier_pnr) == ("3056", "10817", "K7P2QX")
+    staff_view = run(group_holds.read(view.booking_id, STAFF))
+    assert staff_view.group_source is None and "3056" not in staff_view.model_dump_json() and "10817" not in staff_view.model_dump_json()
+
+
+def test_hold_failure_leaves_nothing_pending_and_is_never_retried(provider, database):
+    provider.hold_error = RuntimeError("timeout")
+    with pytest.raises(GroupHoldError) as error:
+        place()
+    assert error.value.code == "not_confirmed_hold" and error.value.status == 502
+    assert provider.calls == [("hold", 2)]
+    connection, _, _ = database
+    rows = connection.execute(text("SELECT booking_status, pnr, supplier_response ->> 'hold_failure' FROM bookings WHERE product = 'group'")).all()
+    assert [tuple(row) for row in rows] == [("hold_failed", None, "not_confirmed")]
+    assert booking_store.list_dashboard_bookings() == []  # a failed hold is not a booking
+
+
+def test_supplier_pnr_with_a_hyphen_is_saved(provider, database):
+    """The reported bug: Skypass PNR 4FGYK2-4B4VYB broke ck_bookings_pnr (migration 0020)."""
+    provider.pnr = "4FGYK2-4B4VYB"
+    view = place()
+    assert view.status == "held" and view.pnr == "4FGYK2-4B4VYB"
+    connection, _, _ = database
+    with pytest.raises(Exception), connection.begin_nested():
+        connection.execute(text("INSERT INTO bookings (id, reference, pnr, product, booking_status, payment_status, issuance_status, currency, total_minor)"
+                                " VALUES ('00000000-0000-4000-8000-000000000001', 'TRV-FLIGHT-X', 'AB-12', 'flight', 'held', 'unpaid', 'not_issued', 'PKR', 1)"))
+
+
+def test_dhillu_sahi_pnr_with_spaces_is_saved_exactly(provider, database):
+    provider.pnr = "4FMUAF - 4KOCE5"
+    assert place().pnr == "4FMUAF - 4KOCE5"
+
+
+def test_save_failure_after_supplier_hold_keeps_the_pnr_on_a_record(provider, database):
+    with patch.object(group_holds.store, "confirm_hold", side_effect=RuntimeError("update failed")), pytest.raises(GroupHoldError) as error:
+        place()
+    assert error.value.extra["pnr"] == "K7P2QX" and ("release", SUPPLIER_REF) in provider.calls
+    connection, _, _ = database
+    status, pnr = connection.execute(text("SELECT booking_status, supplier_response -> 'unrecorded' ->> 'supplier_pnr' FROM bookings"
+                                          " WHERE reference = :r"), {"r": error.value.extra["booking_id"]}).one()
+    assert (status, pnr) == ("cancelled", "K7P2QX")  # released at the supplier, so the record reads as released
+
+
+def test_unreleased_unrecorded_hold_is_shown_to_supplier_access_only(provider, database):
+    provider.release_errors = 99
+    with patch.object(group_holds.store, "confirm_hold", side_effect=RuntimeError("update failed")), pytest.raises(GroupHoldError) as error:
+        place()
+    reference = error.value.extra["booking_id"]
+    view = run(group_holds.read(reference, ADMIN))
+    assert view.status == "not_recorded" and view.supplier_notice == group_holds.NOT_RELEASED  # one release failed; the job keeps trying
+    with pytest.raises(GroupHoldError):
+        run(group_holds.read(reference, STAFF))
+    assert [b.booking_id for b in booking_store.list_dashboard_bookings()] == [reference]
+
+
+def test_supplier_refusal_and_unsupported_source(provider):
+    provider.hold_error = SupplierRefused()
+    with pytest.raises(GroupHoldError) as error:
+        place()
+    assert error.value.code == "not_held"
+    with patch.dict(group_holds.PROVIDERS, {}, clear=True), pytest.raises(GroupHoldError) as error:
+        place()
+    assert error.value.code == "hold_not_supported"
+
+
+def test_gender_must_match_the_title(provider):
+    with pytest.raises(GroupHoldError) as error:
+        place(req=request(passengers=[{**ADULT_1, "gender": "F"}, {**ADULT_2, "gender": "F"}]))
+    assert error.value.code == "invalid_passengers" and error.value.field_errors[0][0] == ["passengers", 0, "gender"]
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize("passengers, adults, code", [
+    ([{**ADULT_1, "type": "CHD"}, ADULT_2], 2, "adults_only"),
+    ([ADULT_1, {**ADULT_2, "date_of_birth": "2018-01-01"}], 2, "adults_only"),
+    ([ADULT_1], 2, "passengers_mismatch"),
+])
+def test_adults_only(provider, passengers, adults, code):
+    with pytest.raises(GroupHoldError) as error:
+        place(req=request(passengers=passengers, adults=adults))
+    assert error.value.code == code
+    assert provider.calls == []
+
+
+def test_adults_above_nine_are_refused_by_the_request():
+    with pytest.raises(ValueError):
+        request(passengers=[ADULT_1] * 10, adults=10)
+
+
+def test_not_enough_seats_left(provider):
+    with pytest.raises(GroupHoldError) as error:
+        place(stock=inventory(remaining=1))
+    assert error.value.code == "not_enough_seats" and provider.calls == []
+
+
+def test_saved_customer_is_found_by_document_number_after_the_hold(provider):
+    view = place()
+    assert any(o.role == "customer" and o.status in ("saved", "linked") for o in view.saved_people)
+    found = saved_people.search(None, "AB1234567")
+    assert [(p.first_name, p.last_name) for p in found][:1] == [("Ali", "Raza")]
+
+
+def test_issue_is_refused_until_nothing_is_due(provider):
+    view = place()
+    assert not view.can_issue_tickets
+    pay(view.booking_id, 100_000_00)
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.issue(view.booking_id, ADMIN))
+    assert error.value.code == "payment_due" and "issue" not in str(provider.calls)
+    pay(view.booking_id, 110_000_00)
+    assert run(group_holds.read(view.booking_id, ADMIN)).can_issue_tickets
+
+
+def test_issue_with_unchanged_price_issues_straight_away(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    result = run(group_holds.issue(view.booking_id, ADMIN))
+    assert result.result == "issued" and result.hold.status == "issued"
+    assert [t.ticket_number for t in result.hold.travelers] == ["987654321000", "987654321001"]
+    assert provider.calls[-2:] == ["price", ("issue", 100_000_00)]
+
+
+def test_cost_changed_keeps_the_selling_price_and_updates_only_the_cost(provider, database):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    provider.cost = 103_000_00  # the supplier cost moved; the selling price (210,000) stays
+    check = run(group_holds.price_check(view.booking_id, ADMIN))
+    assert check.changed and check.selling_total.amount_minor == 210_000_00 and check.difference.amount_minor == 6_000_00
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.issue(view.booking_id, ADMIN))
+    assert error.value.code == "supplier_cost_changed" and error.value.extra["accepted_supplier_cost"]["amount_minor"] == 206_000_00
+    assert ("issue", 103_000_00) not in provider.calls
+    result = run(group_holds.issue(view.booking_id, ADMIN, GroupMoney(amount_minor=206_000_00, currency="PKR")))
+    assert result.result == "issued"
+    held = result.hold
+    assert held.total.amount_minor == 210_000_00 and held.amount_due.amount_minor == 0
+    assert held.supplier_cost.amount_minor == 206_000_00 and held.profit.amount_minor == 4_000_00
+    connection, _, _ = database
+    rows = connection.execute(text("SELECT t.selling_minor, t.cost_minor FROM booking_travelers t JOIN bookings b ON b.id = t.booking_id"
+                                   " WHERE b.reference = :r ORDER BY t.position"), {"r": view.booking_id}).all()
+    assert [tuple(r) for r in rows] == [(105_000_00, 103_000_00), (105_000_00, 103_000_00)]
+
+
+def test_cost_above_selling_needs_explicit_confirmation(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    provider.cost = 106_000_00  # 212,000 > 210,000
+    new_cost = GroupMoney(amount_minor=212_000_00, currency="PKR")
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.issue(view.booking_id, ADMIN, new_cost))
+    assert error.value.code == "below_cost"
+    result = run(group_holds.issue(view.booking_id, ADMIN, new_cost, accept_below_cost=True))
+    assert result.result == "issued" and result.hold.profit.amount_minor == -2_000_00 and result.hold.amount_due.amount_minor == 0
+
+
+def test_price_changed_and_customer_declines_releases_the_hold(provider, database):
+    view = place()
+    provider.cost = 99_000_00
+    assert run(group_holds.price_check(view.booking_id, ADMIN)).difference.amount_minor < 0
+    released = run(group_holds.release(view.booking_id, ADMIN))
+    assert released.status == "released" and not released.can_record_payments and not released.can_issue_tickets
+    assert ("release", SUPPLIER_REF) in provider.calls
+    connection, _, _ = database
+    actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
+                                      " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
+    assert actions == ["hold_created", "hold_released"]
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.release(view.booking_id, ADMIN))
+    assert error.value.code == "not_held"
+
+
+def test_unclear_issue_is_unknown_and_never_retried(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    provider.issue_answer = RuntimeError("timeout")
+    result = run(group_holds.issue(view.booking_id, ADMIN))
+    assert result.result == "unknown" and result.hold.status == "unknown"
+    assert [c for c in provider.calls if isinstance(c, tuple) and c[0] == "issue"] == [("issue", 100_000_00)]
+    with pytest.raises(GroupHoldError):
+        run(group_holds.issue(view.booking_id, ADMIN))
+
+
+def test_expired_hold_disables_payment_and_issue(provider, database):
+    view = place()
+    connection, _, _ = database
+    connection.execute(text("UPDATE bookings SET hold_expires_at = now() - interval '1 minute' WHERE reference = :r"), {"r": view.booking_id})
+    with pytest.raises(booking_payments.PaymentRefused) as refused:
+        pay(view.booking_id, 1_000_00)
+    assert refused.value.status == 409
+    expired = run(group_holds.read(view.booking_id, ADMIN))
+    assert expired.status == "expired" and not expired.can_record_payments and not expired.can_issue_tickets
+    for call in (group_holds.issue(view.booking_id, ADMIN), group_holds.release(view.booking_id, ADMIN),
+                 group_holds.price_check(view.booking_id, ADMIN)):
+        with pytest.raises(GroupHoldError) as error:
+            run(call)
+        assert error.value.code == "hold_expired"
+    assert connection.scalar(text("SELECT booking_status FROM bookings WHERE reference = :r"), {"r": view.booking_id}) == "expired"
+
+
+def test_staff_without_permission_cannot_issue(provider):
+    view = place()
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.issue(view.booking_id, STAFF))
+    assert error.value.status == 403
+
+
+def test_held_at_a_different_cost_payments_wait_for_confirmation(provider, database):
+    provider.supplier_total = 2 * 102_000_00  # the supplier held at 102,000 per adult; 100,000 was listed
+    view = place()
+    assert view.price_change is not None and view.total.amount_minor == 2 * 105_000_00  # the selling price stays (100,000 + 5%)
+    assert view.profit.amount_minor == 2 * 3_000_00 and view.supplier_cost.amount_minor == 2 * 102_000_00
+    assert view.can_record_payments is False
+    with pytest.raises(booking_payments.PaymentRefused):
+        pay(view.booking_id, 1_000_00)
+    accepted = run(group_holds.accept_held_price(view.booking_id, ADMIN))
+    assert accepted.price_change is None and accepted.can_record_payments is True
+    pay(view.booking_id, 1_000_00)
+
+
+def test_supplier_cancellation_expires_ours_and_refuses_payment(provider, database):
+    view = place()
+    from app.db import group_holds as store_
+    after = store_.save_supplier_amounts(view.booking_id, {"cancel_status": "1", "total_amount": "200000"}, True, datetime.now(timezone.utc))
+    assert after.booking_status == "expired" and after.supplier_cancelled
+    with pytest.raises(booking_payments.PaymentRefused):
+        pay(view.booking_id, 1_000_00)
+
+
+def test_a_default_hold_time_switches_to_the_supplier_expiry_once(provider, database):
+    from app.db import group_holds as store_
+
+    connection, _, _ = database
+    view = place()
+    connection.execute(text("UPDATE bookings SET supplier_response = supplier_response || CAST(:h AS jsonb) WHERE reference = :r"),
+                       {"h": '{"hold_time": {"source": "default", "minutes": 45, "from": "2026-11-14T15:00:00+00:00"}}', "r": view.booking_id})
+    supplier_time = datetime.now(timezone.utc) + timedelta(minutes=33)
+    after = store_.save_supplier_amounts(view.booking_id, {"cancel_status": 0}, False, datetime.now(timezone.utc), supplier_time)
+    assert after.hold_expires_at == supplier_time and after.hold_time["source"] == "supplier"
+    again = store_.save_supplier_amounts(view.booking_id, {"cancel_status": 0}, False, datetime.now(timezone.utc), supplier_time + timedelta(minutes=5))
+    assert again.hold_expires_at == supplier_time  # only a default hold time is switched
+
+
+def test_the_non_refundable_acknowledgement_is_stored_with_the_user_and_time_and_shown_on_the_booking(provider, database):
+    from app.services import admin_bookings, group_terms
+    before = datetime.now(timezone.utc) - timedelta(seconds=5)
+    view = place()
+    terms = view.fare_terms
+    assert (terms.text, terms.version, terms.acknowledged_by, terms.acknowledged_by_user_id) == (group_terms.STAFF_TEXT, group_terms.VERSION, "staff", ACTOR)
+    assert before <= terms.acknowledged_at <= datetime.now(timezone.utc) + timedelta(seconds=5)
+    connection, _, _ = database
+    row = connection.execute(text("SELECT e.actor_user_id, e.details FROM booking_events e JOIN bookings b ON b.id = e.booking_id"
+                                  " WHERE b.reference = :r AND e.action = 'fare_terms_acknowledged'"), {"r": view.booking_id}).one()
+    assert row.actor_user_id == ACTOR and row.details == group_terms.event_details()
+    assert run(group_holds.read(view.booking_id, ADMIN)).fare_terms.text == group_terms.STAFF_TEXT   # still there on a later read
+    # Bookings > Overview and Audit: the same stored acknowledgement and its audit entry.
+    people = booking_people.read(view.booking_id)
+    booking = next(b for b in booking_store.list_dashboard_bookings() if b.booking_id == view.booking_id)
+    detail = admin_bookings.build_detail(booking, ADMIN.visibility, people)
+    assert detail.fare_terms.text == group_terms.STAFF_TEXT and detail.fare_terms.acknowledged_by_user_id == ACTOR
+    entry = next(e for e in detail.audit if e.action == "fare_terms_acknowledged")
+    assert entry.details == group_terms.event_details() and entry.actor_user_id == ACTOR
+
+
+def test_a_hold_without_the_acknowledgement_creates_no_booking(provider, database):
+    with pytest.raises(GroupHoldError) as error:
+        place(req=request().model_copy(update={"fare_terms_acknowledged": False}))
+    assert error.value.code == "fare_terms_not_acknowledged" and "hold" not in str(provider.calls)
+    connection, _, _ = database
+    assert connection.scalar(text("SELECT count(*) FROM bookings")) == 0
+
+
+# ---------- final PNR and tickets (staff) ----------
+
+def tickets(final_pnr="K9QX2L", **numbers):
+    from app.schemas.group_holds import GroupTicketsRequest
+    body = GroupTicketsRequest(final_pnr=final_pnr, tickets=[{"position": p, "ticket_number": n} for p, n in numbers.items()])
+    return body.final_pnr, {t.position: t.ticket_number for t in body.tickets}
+
+
+def test_after_payment_awaiting_final_pnr_then_final_pnr_received_then_ticketed(provider, database):
+    view = place()
+    assert view.ticketing_status is None and not view.can_edit_tickets and not view.itinerary_available     # nothing paid yet
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, *tickets()))
+    assert error.value.code == "payment_due"
+    pay(view.booking_id, 210_000_00)
+    paid = run(group_holds.read(view.booking_id, ADMIN))
+    assert paid.ticketing_status == "awaiting_final_pnr" and paid.can_edit_tickets and paid.final_pnr is None
+
+    pnr_only = run(group_holds.record_tickets(view.booking_id, ADMIN, *tickets("k9qx2l")))
+    assert pnr_only.final_pnr == "K9QX2L" and pnr_only.ticketing_status == "final_pnr_received" and pnr_only.status == "confirmed"
+    assert not pnr_only.itinerary_available
+
+    partly = run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901"}))
+    assert partly.ticketing_status == "final_pnr_received"                              # one of two tickets
+    done = run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901", 1: "2142345678902"}))
+    assert done.ticketing_status == "ticketed" and done.status == "issued" and done.itinerary_available
+    assert [t.ticket_number for t in done.travelers] == ["2142345678901", "2142345678902"]
+    connection, _, _ = database
+    row = connection.execute(text("SELECT booking_status, issuance_status FROM bookings WHERE reference = :r"), {"r": view.booking_id}).one()
+    assert tuple(row) == ("ticket_issued", "issued")
+    actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
+                                      " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
+    assert actions[-4:] == ["final_pnr_recorded", "ticket_numbers_recorded", "ticket_numbers_recorded", "group_ticketed"]
+    # The Bookings row and the detail follow: the final PNR, Ticketed and a printable itinerary.
+    from app.services import admin_bookings
+    booking_row = admin_bookings.find_booking(booking_store.list_dashboard_bookings(), view.booking_id)
+    detail = admin_bookings.build_detail(booking_row, ALL, booking_people.read(view.booking_id), can_issue_tickets=True)
+    assert (detail.final_pnr, detail.group_ticketing_status, detail.itinerary_available, detail.can_edit_group_tickets) == ("K9QX2L", "ticketed", True, True)
+
+
+def test_recording_tickets_needs_the_permission_and_refuses_bad_or_repeated_numbers(provider):
+    view = place()
+    pay(view.booking_id, 210_000_00)
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, STAFF, *tickets()))
+    assert error.value.status == 403
+    assert not run(group_holds.read(view.booking_id, STAFF)).can_edit_tickets
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {5: "2142345678901"}))
+    assert error.value.status == 422
+    run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {0: "2142345678901"}))
+    with pytest.raises(GroupHoldError) as error:
+        run(group_holds.record_tickets(view.booking_id, ADMIN, "K9QX2L", {1: "2142345678901"}))    # already on traveler 0
+    assert error.value.code == "duplicate_ticket"
+    from pydantic import ValidationError
+    from app.schemas.group_holds import GroupTicketsRequest
+    for body in ({"final_pnr": "K9"}, {"final_pnr": "K9QX2L", "tickets": [{"position": 0, "ticket_number": "x"}]},
+                 {"final_pnr": "K9QX2L", "tickets": [{"position": 0, "ticket_number": "2142345678901"}, {"position": 1, "ticket_number": "2142345678901"}]}):
+        with pytest.raises(ValidationError):
+            GroupTicketsRequest(**body)
