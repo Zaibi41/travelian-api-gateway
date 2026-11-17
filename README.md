@@ -38,7 +38,8 @@ All product APIs are versioned under `/v1` and grouped by domain:
 | Group Ticketing | `POST /v1/group-ticketing/check-availability` | Check PNR seats and current price | Dhillu & Sahi authenticated availability check |
 | Group Ticketing | `POST /v1/group-ticketing/bookings` | Book passengers against a group PNR | Dhillu & Sahi authenticated booking; no automatic retries |
 | Group Ticketing | `POST /v1/group-ticketing/booking-details` | Fetch booking, passenger, payment, and group details | Dhillu & Sahi authenticated lookup |
-| Hotels | `POST /v1/hotels/search` | Search hotel inventory by destination and stay dates | Contract in place; supplier adapters pending |
+| Hotels | `POST /v1/hotels/destinations`, `POST /v1/hotels/search` | Destination suggestions; hotels with rates by destination, dates and rooms | RateHawk (docs/api/hotels-ratehawk.md) |
+| RateHawk console | `GET /v1/admin/suppliers/ratehawk/operations`, `POST /v1/admin/suppliers/ratehawk/operations/{key}` | All 48 RateHawk operations, Super Admin only | Writes behind `RATEHAWK_WRITE_ENABLED` |
 
 Each area has its own route module and vendor package. Keep one supplier per module/package so credentials, mapping, logs, and debugging stay isolated. Supplier outcomes are recorded internally. Group inventory and search return a single Travelian response containing combined group records, without gateway-added per-vendor status fields.
 
@@ -163,7 +164,7 @@ The [production architecture and migration specification](docs/architecture/prod
 
 Pull requests into `main` run CI on Python 3.12. A push to `main` runs the production workflow: test, package that commit and its resolved runtime dependencies, verify SHA-256 locally and remotely, upload over verified SSH, activate a release, restart systemd, and verify `GET /health`. Manual workflow runs deploy only when the selected branch is `main`. Merging into `main` triggers deployment, so merge only after deployment approval and the prerequisites below are complete.
 
-Production uses the existing Lightsail instance `travelian-api-prod-02` in `ap-southeast-1`, outbound IP `52.76.26.224`, SSH user `deploy`, and `/opt/travelian-api`. The service binds to `127.0.0.1:8000` with one Uvicorn worker. No DNS, proxy, firewall, or other service changes are part of deployment.
+Production uses the existing Lightsail instance `travelian-api-prod-02` in `ap-southeast-1`, outbound IP `52.76.26.224`, SSH user `deploy`, and `/opt/travelian-api`. The service binds to `127.0.0.1:8000` with one Uvicorn worker. Public traffic reaches it through Caddy on the same instance: `https://api.travelian.pk/v1/*` goes to the gateway and every other path goes on to the legacy API Gateway + Lambda (`deploy/Caddyfile`). PostgreSQL runs on the same instance. One-time server setup, migrations and the DNS cutover are in [deploy/CUTOVER.md](deploy/CUTOVER.md) (`deploy/server-setup.sh`, `deploy/migrate.sh`); the CI deployment itself still changes no DNS, proxy or firewall settings.
 
 Before the first merge:
 
