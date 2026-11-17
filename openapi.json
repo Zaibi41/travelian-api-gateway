@@ -1923,6 +1923,33 @@
         "title": "BusinessResults",
         "type": "object"
       },
+      "CheckoutView": {
+        "properties": {
+          "action": {
+            "description": "PayFast's checkout URL: the browser posts `fields` there as a form.",
+            "title": "Action",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "sandbox": {
+            "title": "Sandbox",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "fields",
+          "sandbox"
+        ],
+        "title": "CheckoutView",
+        "type": "object"
+      },
       "CurrencyAmount": {
         "properties": {
           "amount_minor": {
@@ -4160,7 +4187,8 @@
               "processing",
               "issued",
               "unknown",
-              "not_recorded"
+              "not_recorded",
+              "requested"
             ],
             "title": "Status",
             "type": "string"
@@ -6562,6 +6590,343 @@
         "title": "ProviderStatus",
         "type": "object"
       },
+      "PublicBookingCreated": {
+        "properties": {
+          "access_token": {
+            "description": "Private. Needed with the reference to view or pay this booking. Shown once.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "booking": {
+            "$ref": "#/components/schemas/PublicBookingView"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "access_token",
+          "booking"
+        ],
+        "title": "PublicBookingCreated",
+        "type": "object"
+      },
+      "PublicBookingView": {
+        "properties": {
+          "airline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline"
+          },
+          "can_pay": {
+            "description": "Online payment can be started now.",
+            "title": "Can Pay",
+            "type": "boolean"
+          },
+          "final_pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The airline booking reference once ticketed.",
+            "title": "Final Pnr"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "legs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PublicLeg"
+            },
+            "title": "Legs",
+            "type": "array"
+          },
+          "live": {
+            "description": "True when seats are held at the airline's supplier; false for a request staff will follow up.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "paid": {
+            "$ref": "#/components/schemas/PublicMoney"
+          },
+          "payment_status": {
+            "enum": [
+              "unpaid",
+              "part_paid",
+              "paid"
+            ],
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "held",
+              "confirmed",
+              "issued",
+              "expired",
+              "released",
+              "processing",
+              "unknown",
+              "not_recorded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "Ticket numbers once issued.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tickets",
+            "type": "array"
+          },
+          "total": {
+            "$ref": "#/components/schemas/PublicMoney"
+          },
+          "travelers": {
+            "description": "Names only.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Travelers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference",
+          "status",
+          "payment_status",
+          "live",
+          "can_pay",
+          "total",
+          "paid"
+        ],
+        "title": "PublicBookingView",
+        "type": "object"
+      },
+      "PublicGroupBookingRequest": {
+        "description": "What a guest sends. The price is never taken from the guest: the gateway prices the fare itself.",
+        "properties": {
+          "adults": {
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "contact": {
+            "$ref": "#/components/schemas/CustomerCard"
+          },
+          "fare_terms_acknowledged": {
+            "description": "The guest agreed that this group fare is non-refundable and non-changeable.",
+            "title": "Fare Terms Acknowledged",
+            "type": "boolean"
+          },
+          "passengers": {
+            "items": {
+              "$ref": "#/components/schemas/GroupHoldPassenger"
+            },
+            "maxItems": 9,
+            "minItems": 1,
+            "title": "Passengers",
+            "type": "array"
+          },
+          "ticket_id": {
+            "description": "GroupTicketView.id from the public search.",
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "adults",
+          "contact",
+          "passengers",
+          "fare_terms_acknowledged"
+        ],
+        "title": "PublicGroupBookingRequest",
+        "type": "object"
+      },
+      "PublicGroupSearch": {
+        "properties": {
+          "adults": {
+            "default": 1,
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          }
+        },
+        "title": "PublicGroupSearch",
+        "type": "object"
+      },
+      "PublicLeg": {
+        "properties": {
+          "arrival_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Time"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "departure_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Time"
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          }
+        },
+        "title": "PublicLeg",
+        "type": "object"
+      },
+      "PublicMoney": {
+        "properties": {
+          "amount_minor": {
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "currency"
+        ],
+        "title": "PublicMoney",
+        "type": "object"
+      },
       "ReceivingAccount": {
         "description": "A receiving account as Finance > Accounts & Ledgers manages it (active and inactive).",
         "properties": {
@@ -6909,6 +7274,31 @@
           "new_password"
         ],
         "title": "ResetPasswordRequest",
+        "type": "object"
+      },
+      "ReturnResult": {
+        "properties": {
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "result": {
+            "description": "paid, failed, already_paid, already_failed, amount_mismatch, unknown_basket or not_verified.",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "ReturnResult",
         "type": "object"
       },
       "RoleRecord": {
@@ -16736,6 +17126,222 @@
         "summary": "Logo",
         "tags": [
           "logos"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}": {
+      "get": {
+        "operationId": "get_booking_v1_public_bookings__reference__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "X-Booking-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicBookingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Booking",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}/payments/payfast": {
+      "post": {
+        "description": "The PayFast checkout form for the amount due. The browser posts `fields` to `action`.",
+        "operationId": "start_payfast_v1_public_bookings__reference__payments_payfast_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "X-Booking-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Payfast",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/group-ticketing/bookings": {
+      "post": {
+        "description": "Book as a guest. With live booking on, seats are held at the supplier; otherwise a request is saved for staff.",
+        "operationId": "book_group_v1_public_group_ticketing_bookings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicGroupBookingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicBookingCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Fare gone or seats changed."
+          },
+          "422": {
+            "description": "Check the details."
+          },
+          "429": {
+            "description": "Too many bookings."
+          }
+        },
+        "summary": "Book Group",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/group-ticketing/search": {
+      "post": {
+        "description": "Group fares with selling prices only. Leave all of origin, destination and date out for everything.",
+        "operationId": "search_groups_v1_public_group_ticketing_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicGroupSearch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many searches."
+          },
+          "503": {
+            "description": "Suppliers unavailable."
+          }
+        },
+        "summary": "Search Groups",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/payments/payfast/return": {
+      "post": {
+        "description": "The website forwards the parameters PayFast sent the customer back with. Same verification as the notification.",
+        "operationId": "payfast_return_v1_public_payments_payfast_return_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Payfast Return",
+        "tags": [
+          "public website"
         ]
       }
     },

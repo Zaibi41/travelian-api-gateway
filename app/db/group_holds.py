@@ -250,10 +250,13 @@ HOLD_PENDING, HOLD_FAILED, HOLD_UNRECORDED = "hold_pending", "hold_failed", "hol
 
 
 def create_pending(*, provider: str, currency: str, selling_total_minor: int, supplier_total_minor: int | None,
-                   supplier_response: dict[str, Any], actor_user_id: str, customer, travelers: list, itinerary: list[dict[str, Any]],
-                   reference_prefix: str, fare_terms: dict[str, Any] | None = None) -> tuple[str, str]:
+                   supplier_response: dict[str, Any], actor_user_id: str | None, customer, travelers: list, itinerary: list[dict[str, Any]],
+                   reference_prefix: str, fare_terms: dict[str, Any] | None = None, status: str | None = None,
+                   channel: str = "staff") -> tuple[str, str]:
     """Our record before the supplier is called: 'hold_pending', no PNR yet, with its customer and travelers.
+    status='requested' (website booking requests, live booking off) stores the same record and never calls a supplier.
     Returns (booking id, reference)."""
+    status = status or HOLD_PENDING
     from uuid import uuid4
 
     from app.db.supplier_bookings import _save_people, new_reference
@@ -262,16 +265,17 @@ def create_pending(*, provider: str, currency: str, selling_total_minor: int, su
         booking_id, reference = str(uuid4()), new_reference(reference_prefix)
         connection.execute(
             text("INSERT INTO bookings (id, reference, product, provider_id, created_by_user_id, booking_status, payment_status,"
-                 " issuance_status, currency, total_minor, supplier_cost_minor, supplier_response, itinerary)"
+                 " issuance_status, currency, total_minor, supplier_cost_minor, supplier_response, itinerary, channel)"
                  " VALUES (:id, :ref, 'group', :provider, :actor, :status, 'unpaid', 'not_issued', :currency, :total, :cost,"
-                 " CAST(:response AS jsonb), CAST(:itinerary AS jsonb))"),
-            {"id": booking_id, "ref": reference, "provider": provider, "actor": actor_user_id, "status": HOLD_PENDING, "currency": currency,
+                 " CAST(:response AS jsonb), CAST(:itinerary AS jsonb), :channel)"),
+            {"id": booking_id, "ref": reference, "provider": provider, "actor": actor_user_id, "status": status, "currency": currency,
              "total": selling_total_minor, "cost": supplier_total_minor, "response": json.dumps(supplier_response, default=str),
-             "itinerary": json.dumps(itinerary) if itinerary else None},
+             "itinerary": json.dumps(itinerary) if itinerary else None, "channel": channel},
         )
         if customer is not None:
             _save_people(connection, booking_id, customer, travelers, selling_total_minor, supplier_total_minor)
-        _event(connection, booking_id, actor_user_id, "hold_requested", {"travelers": len(travelers)})
+        _event(connection, booking_id, actor_user_id, "hold_requested" if status == HOLD_PENDING else "booking_requested",
+               {"travelers": len(travelers), "channel": channel})
         if fare_terms:  # the non-refundable, non-changeable acknowledgement: who (the actor), when, and the text shown
             _event(connection, booking_id, actor_user_id, "fare_terms_acknowledged", fare_terms)
     return booking_id, reference

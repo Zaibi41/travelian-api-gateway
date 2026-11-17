@@ -142,3 +142,10 @@ unset TRAVELIAN_TEST_DATABASE_URL
 Expected on 10 November 2026: 674 passed, 107 skipped without a test database; 781 passed with one. Unit tests never reach the database your `.env` points at (tests/conftest.py); tests that need one use the disposable test database. Holds need no identity-storage settings (docs/pii-storage.md).
 
 Supplier tests use a mocked supplier and never call a real one.
+
+## Known failing database tests (18 November 2026)
+
+With `TRAVELIAN_TEST_DATABASE_URL` set, 15 database tests fail on `main` as well: their sample bookings have no
+`supplier_cost_minor`, which migration `0021_selling_price` made required (`test_bookings`, `test_group_hold_expiry`,
+`test_group_holds`, `test_issuance`, `test_selling_price`). Fix the fixtures; the app code is not affected. CI skips
+database tests, so it doesn't show them.

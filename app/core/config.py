@@ -106,6 +106,19 @@ class Settings(BaseSettings):
     hotel_markup_percent: Decimal | None = Field(None, ge=0, le=100)
     # Exact portal origins allowed by CORS, e.g. ["http://localhost:8080"].
     cors_allowed_origins: list[str] = []
+    # Public website booking (guests, no login). Off until turned on per product.
+    public_group_booking_enabled: bool = False
+    # Where PayFast sends the customer back (the public website) and its server notification (this gateway).
+    public_site_url: str = Field("https://travelian.pk", pattern=r"^https?://[^/]+$")
+    public_api_url: str = Field("https://api.travelian.pk", pattern=r"^https?://[^/]+$")
+    # Public search answers are cached this long (seconds), so visitors don't each call the suppliers.
+    public_search_cache_seconds: int = Field(120, ge=0, le=3600)
+    # PayFast (Pakistan) hosted checkout. Sandbox host: https://ipguat.apps.net.pk.
+    payfast_merchant_id: SecretStr | None = None
+    payfast_secured_key: SecretStr | None = None
+    payfast_merchant_name: str = "Travelian"
+    payfast_base_url: str = Field("https://ipguat.apps.net.pk", pattern=r"^https://[^/]+$")
+    payfast_timeout_seconds: float = Field(20, gt=0, le=60)
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )

@@ -88,7 +88,7 @@ class GroupHoldPayment(BaseModel):
     received_at: datetime
 
 
-GroupHoldStatus = Literal["held", "confirmed", "expired", "released", "processing", "issued", "unknown", "not_recorded"]
+GroupHoldStatus = Literal["held", "confirmed", "expired", "released", "processing", "issued", "unknown", "not_recorded", "requested"]
 #: After payment: "Paid – awaiting final PNR" -> "Final PNR received" -> "Ticketed" (final PNR and every ticket number).
 GroupTicketingStatus = Literal["awaiting_final_pnr", "final_pnr_received", "ticketed"]
 
