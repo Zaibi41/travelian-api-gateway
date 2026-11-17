@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
+from pydantic import SecretStr
 from fastapi.testclient import TestClient
 
 from app.api.routes import group_ticketing as group_routes
@@ -83,7 +84,9 @@ def test_skypass_one_way_and_return():
     assert legs_of(back) == [("outbound", "9P700", "ISB", "JED", "2026-12-02", "06:40", "10:05"), ("return", "9P701", "JED", "ISB", "2026-12-21", "11:05", "18:05")]
     assert back.selling_price.amount_minor == 178_000_00  # per adult, both flights
     assert baggage_text(back.baggage, back.hand_carry) == "10+20 kg" and baggage_text(back.legs[1].baggage, back.legs[1].hand_carry) == "10+30 kg"
-    assert back.can_hold is True  # held the same way as one-way
+    with patch.object(settings, "skypass_endpoint", "https://skypass.invalid"), \
+         patch.object(settings, "skypass_client_id", SecretStr("id")), patch.object(settings, "skypass_client_secret", SecretStr("secret")):
+        assert ticket_view(sky(SKY_RETURN), NONE).can_hold is True  # held the same way as one-way (Skypass configured)
 
 
 def test_dhillu_sahi_one_way_and_return():
