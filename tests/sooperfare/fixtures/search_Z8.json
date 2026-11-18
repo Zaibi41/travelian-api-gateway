@@ -1,0 +1,18 @@
+{
+ "status": true,
+ "message": "Operation Successfull",
+ "type": "json",
+ "data": {
+  "ref_id": "2e4d2bcb-990e-4f97-8162-5848df1e0f46",
+  "providers": [
+   {
+    "provider": {
+     "identifier": "Z8",
+     "created_at": "2026-08-07T18:57:20+05:00",
+     "updated_at": "2026-11-18T20:48:03+05:00"
+    },
+    "legs": []
+   }
+  ]
+ }
+}

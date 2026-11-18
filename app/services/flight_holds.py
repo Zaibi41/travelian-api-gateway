@@ -24,7 +24,7 @@ from app.db import saved_people, supplier_bookings
 from app.schemas.customer_card import ContactError
 from app.schemas.live_flights import IDENTITY_FIELDS, FlightMoney, HoldContact, HoldPassenger, HoldRequest, HoldView
 from app.schemas.saved_people import SaveOutcomeView
-from app.services import live_flights
+from app.services import live_flights, sooperfare_holds
 from app.services.live_flights import RepriceError, get_quote, price_selection, sell
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairError, configured_client
@@ -258,14 +258,16 @@ def _time_limit(value: object) -> datetime | None:
     return None
 
 
-async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None) -> HoldView:
-    if not settings.southair_booking_enabled:
+async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> HoldView:
+    if not (settings.southair_booking_enabled or settings.sooperfare_booking_enabled):
         raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
     if viewer.role not in BACK_OFFICE_ROLES:
         raise HoldError(403, "Only back-office users can place holds.", code="not_allowed")
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
         raise HoldError(404, "The revalidated fare has expired. Revalidate again.", code="quote_expired")
+    if not live_flights.booking_enabled(quote.provider):
+        raise HoldError(409, "Booking is turned off for this fare. Nothing was booked.", code="booking_off")
     if quote.price_changed and not request.accept_price_change:
         raise HoldError(409, f"The price changed to {live_flights.money_text(quote.selling_total_minor, quote.currency)}. "
                              "Accept the new total to continue. Nothing was booked.", code="price_not_accepted")
@@ -292,6 +294,10 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
     passengers = _supplier_passengers(request, quote.request.departure_date)
     warnings = passport_warnings(request, quote.request)
+
+    if quote.provider == live_flights.SOOPERFARE:
+        return await sooperfare_holds.hold(request, viewer, quote, card=card, owner=owner, links=links, warnings=warnings,
+                                           factory=sooperfare_factory)
 
     client = (client_factory or configured_client)()
     # 1. Fresh reprice: the supplier total must still match what the user confirmed.
