@@ -60,6 +60,23 @@ def match_tickets(target: store.Target, state: normalize.PnrState) -> dict[int, 
     return tickets if all(tickets.values()) else None  # type: ignore[return-value]
 
 
+#: Providers whose tickets the gateway can issue. SooperFare's /v1/booking/confirm takes payment from Travelian's
+#: SooperFare account and its contract (txn_ref_id, the answer, ticket numbers) isn't confirmed yet, so SooperFare
+#: bookings are refused here before anything is sent; staff issue them in SooperFare's portal (docs/roadmap.md).
+ISSUING_PROVIDERS = ("southair",)
+NOT_ISSUABLE_HERE = "SooperFare tickets can't be issued from Travelian yet. Issue this ticket in SooperFare's portal. Nothing was issued."
+
+
+def ticketing_on(provider: str | None) -> bool:
+    """Issuing is possible for this booking's provider (and switched on)."""
+    return (provider or "southair") in ISSUING_PROVIDERS and settings.southair_ticketing_enabled
+
+
+def _issuable_provider(target) -> None:
+    if (target.provider or "southair") not in ISSUING_PROVIDERS:
+        raise IssuanceRefused(409, NOT_ISSUABLE_HERE, "provider_not_supported")
+
+
 def _require(viewer: BackOfficeUser) -> None:
     if not viewer.can(ISSUE_TICKETS):
         raise IssuanceRefused(403, "Issuing tickets requires the issue tickets permission.")
@@ -81,6 +98,8 @@ async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, acc
         await run_in_threadpool(store.release, target, viewer.user_id, previous, "issuance_aborted", {"reason_code": reason_code})
         raise IssuanceRefused(status, message, reason_code, **extra)
 
+    if (target.provider or "southair") not in ISSUING_PROVIDERS:  # never ask Southair about another supplier's PNR
+        await abort(409, NOT_ISSUABLE_HERE, "provider_not_supported")
     try:
         client = (client_factory or configured_client)()
     except SouthairError:
@@ -159,6 +178,7 @@ async def verify(reference: str, viewer: BackOfficeUser, client_factory=None) ->
     """For an unknown issuance: ask pnr_info again (read-only) and settle it when the answer is clear."""
     _require(viewer)
     target = await run_in_threadpool(store.load, reference)
+    _issuable_provider(target)
     if target.issuance_status != "unknown":
         raise IssuanceRefused(409, "Only an unknown issuance can be verified.")
     try:
