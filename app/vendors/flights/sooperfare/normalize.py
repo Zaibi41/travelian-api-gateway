@@ -177,6 +177,8 @@ class Quote:
     passengers: list[QuotedPassenger]
     passport_required: bool
     fare_signatures: list[str]
+    #: SooperFare's own fee per booking (data.settings.platform_fee), added to the supplier cost. Minor units.
+    platform_fee_minor: int = 0
 
 
 def parse_quote(answer: dict) -> Quote | None:
@@ -202,5 +204,6 @@ def parse_quote(answer: dict) -> Quote | None:
                   for p in data.get("passengers") or [] if p.get("ref_id")]
     if not totals or len(currencies) != 1 or any(p.kind == "?" for p in passengers):
         return None
+    fee = _minor((data.get("settings") or {}).get("platform_fee")) or 0
     return Quote(per_type={k: (v[0], v[1]) for k, v in totals.items()}, currency=currencies.pop(), passengers=passengers,
-                 passport_required=passport, fare_signatures=signatures)
+                 passport_required=passport, fare_signatures=signatures, platform_fee_minor=fee)

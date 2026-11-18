@@ -24,7 +24,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-NAME = "SooperFare"
+NAME = "sooperfare"
 
 
 class SooperfareError(RuntimeError):

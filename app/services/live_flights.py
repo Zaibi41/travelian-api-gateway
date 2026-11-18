@@ -7,11 +7,12 @@ flight markup per passenger; without a markup no price is returned.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
@@ -21,6 +22,8 @@ from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import FareView, FlightMoney, FlightSearchView, FlightView, JourneyView, ProviderStatus
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairError, SouthairNotConfigured, configured_client
+from app.vendors.flights.sooperfare import client as sooperfare
+from app.vendors.flights.sooperfare import normalize as sf_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,16 @@ class FareRef:
     adult_total: normalize.Amount | None
     #: The flight as shown (airline, number, times, fare, baggage): saved as the booking's itinerary.
     segment: dict | None = None
+    #: "southair" or "sooperfare". SooperFare fares carry `sf`: its airline (provider id), flight and fare signatures.
+    provider: str = "southair"
+    sf: "SfRef | None" = None
+
+
+@dataclass(frozen=True)
+class SfRef:
+    provider_id: str  # SooperFare's airline identifier: PA, PF, PK, ONEAPI, ...
+    flight_signature: str
+    fare_signature: str
 
 
 @dataclass
@@ -139,49 +152,164 @@ def segment(direction: str, leg: normalize.Leg, flight: normalize.Flight, fare: 
     }
 
 
-async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_factory=None) -> FlightSearchView:
+SOOPERFARE = "sooperfare"
+#: The whole SooperFare part of a search (availability, then every airline in parallel) stops waiting after this.
+SOOPERFARE_SEARCH_SECONDS = 25
+
+
+def _search_args(request: FlightSearchRequest) -> dict:
+    return dict(origin=request.origin, destination=request.destination, departure=request.departure_date,
+                return_date=request.return_date, adults=request.adults, children=request.children, infants=request.infants,
+                cabin=request.cabin)
+
+
+async def _southair_part(request: FlightSearchRequest, client_factory):
+    client = (client_factory or configured_client)()
+    data = await client.search(
+        origin=request.origin, destination=request.destination, departure=request.departure_date,
+        return_date=request.return_date, adults=request.adults, children=request.children, infants=request.infants,
+    )
+    nld, legs = normalize.legs(data)
+    if not nld:
+        raise SouthairError("invalid_response", "The flight supplier returned an unusable response.")
+    currency = await account_currency(client) if any(f.adult_total and not f.adult_total.currency for leg in legs for fl in leg.flights for f in fl.fares) else None
+    return nld, legs, currency
+
+
+async def sooperfare_results(request: FlightSearchRequest, factory=None, provider_ids: list[str] | None = None) -> list[sf_normalize.Result]:
+    """SooperFare: the airlines it can search for this trip, then each of them in parallel. An airline that fails is
+    left out (logged); raises SooperfareError only when no airline answered."""
+    client = (factory or sooperfare.SooperfareClient)()
+    args = _search_args(request)
+    ids = provider_ids if provider_ids is not None else await client.availability(**args)
+    answers = await asyncio.gather(*(client.search(provider=pid, **args) for pid in ids), return_exceptions=True)
+    results, failures = [], 0
+    for pid, answer in zip(ids, answers):
+        if isinstance(answer, BaseException):
+            failures += 1
+            logger.warning("SooperFare airline search failed", extra={"airline": pid, "error_code": getattr(answer, "error_code", type(answer).__name__)})
+            continue
+        results.extend(sf_normalize.parse_search(answer, request.origin, two_way=request.return_date is not None))
+    if ids and failures == len(ids):
+        raise sooperfare.SooperfareError("all_failed", "The flight supplier couldn't search right now.")
+    return results
+
+
+def _sf_segment(direction: str, flight: sf_normalize.Flight, fare: sf_normalize.Fare) -> dict:
+    return {
+        "direction": direction, "origin": flight.origin, "destination": flight.destination,
+        "airline_code": flight.airline_code, "airline_name": flight.airline_name, "flight_number": flight.flight_number,
+        "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
+        "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
+        "fare_name": fare.name, "baggage": fare.baggage, "meal": None,
+    }
+
+
+def _sf_fare_view(fare_id: str, fare: sf_normalize.Fare, viewer: BackOfficeUser) -> FareView:
+    view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage, refund=fare.refund)
+    each = fare.adult_each_minor
+    if each is not None:
+        selling = sell(each)
+        if selling is not None:
+            view.selling_price = FlightMoney(amount_minor=selling, currency=fare.currency)
+        if viewer.visibility.cost_and_margin:
+            view.supplier_cost = FlightMoney(amount_minor=each, currency=fare.currency)
+    if viewer.visibility.supplier_names:
+        view.supplier = sooperfare.NAME
+    return view
+
+
+def _add_sooperfare(session: SearchSession, results: list[sf_normalize.Result], viewer: BackOfficeUser,
+                    flights_by_direction: dict[str, list[tuple[str, FlightView]]]) -> None:
+    """Each distinct SooperFare flight once per direction, with its fares. A return selection is matched to a bookable
+    option (outbound + return of the same airline) when it is priced."""
+    seen: set[tuple[str, str, str]] = set()
+    for result in results:
+        for option in result.options:
+            for index, flight in enumerate(option.flights):
+                direction = "outbound" if index == 0 else "return"
+                key = (result.provider, direction, flight.signature)
+                if key in seen:
+                    continue
+                seen.add(key)
+                fare_views = []
+                for fare in flight.fares:
+                    fare_id = secrets.token_urlsafe(12)
+                    each = fare.adult_each_minor
+                    session.fares[fare_id] = FareRef(
+                        direction, f"{flight.origin}{flight.destination}", flight.signature, fare.name, "",
+                        normalize.Amount(Decimal(each) / 100, fare.currency) if each is not None else None,
+                        _sf_segment(direction, flight, fare), provider=SOOPERFARE,
+                        sf=SfRef(result.provider, flight.signature, fare.signature),
+                    )
+                    fare_views.append(_sf_fare_view(fare_id, fare, viewer))
+                flights_by_direction[direction].append((flight.departure_local or "", FlightView(
+                    id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
+                    flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
+                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities, fares=fare_views,
+                )))
+
+
+async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> FlightSearchView:
+    """Southair and SooperFare in parallel (D24): results merged by direction; a provider that fails doesn't hide the
+    other's results ("Some results may be missing" then). SooperFare is searched only when configured."""
     session = SearchSession(id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=request, nld="", expires_at=_now() + SEARCH_TTL_SECONDS)
     expires_at = datetime.fromtimestamp(session.expires_at, timezone.utc)
-    providers = [ProviderStatus(name=NAME, status="failed")]
-    try:
-        client = (client_factory or configured_client)()
-        data = await client.search(
-            origin=request.origin, destination=request.destination, departure=request.departure_date,
-            return_date=request.return_date, adults=request.adults, children=request.children, infants=request.infants,
-        )
-        nld, legs = normalize.legs(data)
-        if not nld:
-            raise SouthairError("invalid_response", "The flight supplier returned an unusable response.")
-        currency = await account_currency(client) if any(f.adult_total and not f.adult_total.currency for leg in legs for fl in leg.flights for f in fl.fares) else None
-    except SouthairNotConfigured:
-        providers = [ProviderStatus(name=NAME, status="not_configured")]
-        return _unavailable(session, expires_at, providers, viewer)
-    except SouthairError as error:
-        logger.warning("Flight search failed", extra={"error_code": error.error_code})
-        return _unavailable(session, expires_at, providers, viewer)
+    use_sooperfare = sooperfare.configured() or sooperfare_factory is not None
+    tasks = [_southair_part(request, client_factory)]
+    if use_sooperfare:
+        tasks.append(asyncio.wait_for(sooperfare_results(request, sooperfare_factory), SOOPERFARE_SEARCH_SECONDS))
+    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
-    session.nld = nld
+    providers: list[ProviderStatus] = []
+    flights_by_direction: dict[str, list[tuple[str, FlightView]]] = {"outbound": [], "return": []}
+    southair = outcomes[0]
+    if isinstance(southair, SouthairNotConfigured):
+        providers.append(ProviderStatus(name=NAME, status="not_configured"))
+    elif isinstance(southair, BaseException):
+        logger.warning("Flight search failed", extra={"error_code": getattr(southair, "error_code", type(southair).__name__)})
+        providers.append(ProviderStatus(name=NAME, status="failed"))
+    else:
+        nld, legs, currency = southair
+        session.nld = nld
+        for leg in legs:
+            direction = "outbound" if leg.origin == request.origin else "return"
+            for flight in leg.flights:
+                fare_views = []
+                for fare in flight.fares:
+                    fare_id = secrets.token_urlsafe(12)
+                    session.fares[fare_id] = FareRef(direction, leg.route_key, flight.key, fare.code, fare.fare_hash, fare.adult_total,
+                                                     segment(direction, leg, flight, fare))
+                    fare_views.append(_fare_view(fare_id, fare, viewer, currency))
+                flights_by_direction[direction].append((flight.departure_local or "", FlightView(
+                    id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
+                    flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
+                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities, fares=fare_views,
+                )))
+        providers.append(ProviderStatus(name=NAME, status="responded"))
+    if use_sooperfare:
+        sf = outcomes[1]
+        if isinstance(sf, BaseException):
+            logger.warning("SooperFare search failed", extra={"error_code": getattr(sf, "error_code", type(sf).__name__)})
+            providers.append(ProviderStatus(name=sooperfare.NAME, status="failed"))
+        else:
+            _add_sooperfare(session, sf, viewer, flights_by_direction)
+            providers.append(ProviderStatus(name=sooperfare.NAME, status="responded"))
+
+    if not any(flights_by_direction.values()) and not any(p.status == "responded" for p in providers):
+        return _unavailable(session, expires_at, providers, viewer)
     journeys = []
-    for leg in legs:
-        direction = "outbound" if leg.origin == request.origin else "return"
-        flights = []
-        for flight in sorted(leg.flights, key=lambda f: f.departure_local or ""):
-            fare_views = []
-            for fare in flight.fares:
-                fare_id = secrets.token_urlsafe(12)
-                session.fares[fare_id] = FareRef(direction, leg.route_key, flight.key, fare.code, fare.fare_hash, fare.adult_total,
-                                                 segment(direction, leg, flight, fare))
-                fare_views.append(_fare_view(fare_id, fare, viewer, currency))
-            flights.append(FlightView(
-                id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
-                flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
-                duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities, fares=fare_views,
-            ))
-        journeys.append(JourneyView(direction=direction, origin=leg.origin, destination=leg.destination, flights=flights))
+    for direction, origin, destination in (("outbound", request.origin, request.destination), ("return", request.destination, request.origin)):
+        if direction == "return" and not request.return_date:
+            continue
+        flights = [view for _, view in sorted(flights_by_direction[direction], key=lambda item: item[0])]
+        journeys.append(JourneyView(direction=direction, origin=origin, destination=destination, flights=flights))
     _store(session)
-    view = FlightSearchView(search_id=session.id, expires_at=expires_at, status="complete", journeys=journeys)
+    partial = any(p.status == "failed" for p in providers) and any(p.status == "responded" for p in providers)
+    view = FlightSearchView(search_id=session.id, expires_at=expires_at, status="complete", journeys=journeys,
+                            notice=MISSING_NOTICE if partial else None)
     if viewer.visibility.supplier_names:
-        view.providers = [ProviderStatus(name=NAME, status="responded")]
+        view.providers = providers
     return view
 
 
@@ -224,6 +352,9 @@ class Quote:
     expires_at: float
     price_changed: bool = False
     old_total_minor: int | None = None  # selling total at the search prices, when known
+    provider: str = "southair"
+    #: SooperFare: what its reservation needs (search and option refs, passenger slots, platform fee). Server side only.
+    supplier_context: dict | None = None
 
 
 def get_quote(quote_id: str, user_id: str) -> Quote | None:
@@ -250,7 +381,52 @@ def _selected_refs(session: SearchSession, fare_ids: list[str]) -> list[FareRef]
     expected = ["outbound", "return"] if session.request.return_date else ["outbound"]
     if directions != expected:
         raise RepriceError(422, "Choose one outbound fare" + (" and one return fare." if session.request.return_date else "."), code="invalid_selection")
+    if len({ref.provider for ref in refs}) != 1 or len({ref.sf.provider_id for ref in refs if ref.sf}) > 1:  # type: ignore[union-attr]
+        raise RepriceError(422, "Choose the outbound and return fares from the same airline.", code="invalid_selection")
     return refs  # type: ignore[return-value]
+
+
+async def sf_price_selection(request: FlightSearchRequest, wanted: list[FareRef], factory=None) -> tuple[list[FareRef], str, list[tuple[str, int, int]], dict]:
+    """SooperFare: repeat the search for that airline, find the same flights (one bookable option holding all of them)
+    and fares, and quote them. Returns (fresh refs, currency, [(pax type, count, supplier cost each)], reservation context).
+    Each type's total must split evenly per passenger; otherwise the fare is refused rather than guessed."""
+    client = (factory or sooperfare.SooperfareClient)()
+    provider_id = wanted[0].sf.provider_id  # type: ignore[union-attr]
+    results = await sooperfare_results(request, lambda: client, provider_ids=[provider_id])
+    signatures = [ref.sf.flight_signature for ref in wanted]  # type: ignore[union-attr]
+    for result in results:
+        for option in result.options:
+            if [flight.signature for flight in option.flights] != signatures:
+                continue
+            fares = [next((fare for fare in flight.fares if fare.signature == ref.sf.fare_signature), None)  # type: ignore[union-attr]
+                     for flight, ref in zip(option.flights, wanted)]
+            if any(fare is None for fare in fares):
+                continue
+            answer = await client.quote(result.search_ref_id, [(option.ref_id, flight.ref_id, fare.ref_id)  # type: ignore[union-attr]
+                                                               for flight, fare in zip(option.flights, fares)])
+            quote = sf_normalize.parse_quote(answer)
+            if quote is None:
+                raise RepriceError(502, "The supplier's price couldn't be read. Search again.")
+            if quote.fare_signatures != [fare.signature for fare in fares]:  # type: ignore[union-attr]
+                raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
+            counts = [("ADT", request.adults), ("CHD", request.children), ("INF", request.infants)]
+            priced = []
+            for kind, number in counts:
+                if not number:
+                    continue
+                count, total = quote.per_type.get(kind, (0, 0))
+                if count != number or total % number:
+                    raise RepriceError(422, "This fare can't be priced for these passengers. Search again.", code="adults_only")
+                priced.append((kind, number, total // number))
+            fresh = [replace(ref, adult_total=normalize.Amount(Decimal(fare.adult_each_minor) / 100, fare.currency)  # type: ignore[union-attr]
+                             if fare.adult_each_minor is not None else None,  # type: ignore[union-attr]
+                             segment=_sf_segment(ref.direction, flight, fare))  # type: ignore[arg-type]
+                     for ref, flight, fare in zip(wanted, option.flights, fares)]
+            context = {"provider_id": provider_id, "search_ref_id": result.search_ref_id, "option_ref_id": option.ref_id,
+                       "passengers": [{"ref_id": p.ref_id, "type": p.kind, "required_fields": list(p.required_fields)} for p in quote.passengers],
+                       "passport_required": quote.passport_required, "platform_fee_minor": quote.platform_fee_minor}
+            return fresh, quote.currency, priced, context
+    raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
 
 
 async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], client: SouthairClient) -> tuple[str, list[FareRef], str, list[tuple[str, int, int]]]:
@@ -351,24 +527,34 @@ def price_change_allowed(old_total: int | None, new_total: int) -> bool:
     return new_total - old_total <= limit
 
 
-def can_book(viewer: BackOfficeUser) -> bool:
+def booking_enabled(provider: str) -> bool:
+    return settings.sooperfare_booking_enabled if provider == SOOPERFARE else settings.southair_booking_enabled
+
+
+def can_book(viewer: BackOfficeUser, provider: str = "southair") -> bool:
     from app.core.field_visibility import BACK_OFFICE_ROLES
 
-    return settings.southair_booking_enabled and viewer.role in BACK_OFFICE_ROLES
+    return booking_enabled(provider) and viewer.role in BACK_OFFICE_ROLES
 
 
-async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None) -> "RepriceView":
+async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> "RepriceView":
     from app.schemas.live_flights import PassengerPrice, RepriceView
 
     session = get_session(search_id, viewer.user_id)
     if session is None:
         raise RepriceError(404, "This search has expired. Search again.", code="search_expired")
     wanted = _selected_refs(session, fare_ids)
+    provider, context, fee = wanted[0].provider, None, 0
     try:
-        client = (client_factory or configured_client)()
-        nld, fresh, currency, priced = await price_selection(session.request, wanted, client)
-    except SouthairError as error:
-        logger.warning("Reprice failed", extra={"error_code": error.error_code})
+        if provider == SOOPERFARE:
+            nld = ""
+            fresh, currency, priced, context = await sf_price_selection(session.request, wanted, sooperfare_factory)
+            fee = int(context.get("platform_fee_minor") or 0)
+        else:
+            client = (client_factory or configured_client)()
+            nld, fresh, currency, priced = await price_selection(session.request, wanted, client)
+    except (SouthairError, sooperfare.SooperfareError) as error:
+        logger.warning("Reprice failed", extra={"error_code": error.error_code, "provider": provider})
         raise RepriceError(502, "The flight supplier couldn't reprice this fare. Try again.") from None
     passengers = []
     for kind, number, cost_each in priced:
@@ -376,8 +562,10 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         if selling_each is None:
             raise RepriceError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
         passengers.append((kind, number, cost_each, selling_each))
-    supplier_total = sum(number * cost for _, number, cost, _ in passengers)
+    supplier_total = sum(number * cost for _, number, cost, _ in passengers) + fee  # SooperFare: + its platform fee per booking
     selling_total = sum(number * selling for _, number, _, selling in passengers)
+    if selling_total < supplier_total:
+        raise RepriceError(409, "The selling price doesn't cover the supplier's total for this fare. Nothing was booked.", code="no_selling_price")
     old_adult = sum(to_minor(r.adult_total.value) for r in wanted if r.adult_total)
     new_adult = sum(to_minor(r.adult_total.value) for r in fresh if r.adult_total)
     old_total = search_selling_total(session.request, wanted)
@@ -389,6 +577,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=session.request, nld=nld, refs=fresh, currency=currency,
         supplier_total_minor=supplier_total, selling_total_minor=selling_total, passengers=passengers,
         expires_at=_now() + QUOTE_TTL_SECONDS, price_changed=price_changed, old_total_minor=old_total,
+        provider=provider, supplier_context=context,
     )
     _store_quote(quote)
     view = RepriceView(
@@ -397,7 +586,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         new_total=FlightMoney(amount_minor=selling_total, currency=currency),
         old_total=FlightMoney(amount_minor=old_total, currency=currency) if old_total is not None else None,
         passengers=[PassengerPrice(type=kind, count=number, selling_each=FlightMoney(amount_minor=selling, currency=currency)) for kind, number, _, selling in passengers],
-        price_changed=price_changed, booking_enabled=can_book(viewer),
+        price_changed=price_changed, booking_enabled=can_book(viewer, provider),
     )
     old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
     new_each = next((selling for kind, _, _, selling in passengers if kind == "ADT"), None)

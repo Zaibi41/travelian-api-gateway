@@ -47,7 +47,7 @@ def test_return_options_pair_outbound_and_return_with_per_type_prices():
 
 def test_quotes_sum_per_type_over_both_flights_and_list_passenger_slots():
     one = normalize.parse_quote(load("quote_PA"))
-    assert one.per_type == {"ADT": (1, 2205000)} and one.currency == "PKR" and one.passport_required
+    assert one.per_type == {"ADT": (1, 2205000)} and one.currency == "PKR" and one.passport_required and one.platform_fee_minor == 2000
     assert [p.kind for p in one.passengers] == ["ADT"]
     both = normalize.parse_quote(load("quote_return_PA"))
     assert both.per_type == {"ADT": (2, 4278000 + 4654000), "CHD": (1, 1879800 + 2020800)}
