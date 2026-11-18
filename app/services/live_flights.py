@@ -111,6 +111,19 @@ def sell(cost_minor: int) -> int | None:
     return int((raw / 100).quantize(Decimal("1"), ROUND_CEILING) * 100)
 
 
+def fee_share(fee_minor: int, adults: int) -> int:
+    """SooperFare's per-booking platform fee, passed on per adult: split across the adults and rounded up to a whole
+    rupee, so adults x share always covers the fee."""
+    if fee_minor <= 0:
+        return 0
+    return int((Decimal(fee_minor) / max(adults, 1) / 100).quantize(Decimal("1"), ROUND_CEILING) * 100)
+
+
+def sf_search_share(adults: int) -> int:
+    """The fee share used for search prices (the real fee comes with SooperFare's quote)."""
+    return fee_share(max(settings.sooperfare_platform_fee_minor, 0), adults)
+
+
 async def account_currency(client: SouthairClient) -> str | None:
     """The agent account's currency (profile office.currency), used when a fare has none."""
     global _account_currency
@@ -225,13 +238,13 @@ def _sf_segment(direction: str, flight: sf_normalize.Flight, fare: sf_normalize.
     }
 
 
-def _sf_fare_view(fare_id: str, fare: sf_normalize.Fare, viewer: BackOfficeUser) -> FareView:
+def _sf_fare_view(fare_id: str, fare: sf_normalize.Fare, viewer: BackOfficeUser, adults: int = 1) -> FareView:
     view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage, refund=fare.refund)
     each = fare.adult_each_minor
     if each is not None:
         selling = sell(each)
         if selling is not None:
-            view.selling_price = FlightMoney(amount_minor=selling, currency=fare.currency)
+            view.selling_price = FlightMoney(amount_minor=selling + sf_search_share(adults), currency=fare.currency)
         if viewer.visibility.cost_and_margin:
             view.supplier_cost = FlightMoney(amount_minor=each, currency=fare.currency)
     if viewer.visibility.supplier_names:
@@ -262,7 +275,7 @@ def _add_sooperfare(session: SearchSession, results: list[sf_normalize.Result], 
                         _sf_segment(direction, flight, fare), provider=SOOPERFARE,
                         sf=SfRef(result.provider, flight.signature, fare.signature),
                     )
-                    fare_views.append(_sf_fare_view(fare_id, fare, viewer))
+                    fare_views.append(_sf_fare_view(fare_id, fare, viewer, session.request.adults))
                 flights_by_direction[direction].append((flight.departure_local or "", FlightView(
                     id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
                     flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
@@ -536,6 +549,8 @@ def search_selling_total(request: FlightSearchRequest, wanted: list[FareRef]) ->
     if request.children or request.infants or not all(ref.adult_total for ref in wanted):
         return None
     each = sell(sum(to_minor(ref.adult_total.value) for ref in wanted))  # type: ignore[union-attr]
+    if each is not None and wanted[0].provider == SOOPERFARE:
+        each += sf_search_share(request.adults)
     return each * request.adults if each is not None else None
 
 
@@ -587,6 +602,8 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         selling_each = sell(cost_each)
         if selling_each is None:
             raise RepriceError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
+        if kind == "ADT":  # SooperFare's platform fee, passed on across the adults (0 for Southair)
+            selling_each += fee_share(fee, number)
         passengers.append((kind, number, cost_each, selling_each))
     supplier_total = sum(number * cost for _, number, cost, _ in passengers) + fee  # SooperFare: + its platform fee per booking
     selling_total = sum(number * selling for _, number, _, selling in passengers)
@@ -616,6 +633,8 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         booking_mode="request" if restricted else "hold",
     )
     old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
+    if old_each is not None and provider == SOOPERFARE:
+        old_each += sf_search_share(session.request.adults)
     new_each = next((selling for kind, _, _, selling in passengers if kind == "ADT"), None)
     if old_each is not None:
         view.old_price_per_adult = FlightMoney(amount_minor=old_each, currency=currency)

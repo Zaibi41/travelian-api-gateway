@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # With both at 0 no selling price is returned and nothing can be confirmed or held.
     flight_markup_percent: Decimal = Field(Decimal("0"), ge=0, le=100)
     flight_markup_fixed_minor: int = Field(0, ge=0)
+    # SooperFare's platform fee per booking (minor units), used for the search price before SooperFare quotes the real
+    # fee. The fee is passed on to the customer, shared across the adults, so a booking is never sold below its cost.
+    sooperfare_platform_fee_minor: int = Field(2000, ge=0)
     # Cap on a revalidated price change (selling total, minor units, increase only). Unset: no
     # cap; a changed price only needs the user's explicit acceptance (spec confirmation #18).
     flight_price_change_limit_minor: int | None = Field(None, ge=0)
