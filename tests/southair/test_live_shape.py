@@ -70,7 +70,8 @@ def test_every_role_gets_times_and_baggage_but_no_raw_supplier_field_or_token(ro
     assert all("meal" not in fare and "refund" not in fare and "time_limit" not in fare for fare in flight["fares"])
     body = response.json()
     # Opaque IDs are random: check every value except the IDs for raw supplier fields.
-    text = json.dumps({**body, "search_id": None, "journeys": [{**j, "flights": [{**f, "id": None, "fares": [{**x, "id": None} for x in f["fares"]]} for f in j["flights"]]} for j in body["journeys"]]})
+    # expires_at is a timestamp with microseconds: its digits can match a raw value by chance ("…T18:51:47.995…").
+    text = json.dumps({**body, "search_id": None, "expires_at": None, "journeys": [{**j, "flights": [{**f, "id": None, "fares": [{**x, "id": None} for x in f["fares"]]} for f in j["flights"]]} for j in body["journeys"]]})
     assert all(secret not in response.text for secret in (NLD, *HASH_LIVE.values()))
     for secret in (NLD, *HASH_LIVE.values(), "6af1bc80e37bf"):
         assert secret not in text
