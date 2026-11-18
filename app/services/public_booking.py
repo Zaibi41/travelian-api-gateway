@@ -243,7 +243,7 @@ async def start_payment(reference: str, token: str) -> CheckoutView:
     except payfast.PayFastError as error:
         raise PublicError(503, error.message, "payments_unavailable") from None
     await run_in_threadpool(public_bookings.create_attempt, reference, basket_id, due, "PKR")
-    return_url = f"{settings.public_site_url}/booking/status?ref={quote(reference)}"
+    return_url = f"{settings.public_site_url}/my-bookings?ref={quote(reference)}"
     form = payfast.checkout_form(
         token=payfast_token, basket_id=basket_id, amount_minor=due, currency="PKR",
         description=f"Travelian booking {reference}", mobile=getattr(customer, "phone", "") or "",

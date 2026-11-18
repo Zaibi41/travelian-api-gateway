@@ -1340,7 +1340,8 @@
             "enum": [
               "bank_transfer",
               "jazzcash",
-              "1link"
+              "1link",
+              "payfast"
             ],
             "title": "Method",
             "type": "string"
@@ -1819,7 +1820,8 @@
               "ticket_issued",
               "cancelled",
               "expired",
-              "hold_unrecorded"
+              "hold_unrecorded",
+              "requested"
             ],
             "title": "Booking",
             "type": "string"
@@ -9947,7 +9949,8 @@
                     "ticket_issued",
                     "cancelled",
                     "expired",
-                    "hold_unrecorded"
+                    "hold_unrecorded",
+                    "requested"
                   ],
                   "type": "string"
                 },

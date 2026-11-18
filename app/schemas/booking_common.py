@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired", "hold_unrecorded"]
+BookingStatus = Literal["held", "pending_payment", "payment_received", "confirmed", "ticket_issued", "cancelled", "expired", "hold_unrecorded", "requested"]
 PaymentStatus = Literal["paid", "unpaid", "part_paid"]
 IssuanceStatus = Literal["not_issued", "requested", "processing", "issued", "unknown"]
 
