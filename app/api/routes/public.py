@@ -6,7 +6,7 @@ A booking is opened with its reference plus the private token from the booking a
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -73,6 +73,28 @@ async def group_calendar(body: CalendarQuery, request: Request):
     except service.PublicError as error:
         return _error(error)
     return calendar.build(groups, body.origin, body.destination, body.adults, _date.today()).model_dump(mode="json", exclude_none=True)
+
+
+class FlightCalendarQuery(BaseModel):
+    origin: str = Field(min_length=3, max_length=3)
+    destination: str = Field(min_length=3, max_length=3)
+    adults: int = Field(1, ge=1, le=9)
+    cabin: Literal["economy", "premium_economy", "business", "first"] = "economy"
+
+    @field_validator("origin", "destination", mode="before")
+    @classmethod
+    def upper(cls, value):
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+@router.post("/flights/calendar", response_model=service.FlightCalendar, response_model_exclude_none=True)
+async def flight_calendar(body: FlightCalendarQuery, request: Request):
+    """Lowest real fare per date (one-way, adults). Unknown dates have no price; a few are checked in the background."""
+    try:
+        service.check_rate(service.SEARCH_LIMIT, _ip(request))
+    except service.PublicError as error:
+        return _error(error)
+    return await service.flight_calendar(body.origin, body.destination, body.adults, body.cabin)
 
 
 @router.post("/flights/search", responses={429: {"description": "Too many searches."}})
