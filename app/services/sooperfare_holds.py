@@ -103,16 +103,22 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
         raise HoldError(error.status, error.message, code=error.code) from None
     except sooperfare.SooperfareError:
         raise HoldError(502, "The flight supplier couldn't reprice this fare. Nothing was booked.", code="not_confirmed") from None
+    fee = int(new_context.get("platform_fee_minor") or 0)
+
+    def fresh_each(kind: str, number: int, cost: int) -> int | None:
+        """Today's selling price per passenger: markup, plus the platform fee shared across the adults."""
+        selling = live_flights.sell(cost)
+        return selling + live_flights.fee_share(fee, number) if selling is not None and kind == "ADT" else selling
+
     confirmed_selling = {kind: selling for kind, _, _, selling in quote.passengers}
-    selling_each = [(kind, number, cost, confirmed_selling.get(kind) or live_flights.sell(cost)) for kind, number, cost in priced]
+    selling_each = [(kind, number, cost, confirmed_selling.get(kind) or fresh_each(kind, number, cost)) for kind, number, cost in priced]
     if any(selling is None for *_, selling in selling_each):
         raise HoldError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
-    fee = int(new_context.get("platform_fee_minor") or 0)
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each) + fee
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
     if (currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor
             or selling_total < supplier_total or any(selling < cost for _, _, cost, selling in selling_each)):  # type: ignore[operator]
-        fresh_selling = sum(number * (live_flights.sell(cost) or cost) for _, number, cost, _ in selling_each)
+        fresh_selling = sum(number * (fresh_each(kind, number, cost) or cost) for kind, number, cost, _ in selling_each)
         raise HoldError(409, f"The price changed to {live_flights.money_text(fresh_selling, currency)}. Revalidate and confirm the new total. "
                              "Nothing was booked.", code="price_changed")
     passengers, errors = reservation_passengers(request, new_context.get("passengers") or [])

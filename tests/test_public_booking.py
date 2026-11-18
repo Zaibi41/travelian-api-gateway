@@ -204,7 +204,7 @@ def test_public_flight_search_hides_suppliers_and_is_cached():
     data = first.json()
     flights = data["journeys"][0]["flights"]
     assert [f["flight_number"] for f in flights] == ["PA400", "PA406"]
-    assert flights[0]["fares"][0]["selling_price"]["amount_minor"] == 2249100
+    assert flights[0]["fares"][0]["selling_price"]["amount_minor"] == 2251100  # 2% markup + the Rs 20 platform fee
     text = first.text.lower()
     for hidden in ("sooperfare", "southair", "supplier", "providers", "defd968f", "value|ev"):
         assert hidden not in text, hidden

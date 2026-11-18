@@ -79,7 +79,7 @@ def test_search_merges_sooperfare_when_southair_fails_and_keeps_its_ids_inside()
     [outbound] = view.journeys
     assert [f.flight_number for f in outbound.flights] == ["PA400", "PA406"]
     value = outbound.flights[0].fares[0]
-    assert value.name == "Value" and value.selling_price.amount_minor == 2249100 and value.supplier_cost.amount_minor == 2205000
+    assert value.name == "Value" and value.selling_price.amount_minor == 2251100 and value.supplier_cost.amount_minor == 2205000
     assert value.supplier == "sooperfare" and value.baggage == "No checked baggage, 7 kg hand carry"
     assert {p.name: p.status for p in view.providers} == {"southair": "failed", "sooperfare": "responded"}
     text = view.model_dump_json()
@@ -97,11 +97,24 @@ def test_reprice_quotes_and_adds_the_platform_fee_to_the_cost():
     view, _ = search(ADMIN)
     sf = fake_sf()
     priced = reprice(view, ADMIN, sf)
-    assert priced.selling_total.amount_minor == 2249100 and priced.supplier_total.amount_minor == 2205000 + 2000
-    assert priced.margin.amount_minor == 2249100 - 2207000 and priced.booking_enabled is True
+    assert priced.selling_total.amount_minor == 2251100 and priced.supplier_total.amount_minor == 2205000 + 2000
+    assert priced.margin.amount_minor == 2251100 - 2207000 and priced.price_changed is False and priced.booking_enabled is True
     assert sf.availability.await_count == 0  # only the chosen airline is searched again
     legs = sf.quote.await_args.args[1]
     assert len(legs) == 1 and legs[0][2] == "defd968f-69fa-468e-a369-6f3a3ab13930"
+
+
+def test_with_no_markup_the_platform_fee_is_passed_on_across_the_adults_so_nothing_sells_below_cost():
+    # 0% markup: the Rs 20 fee per booking is in the search price already, so Book never finds it below cost.
+    with patch.object(settings, "flight_markup_percent", Decimal("0")):
+        view, _ = search(ADMIN)
+        assert view.journeys[0].flights[0].fares[0].selling_price.amount_minor == 2205000 + 2000
+        priced = reprice(view, ADMIN)
+    assert priced.supplier_total.amount_minor == 2205000 + 2000
+    assert priced.selling_total.amount_minor == 2205000 + 2000 and priced.margin.amount_minor == 0
+    assert priced.price_changed is False and priced.booking_enabled is True
+    # Several adults share it, rounded up to a whole rupee: Rs 10 each for two, Rs 7 each for three (Rs 21 >= Rs 20).
+    assert live_flights.fee_share(2000, 2) == 1000 and live_flights.fee_share(2000, 3) == 700 and live_flights.fee_share(0, 2) == 0
 
 
 def test_return_trip_needs_both_fares_from_the_same_offer():
@@ -142,7 +155,7 @@ def test_hold_reserves_once_verifies_the_total_and_saves():
     assert sf.reservation.await_count == 1
     saved = save.call_args.kwargs
     assert saved["provider"] == "sooperfare" and saved["supplier_ref"] == "83948930-3b71-4df4-99df-9a144a9dee3f"
-    assert saved["supplier_total_minor"] == 2207000 and saved["selling_total_minor"] == 2249100 and saved["source"] is None
+    assert saved["supplier_total_minor"] == 2207000 and saved["selling_total_minor"] == 2251100 and saved["source"] is None
 
 
 def test_hold_total_that_differs_is_not_saved():
