@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from urllib.parse import quote
 
@@ -138,6 +138,7 @@ async def search_flights(request) -> object:
         if cached and cached[0] > time.monotonic():
             return cached[1]
         view = await live_flights.search(request, WEBSITE_SEARCH_VIEWER)
+        _remember_lowest(request, view)
         ttl = min(settings.public_search_cache_seconds, live_flights.SEARCH_TTL_SECONDS - 60)
         if view.status == "complete" and ttl > 0:
             _flight_cache[key] = (time.monotonic() + ttl, view)
@@ -145,6 +146,93 @@ async def search_flights(request) -> object:
             _flight_cache.pop(stale, None)
             _flight_locks.pop(stale, None)
         return view
+
+
+# ---------- flight fare calendar (real lowest fares per date, never guessed) ----------
+
+#: (origin, destination, cabin, adults, date) -> (checked_at epoch, lowest selling price per adult in minor units, currency).
+_fares_by_date: dict[tuple, tuple[float, int, str]] = {}
+FARE_DATE_TTL_SECONDS = 30 * 60
+CALENDAR_DAYS = 60
+CALENDAR_REFRESH_DAYS = 14  # dates checked per calendar open (only those not already known)
+_refresh_jobs: dict[tuple, asyncio.Task] = {}
+_supplier_slots: asyncio.Semaphore | None = None  # at most 3 calendar date searches at once, across all routes
+
+
+def _slots() -> asyncio.Semaphore:
+    global _supplier_slots
+    _supplier_slots = _supplier_slots or asyncio.Semaphore(3)
+    return _supplier_slots
+
+
+def _remember_lowest(request, view) -> None:
+    """Keep the lowest selling price per adult of a completed one-way, adults-only search for its date."""
+    if request.return_date or request.children or request.infants or getattr(view, "status", None) != "complete":
+        return
+    prices = [fare.selling_price for journey in view.journeys if journey.direction == "outbound"
+              for flight in journey.flights for fare in flight.fares if fare.selling_price]
+    key = (request.origin, request.destination, request.cabin, request.adults, request.departure_date)
+    if prices:
+        lowest = min(prices, key=lambda money: money.amount_minor)
+        _fares_by_date[key] = (time.time(), lowest.amount_minor, lowest.currency)
+    else:
+        _fares_by_date[key] = (time.time(), 0, "")  # searched: no fares that day
+
+
+class FlightCalendarDay(BaseModel):
+    date: date
+    checked: bool = Field(description="A real search for this date finished in the last 30 minutes.")
+    available: bool
+    lowest_price: PublicMoney | None = None
+    checked_at: datetime | None = None
+
+
+class FlightCalendar(BaseModel):
+    origin: str
+    destination: str
+    days: list[FlightCalendarDay]
+    pending: bool = Field(description="More dates are being checked: ask again in a few seconds.")
+
+
+async def _check_dates(route: tuple, dates: list) -> None:
+    from app.schemas.flights import FlightSearchRequest
+
+    origin, destination, cabin, adults = route
+
+    async def one(day) -> None:
+        async with _slots():
+            try:
+                await search_flights(FlightSearchRequest(origin=origin, destination=destination, departure_date=day, adults=adults, cabin=cabin))
+            except Exception as error:  # noqa: BLE001 - a date that fails stays unknown (no price)
+                logger.info("Calendar date not checked", extra={"route": f"{origin}-{destination}", "error_type": type(error).__name__})
+
+    await asyncio.gather(*(one(day) for day in dates))
+
+
+async def flight_calendar(origin: str, destination: str, adults: int, cabin: str, start=None) -> FlightCalendar:
+    """Every day of the next CALENDAR_DAYS: the lowest real selling price per adult from a search in the last 30 minutes,
+    or no price. Up to CALENDAR_REFRESH_DAYS unknown days are searched in the background (3 at a time across all
+    routes); the page asks again while `pending`."""
+    today = datetime.now(timezone.utc).date()
+    start = max(start or today, today)
+    now = time.time()
+    route = (origin, destination, cabin, adults)
+    days, missing = [], []
+    for offset in range(CALENDAR_DAYS):
+        day = start + timedelta(days=offset)
+        known = _fares_by_date.get((*route, day))
+        fresh = known is not None and now - known[0] < FARE_DATE_TTL_SECONDS
+        if not fresh and offset < CALENDAR_REFRESH_DAYS:
+            missing.append(day)
+        price = PublicMoney(amount_minor=known[1], currency=known[2]) if fresh and known[1] > 0 else None
+        days.append(FlightCalendarDay(date=day, checked=fresh, available=price is not None, lowest_price=price,
+                                      checked_at=datetime.fromtimestamp(known[0], timezone.utc) if fresh else None))
+    job = _refresh_jobs.get(route)
+    running = job is not None and not job.done()
+    if missing and not running:
+        _refresh_jobs[route] = asyncio.create_task(_check_dates(route, missing))
+        running = True
+    return FlightCalendar(origin=origin, destination=destination, days=days, pending=running)
 
 
 # ---------- book ----------

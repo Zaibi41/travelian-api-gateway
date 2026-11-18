@@ -2744,6 +2744,125 @@
         "title": "FilterOption",
         "type": "object"
       },
+      "FlightCalendar": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/FlightCalendarDay"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "pending": {
+            "description": "More dates are being checked: ask again in a few seconds.",
+            "title": "Pending",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "days",
+          "pending"
+        ],
+        "title": "FlightCalendar",
+        "type": "object"
+      },
+      "FlightCalendarDay": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "checked": {
+            "description": "A real search for this date finished in the last 30 minutes.",
+            "title": "Checked",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "lowest_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "checked",
+          "available"
+        ],
+        "title": "FlightCalendarDay",
+        "type": "object"
+      },
+      "FlightCalendarQuery": {
+        "properties": {
+          "adults": {
+            "default": 1,
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "cabin": {
+            "default": "economy",
+            "enum": [
+              "economy",
+              "premium_economy",
+              "business",
+              "first"
+            ],
+            "title": "Cabin",
+            "type": "string"
+          },
+          "destination": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Destination",
+            "type": "string"
+          },
+          "origin": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "title": "FlightCalendarQuery",
+        "type": "object"
+      },
       "FlightMoney": {
         "properties": {
           "amount_minor": {
@@ -18330,6 +18449,48 @@
           }
         },
         "summary": "Start Payfast",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/flights/calendar": {
+      "post": {
+        "description": "Lowest real fare per date (one-way, adults). Unknown dates have no price; a few are checked in the background.",
+        "operationId": "flight_calendar_v1_public_flights_calendar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightCalendarQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightCalendar"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Flight Calendar",
         "tags": [
           "public website"
         ]
