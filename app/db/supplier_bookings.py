@@ -97,6 +97,27 @@ def _save_people(connection, booking_id: str, customer: CustomerRecord, traveler
         )
 
 
+def save_request(*, provider: str, currency: str, selling_total_minor: int, supplier_total_minor: int | None,
+                 actor_user_id: str | None, customer: CustomerRecord, travelers: list[TravelerRecord], itinerary: list[dict[str, Any]],
+                 details: dict[str, Any], channel: str = "staff", product: str = "flight") -> str:
+    """A booking request (no supplier hold, no PNR): status 'requested'. Staff confirm the fare and payment with the
+    customer and book it themselves (restricted airlines, D32). Returns the reference."""
+    with agencies.application_engine().begin() as connection:
+        booking_id, reference = str(uuid4()), new_reference("TRV-R-")
+        connection.execute(
+            text("INSERT INTO bookings (id, reference, product, provider_id, created_by_user_id, booking_status, payment_status,"
+                 " issuance_status, currency, total_minor, supplier_cost_minor, supplier_response, itinerary, channel)"
+                 " VALUES (:id, :ref, :product, :provider, :actor, 'requested', 'unpaid', 'not_issued', :currency, :total, :cost,"
+                 " CAST(:response AS jsonb), CAST(:itinerary AS jsonb), :channel)"),
+            {"id": booking_id, "ref": reference, "product": product, "provider": provider, "actor": actor_user_id, "currency": currency,
+             "total": selling_total_minor, "cost": supplier_total_minor, "response": json.dumps({"request": details}),
+             "itinerary": json.dumps(itinerary) if itinerary else None, "channel": channel},
+        )
+        _save_people(connection, booking_id, customer, travelers, selling_total_minor, supplier_total_minor)
+        _event(connection, booking_id, actor_user_id, "booking_requested", {**details, "travelers": len(travelers), "channel": channel})
+    return reference
+
+
 def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None, currency: str,
               selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any],
               actor_user_id: str, audit: dict[str, Any],

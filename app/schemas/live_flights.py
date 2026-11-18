@@ -30,6 +30,8 @@ class FareView(BaseModel):
     selling_price: FlightMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the supplier sent no total.")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     supplier_cost: FlightMoney | None = Field(None, description="Per adult. Only with the cost and margin permission.")
+    booking_mode: Literal["hold", "request"] = Field("hold", description="request: a restricted airline (D32). No supplier hold "
+                                                                          "is ever made; it can only be sent as a request to book.")
 
 
 class FlightView(BaseModel):
@@ -86,6 +88,7 @@ class RepriceView(BaseModel):
     old_total: FlightMoney | None = Field(None, description="Selling total at the search prices. Omitted when the search had no price for every passenger type.")
     new_total: FlightMoney = Field(description="The verified selling total now (same as selling_total).")
     booking_enabled: bool = Field(description="Whether this gateway may place a hold for this user.")
+    booking_mode: Literal["hold", "request"] = Field("hold", description="request: restricted airline (D32): send a request to book, never a hold.")
     supplier_total: FlightMoney | None = Field(None, description="Only with the cost and margin permission.")
     old_price_per_adult: FlightMoney | None = Field(None, description="Selling price per adult at the search prices (all legs).")
     new_price_per_adult: FlightMoney | None = Field(None, description="Selling price per adult now (all legs). Omitted with no adult.")

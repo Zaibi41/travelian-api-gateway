@@ -22,6 +22,7 @@ from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import FareView, FlightMoney, FlightSearchView, FlightView, JourneyView, ProviderStatus
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairError, SouthairNotConfigured, configured_client
+from app.services import restricted_airlines
 from app.vendors.flights.sooperfare import client as sooperfare
 from app.vendors.flights.sooperfare import normalize as sf_normalize
 
@@ -101,10 +102,11 @@ def to_minor(amount: Decimal) -> int:
 
 
 def sell(cost_minor: int) -> int | None:
-    """Per passenger: cost + percent + fixed, rounded up to a whole unit. None without a markup."""
-    percent, fixed = settings.flight_markup_percent, settings.flight_markup_fixed_minor
-    if percent <= 0 and fixed <= 0:
-        return None
+    """Per passenger: the supplier cost + FLIGHT_MARKUP_PERCENT + FLIGHT_MARKUP_FIXED_MINOR, rounded up to a whole rupee.
+    No markup configured: the supplier cost itself (0% markup, the same rule as group fares). Never a multiplier in code;
+    Pricing & Revenue's rules are not wired in yet (docs/investigations/2026-11-19-admin-flows.md, A3)."""
+    percent = max(settings.flight_markup_percent, Decimal(0))
+    fixed = max(settings.flight_markup_fixed_minor, 0)
     raw = Decimal(cost_minor) * (1 + percent / 100) + fixed
     return int((raw / 100).quantize(Decimal("1"), ROUND_CEILING) * 100)
 
@@ -176,12 +178,29 @@ async def _southair_part(request: FlightSearchRequest, client_factory):
     return nld, legs, currency
 
 
+#: SooperFare's list of airlines that fly a route changes rarely: kept per route for AIRLINES_TTL_SECONDS so the airline
+#: searches start at once instead of after an availability call (~0.8 s). Fares are never cached here.
+AIRLINES_TTL_SECONDS = 6 * 3600
+_airlines: dict[tuple, tuple[float, list[str]]] = {}
+
+
+async def _airlines_for(client, request: FlightSearchRequest, args: dict) -> list[str]:
+    key = (request.origin, request.destination, request.return_date is not None, request.cabin)
+    cached = _airlines.get(key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    ids = await client.availability(**args)
+    if ids:
+        _airlines[key] = (time.monotonic() + AIRLINES_TTL_SECONDS, ids)
+    return ids
+
+
 async def sooperfare_results(request: FlightSearchRequest, factory=None, provider_ids: list[str] | None = None) -> list[sf_normalize.Result]:
     """SooperFare: the airlines it can search for this trip, then each of them in parallel. An airline that fails is
     left out (logged); raises SooperfareError only when no airline answered."""
     client = (factory or sooperfare.SooperfareClient)()
     args = _search_args(request)
-    ids = provider_ids if provider_ids is not None else await client.availability(**args)
+    ids = provider_ids if provider_ids is not None else await _airlines_for(client, request, args)
     answers = await asyncio.gather(*(client.search(provider=pid, **args) for pid in ids), return_exceptions=True)
     results, failures = [], 0
     for pid, answer in zip(ids, answers):
@@ -202,6 +221,7 @@ def _sf_segment(direction: str, flight: sf_normalize.Flight, fare: sf_normalize.
         "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
         "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
         "fare_name": fare.name, "baggage": fare.baggage, "meal": None,
+        "operating_codes": sorted({s["operating"] for s in flight.segments if s.get("operating")}),
     }
 
 
@@ -296,6 +316,11 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
             _add_sooperfare(session, sf, viewer, flights_by_direction)
             providers.append(ProviderStatus(name=sooperfare.NAME, status="responded"))
 
+    for _, flight_view in (item for items in flights_by_direction.values() for item in items):
+        for fare_view in flight_view.fares:
+            ref = session.fares.get(fare_view.id)
+            if ref is not None and restricted_airlines.segment_restricted(ref.segment):
+                fare_view.booking_mode = "request"
     if not any(flights_by_direction.values()) and not any(p.status == "responded" for p in providers):
         return _unavailable(session, expires_at, providers, viewer)
     journeys = []
@@ -544,6 +569,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
     if session is None:
         raise RepriceError(404, "This search has expired. Search again.", code="search_expired")
     wanted = _selected_refs(session, fare_ids)
+    restricted = any(restricted_airlines.segment_restricted(ref.segment) for ref in wanted)
     provider, context, fee = wanted[0].provider, None, 0
     try:
         if provider == SOOPERFARE:
@@ -586,7 +612,8 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         new_total=FlightMoney(amount_minor=selling_total, currency=currency),
         old_total=FlightMoney(amount_minor=old_total, currency=currency) if old_total is not None else None,
         passengers=[PassengerPrice(type=kind, count=number, selling_each=FlightMoney(amount_minor=selling, currency=currency)) for kind, number, _, selling in passengers],
-        price_changed=price_changed, booking_enabled=can_book(viewer, provider),
+        price_changed=price_changed, booking_enabled=can_book(viewer, provider) and not restricted,
+        booking_mode="request" if restricted else "hold",
     )
     old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
     new_each = next((selling for kind, _, _, selling in passengers if kind == "ADT"), None)

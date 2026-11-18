@@ -78,7 +78,7 @@ def test_staff_and_agency_get_opaque_ids_and_selling_price_only(role):
     assert [f["flight_number"] for f in flights] == ["MM114", "MM112"]  # earliest first
     fare = flights[1]["fares"][0]
     assert fare["selling_price"] == {"amount_minor": 46_700, "currency": "PKR"}  # 457.70 + 2% = 466.85 -> 467
-    assert set(fare) <= {"id", "name", "meal", "baggage", "refund", "time_limit", "selling_price"}
+    assert set(fare) <= {"id", "name", "meal", "baggage", "refund", "time_limit", "selling_price", "booking_mode"}
     # The UAT fare had no currency: the account's profile currency is used.
     assert flights[0]["fares"][0]["selling_price"] == {"amount_minor": 30_600, "currency": "PKR"}
     assert "providers" not in body
@@ -131,10 +131,14 @@ def test_not_configured_client_reports_unavailable(monkeypatch):
     assert TestClient(app).post("/v1/live-ticketing/flights/search", json=BODY).json()["status"] == "unavailable"
 
 
-def test_no_markup_means_no_price():
+def test_no_markup_means_the_supplier_price_never_a_multiplier():
+    """B5: without a configured markup the selling price is the supplier's own price (0% markup), rounded up to a rupee."""
     with patch.object(settings, "flight_markup_percent", Decimal("0")):
-        fare = call(VIEWERS["staff"]).json()["journeys"][0]["flights"][1]["fares"][0]
-    assert "selling_price" not in fare
+        no_markup = call(VIEWERS["staff"]).json()["journeys"][0]["flights"][1]["fares"][0]
+    with patch.object(settings, "flight_markup_percent", Decimal("2")):
+        two_percent = call(VIEWERS["staff"]).json()["journeys"][0]["flights"][1]["fares"][0]
+    cost = no_markup["selling_price"]["amount_minor"]
+    assert two_percent["selling_price"]["amount_minor"] < cost * 1.03  # never doubled
 
 
 def test_signed_out_is_401(monkeypatch):

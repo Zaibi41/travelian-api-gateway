@@ -16,6 +16,7 @@ from app.core.field_visibility import BackOfficeUser, require_back_office, requi
 from app.db import payment_accounts as store
 from app.schemas.admin_bookings import (
     AddReceivingAccountRequest, PaymentAccount, PaymentAccountList, ReceivingAccount, ReceivingAccountList,
+    UpdateReceivingAccountRequest,
 )
 
 router = APIRouter(prefix="/admin/payment-accounts", tags=["admin bookings"],
@@ -34,7 +35,20 @@ async def list_payment_accounts(viewer: Annotated[BackOfficeUser, Depends(requir
 
 
 def _view(account: store.Account) -> ReceivingAccount:
-    return ReceivingAccount(id=account.id, method=account.method, label=account.label, active=account.active)
+    from app.services import assets
+
+    return ReceivingAccount(id=account.id, method=account.method, label=account.label, active=account.active,
+                            bank_name=account.bank_name, account_title=account.account_title,
+                            account_number_masked=account.account_number_masked, qr_asset_key=account.qr_asset_key,
+                            qr_url=assets.public_url(account.qr_asset_key))
+
+
+def _qr_key(key: str | None) -> str | None:
+    from app.services import assets
+
+    if key and not assets.valid_key(key, "payment_qr"):
+        raise HTTPException(422, "Upload the QR image first (Accounts & Ledgers), then save the account.")
+    return key
 
 
 def _refused(error: store.AccountError) -> HTTPException:
@@ -56,7 +70,9 @@ async def add_payment_account(body: AddReceivingAccountRequest,
                               viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
     """Add an active receiving account. Extra spaces in the name are removed."""
     try:
-        account = await run_in_threadpool(store.add, body.method, body.label, viewer.user_id)
+        account = await run_in_threadpool(lambda: store.add(body.method, body.label, viewer.user_id, bank_name=body.bank_name,
+                                                            account_title=body.account_title, account_number=body.account_number,
+                                                            qr_asset_key=_qr_key(body.qr_asset_key)))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)
@@ -70,6 +86,30 @@ async def deactivate_payment_account(account_id: str,
     """Stop offering the account for new payments. Payments already recorded keep it."""
     try:
         account = await run_in_threadpool(store.deactivate, account_id)
+    except store.AccountError as error:
+        raise _refused(error) from None
+    return _view(account)
+
+
+@finance_router.patch("/{account_id}", response_model=ReceivingAccount, responses={404: {"description": "No account with that id."}})
+async def update_payment_account(account_id: str, body: UpdateReceivingAccountRequest,
+                                 viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
+    """Bank name, account title, account number (stored masked) and QR image. Fields left out keep their value."""
+    try:
+        account = await run_in_threadpool(lambda: store.update_details(
+            account_id, bank_name=body.bank_name, account_title=body.account_title, account_number=body.account_number,
+            qr_asset_key=_qr_key(body.qr_asset_key)))
+    except store.AccountError as error:
+        raise _refused(error) from None
+    return _view(account)
+
+
+@finance_router.post("/{account_id}/activate", response_model=ReceivingAccount, responses={404: {"description": "No inactive account with that id."}})
+async def activate_payment_account(account_id: str,
+                                   viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
+    """Offer the account again (the Active toggle)."""
+    try:
+        account = await run_in_threadpool(store.reactivate, account_id)
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)

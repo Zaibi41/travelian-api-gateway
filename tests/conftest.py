@@ -38,3 +38,16 @@ def no_real_application_database(monkeypatch):
         raise HTTPException(503, "Database not available in unit tests.")
 
     monkeypatch.setattr(agencies, "application_engine", unavailable)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_notifications(request, monkeypatch):
+    """Unit tests never write notifications to a real database or send email; tests marked `real_notifications` opt out."""
+    if request.node.get_closest_marker("real_notifications"):
+        return
+    from app.services import notifications
+
+    recorded = []
+    monkeypatch.setattr(notifications, "_record", lambda kind, reference, title, details: recorded.append((kind, reference, details)) or "n1")
+    monkeypatch.setattr(notifications, "_send_email", lambda subject, body: False)
+    request.node.notifications = recorded

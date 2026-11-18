@@ -25,7 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.field_visibility import BackOfficeUser
 from app.db import supplier_bookings
 from app.schemas.live_flights import FlightMoney, HoldRequest, HoldView
-from app.services import flight_holds, live_flights
+from app.services import flight_holds, live_flights, notifications
 from app.vendors.flights.sooperfare import client as sooperfare
 
 logger = logging.getLogger(__name__)
@@ -190,6 +190,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
     saved_outcomes = await run_in_threadpool(flight_holds._save_people, request, reference, viewer.user_id, owner, links,
                                              flight_holds.customer_card_document(card, request.passengers))
+    await notifications.booking_event(
+        "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),
+        fare_minor=selling_total, currency=currency, pnr=pnr, hold_expires_at=expires_at)
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:

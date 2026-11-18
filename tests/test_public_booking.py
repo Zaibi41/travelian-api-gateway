@@ -188,6 +188,7 @@ def test_public_flight_search_hides_suppliers_and_is_cached():
     from app.services import live_flights
 
     public_booking._flight_cache.clear()
+    live_flights._airlines.clear()
     sf = fake_sf()
     real_search = live_flights.search
 

@@ -423,3 +423,18 @@ async def _create_dhillu_sahi_booking(request: GroupBookingRequest) -> int:
 async def _fetch_dhillu_sahi_booking(booking_id: int) -> BookingDetailsData:
     client, token = await _authenticated_dhillu_sahi_client()
     return await client.fetch_booking_details(token, booking_id)
+
+
+@router.get("/calendar")
+async def group_fare_calendar(viewer: Viewer, origin: str, destination: str, adults: int = 1):
+    """The fare calendar for one sector (B7): each day's lowest real selling price, or no availability (D33)."""
+    from app.services import group_calendar
+
+    origin, destination = origin.strip().upper(), destination.strip().upper()
+    if len(origin) != 3 or len(destination) != 3 or not 1 <= adults <= 9:
+        raise HTTPException(status_code=422, detail="Choose a sector (3-letter From and To) and 1 to 9 adults.")
+    try:
+        groups = await fetch_all_group_inventory()
+    except GroupInventoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
+    return group_calendar.build(groups, origin, destination, adults, date.today()).model_dump(mode="json", exclude_none=True)

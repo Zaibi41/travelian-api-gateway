@@ -49,6 +49,32 @@ async def search_groups(body: PublicGroupSearch, request: Request):
         return _error(error)
 
 
+class CalendarQuery(BaseModel):
+    origin: str = Field(min_length=3, max_length=3)
+    destination: str = Field(min_length=3, max_length=3)
+    adults: int = Field(1, ge=1, le=9)
+
+    @field_validator("origin", "destination", mode="before")
+    @classmethod
+    def upper(cls, value):
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+@router.post("/group-ticketing/calendar")
+async def group_calendar(body: CalendarQuery, request: Request):
+    """Every day for the sector: the lowest real selling price, or no availability. Never an invented price."""
+    from datetime import date as _date
+
+    from app.services import group_calendar as calendar
+
+    try:
+        service.check_rate(service.SEARCH_LIMIT, _ip(request))
+        groups = await service.cached_inventory()
+    except service.PublicError as error:
+        return _error(error)
+    return calendar.build(groups, body.origin, body.destination, body.adults, _date.today()).model_dump(mode="json", exclude_none=True)
+
+
 @router.post("/flights/search", responses={429: {"description": "Too many searches."}})
 async def search_flights(body: FlightSearchRequest, request: Request):
     """Live flights (all airlines Travelian sells), selling price only. Never supplier names, cost or supplier ids."""
@@ -80,6 +106,47 @@ async def get_booking(reference: str, token: Token, request: Request):
     try:
         service.check_rate(service.PAY_LIMIT, _ip(request))
         return await service.open_booking(reference, token)
+    except service.PublicError as error:
+        return _error(error)
+
+
+@router.get("/payment-methods", response_model=service.PaymentMethodsView, response_model_exclude_none=True)
+async def payment_methods():
+    """What checkout can offer now; bank-transfer accounts (masked number, QR image) and the site logo."""
+    return await service.payment_methods()
+
+
+@router.post("/bookings/{reference}/payments/jazzcash", include_in_schema=False)
+async def start_jazzcash(reference: str):
+    """JazzCash (scaffold, D31): not reachable while JAZZCASH_ENABLED is off."""
+    from app.vendors.payments import jazzcash
+
+    if not jazzcash.enabled():
+        return JSONResponse({"detail": "JazzCash isn't available yet.", "code": "method_unavailable"}, status_code=404)
+    return JSONResponse({"detail": "JazzCash checkout is scaffolded and not yet confirmed with JazzCash.", "code": "not_ready"}, status_code=503)
+
+
+@router.api_route("/payments/jazzcash/notify", methods=["GET", "POST"], include_in_schema=False)
+async def jazzcash_notify(request: Request):
+    """JazzCash callback (scaffold): never records a payment until the flow is confirmed against JazzCash's guide."""
+    from app.vendors.payments import jazzcash
+
+    params = await _params(request)
+    return JSONResponse({"status": "ignored", "verified": jazzcash.verify(params) if jazzcash.enabled() else False})
+
+
+class LookupRequest(BaseModel):
+    reference: str = Field(min_length=6, max_length=64)
+    contact: str = Field(min_length=5, max_length=254, description="The email or phone number used to book.")
+
+
+@router.post("/bookings/lookup", response_model=service.LookupView, response_model_exclude_none=True,
+             responses={404: {"description": "No booking with that reference and contact."}, 429: {"description": "Too many lookups."}})
+async def lookup_booking(body: LookupRequest, request: Request):
+    """Find a booking without logging in: reference + the email or phone used to book. Read-only (D37)."""
+    try:
+        service.check_rate(service.LOOKUP_LIMIT, _ip(request))
+        return await service.lookup(body.reference, body.contact)
     except service.PublicError as error:
         return _error(error)
 

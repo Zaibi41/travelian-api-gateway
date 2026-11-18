@@ -24,7 +24,7 @@ from app.db import saved_people, supplier_bookings
 from app.schemas.customer_card import ContactError
 from app.schemas.live_flights import IDENTITY_FIELDS, FlightMoney, HoldContact, HoldPassenger, HoldRequest, HoldView
 from app.schemas.saved_people import SaveOutcomeView
-from app.services import live_flights, sooperfare_holds
+from app.services import live_flights, notifications, restricted_airlines, sooperfare_holds
 from app.services.live_flights import RepriceError, get_quote, price_selection, sell
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairError, configured_client
@@ -248,6 +248,18 @@ def _travelers(request: HoldRequest, links: dict[int, tuple[str, str | None]] | 
     return result
 
 
+def _lead_name(request: HoldRequest) -> str | None:
+    lead = request.passengers[0] if request.passengers else None
+    return " ".join(filter(None, (lead.title, lead.first_name, lead.last_name))) if lead else None
+
+
+def _route(refs) -> str | None:
+    segments = [ref.segment for ref in refs if getattr(ref, "segment", None)]
+    if not segments:
+        return None
+    return " → ".join([segments[0].get("origin") or "?"] + [segment.get("destination") or "?" for segment in segments])
+
+
 def _time_limit(value: object) -> datetime | None:
     text = str(value or "").replace("UTC", "").strip()
     for pattern in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
@@ -266,6 +278,10 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
         raise HoldError(404, "The revalidated fare has expired. Revalidate again.", code="quote_expired")
+    if any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs):
+        # D32: never an automated supplier hold for a restricted airline, however it is asked for.
+        raise HoldError(409, "This airline is booked by Travelian's team only. Nothing was held: send a request to book, and our team "
+                             "will confirm the fare and payment with the customer.", code="restricted_airline")
     if not live_flights.booking_enabled(quote.provider):
         raise HoldError(409, "Booking is turned off for this fare. Nothing was booked.", code="booking_off")
     if quote.price_changed and not request.accept_price_change:
@@ -337,6 +353,11 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     if str(booking.get("booking_status")) != "1" or not pnr.isalnum() or not isinstance(ticket_ref, str) or not ticket_ref:
         logger.warning("Southair booking not confirmed", extra={"booking_status": booking.get("booking_status")})
         raise HoldError(502, "The supplier didn't confirm the hold. Check the supplier before trying again.", code="not_confirmed_hold")
+    if _time_limit(booking.get("time_limit")) is None:
+        # No usable time limit: the hold can't be shown as Held (staff and customer must see when it lapses).
+        logger.warning("Southair booking without a usable time limit; not saved", extra={"pnr": pnr})
+        raise HoldError(502, f"The supplier created a hold (PNR {pnr}) but sent no usable time limit, so it wasn't saved. "
+                             "Don't take payment for it. Search and hold again.", code="no_time_limit", pnr=pnr)
     try:
         pax_count = int(booking.get("pax_count"))
     except (TypeError, ValueError):
@@ -388,6 +409,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
     saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links,
                                              customer_card_document(card, request.passengers))
+    await notifications.booking_event(
+        "hold_created", reference=reference, passenger=_lead_name(request), route=_route(fresh), fare_minor=selling_total,
+        currency=currency, pnr=pnr, hold_expires_at=time_limit)
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:

@@ -502,3 +502,24 @@ def test_a_missing_name_part_or_email_points_at_its_own_field(card, field, messa
     with pytest.raises(flight_holds.HoldError) as error:
         run(card_request(card), client)
     assert error.value.field_errors == [(["contact", field], message)] and client.booking.await_count == 0
+
+
+def test_a_hold_is_never_saved_without_a_real_southair_hold():
+    """Held only from Southair's real answer: booking_status 1, PNR, ticket_ref and a usable time limit."""
+    for booked in ({**BOOKED, "booking_status": 0}, {**BOOKED, "pnrn": ""}, {**BOOKED, "ticket_ref": None},
+                   {**BOOKED, "time_limit": ""}, {**BOOKED, "time_limit": "soon"}):
+        live_flights._quotes.clear()
+        make_quote()
+        save = MagicMock(return_value="TRV-NOPE")
+        with pytest.raises(flight_holds.HoldError) as error:
+            run(hold_request(), fake_client(booking=booked), saved=save)
+        assert error.value.status == 502 and save.call_count == 0, booked
+
+
+def test_a_real_hold_notifies_staff_with_its_facts(request):
+    make_quote()
+    run(hold_request(), fake_client())
+    [(kind, reference, details)] = request.node.notifications
+    assert kind == "hold_created" and reference == "TRV-ABC123"
+    assert details["pnr"] == "63B55C" and details["passenger"] == "MR Test Passenger" and details["route"] == "KHI → MUX"
+    assert details["fare"] == "Rs 467" and details["hold_expires_at"].startswith("2026-11-20T13:18")

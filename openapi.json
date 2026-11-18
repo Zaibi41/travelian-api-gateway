@@ -3,6 +3,43 @@
     "schemas": {
       "AddReceivingAccountRequest": {
         "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Full number as typed; only a masked form is stored.",
+            "title": "Account Number"
+          },
+          "account_title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Title"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
           "label": {
             "description": "The account's name staff see: 2 to 120 characters after extra spaces are removed. Not the full account number.",
             "maxLength": 1000,
@@ -17,6 +54,19 @@
             ],
             "title": "Method",
             "type": "string"
+          },
+          "qr_asset_key": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From POST /v1/admin/uploads (purpose payment_qr).",
+            "title": "Qr Asset Key"
           }
         },
         "required": [
@@ -394,6 +444,56 @@
           "items"
         ],
         "title": "AttentionQueue",
+        "type": "object"
+      },
+      "BankAccountView": {
+        "properties": {
+          "account_number_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number Masked"
+          },
+          "account_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Title"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "qr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qr Url"
+          }
+        },
+        "title": "BankAccountView",
         "type": "object"
       },
       "BookingAuditEntry": {
@@ -1925,6 +2025,35 @@
         "title": "BusinessResults",
         "type": "object"
       },
+      "CalendarQuery": {
+        "properties": {
+          "adults": {
+            "default": 1,
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Adults",
+            "type": "integer"
+          },
+          "destination": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Destination",
+            "type": "string"
+          },
+          "origin": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "title": "CalendarQuery",
+        "type": "object"
+      },
       "CheckoutView": {
         "properties": {
           "action": {
@@ -2501,6 +2630,16 @@
               }
             ],
             "title": "Baggage"
+          },
+          "booking_mode": {
+            "default": "hold",
+            "description": "request: a restricted airline (D32). No supplier hold is ever made; it can only be sent as a request to book.",
+            "enum": [
+              "hold",
+              "request"
+            ],
+            "title": "Booking Mode",
+            "type": "string"
           },
           "id": {
             "description": "Opaque fare ID, valid until the search expires.",
@@ -6285,6 +6424,131 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "LookupRequest": {
+        "properties": {
+          "contact": {
+            "description": "The email or phone number used to book.",
+            "maxLength": 254,
+            "minLength": 5,
+            "title": "Contact",
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 64,
+            "minLength": 6,
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "contact"
+        ],
+        "title": "LookupRequest",
+        "type": "object"
+      },
+      "LookupView": {
+        "properties": {
+          "airline_pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once tickets are issued.",
+            "title": "Airline Pnr"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "legs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PublicLeg"
+            },
+            "title": "Legs",
+            "type": "array"
+          },
+          "next_steps": {
+            "title": "Next Steps",
+            "type": "string"
+          },
+          "paid": {
+            "$ref": "#/components/schemas/PublicMoney"
+          },
+          "payment_status": {
+            "enum": [
+              "unpaid",
+              "part_paid",
+              "paid"
+            ],
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "held",
+              "paid",
+              "issued",
+              "expired",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tickets": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tickets",
+            "type": "array"
+          },
+          "total": {
+            "$ref": "#/components/schemas/PublicMoney"
+          },
+          "travelers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Travelers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference",
+          "product",
+          "status",
+          "payment_status",
+          "total",
+          "paid",
+          "next_steps"
+        ],
+        "title": "LookupView",
+        "type": "object"
+      },
       "MergeRequest": {
         "properties": {
           "merge_into_person_id": {
@@ -6334,6 +6598,73 @@
           "expiring_window_hours"
         ],
         "title": "NeedsAction",
+        "type": "object"
+      },
+      "NotificationList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "NotificationList",
+        "type": "object"
+      },
+      "NotificationView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "emailed": {
+            "title": "Emailed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "details",
+          "emailed",
+          "created_at"
+        ],
+        "title": "NotificationView",
         "type": "object"
       },
       "OperationCall": {
@@ -6501,6 +6832,48 @@
           "accounts"
         ],
         "title": "PaymentAccountList",
+        "type": "object"
+      },
+      "PaymentMethodsView": {
+        "properties": {
+          "bank_accounts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/BankAccountView"
+            },
+            "title": "Bank Accounts",
+            "type": "array"
+          },
+          "bank_transfer": {
+            "title": "Bank Transfer",
+            "type": "boolean"
+          },
+          "card": {
+            "title": "Card",
+            "type": "boolean"
+          },
+          "jazzcash": {
+            "title": "Jazzcash",
+            "type": "boolean"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          }
+        },
+        "required": [
+          "card",
+          "bank_transfer",
+          "jazzcash"
+        ],
+        "title": "PaymentMethodsView",
         "type": "object"
       },
       "ProductResults": {
@@ -6770,6 +7143,17 @@
             "title": "Passengers",
             "type": "array"
           },
+          "payment_method": {
+            "default": "card",
+            "description": "card: PayFast online. bank_transfer: held at the supplier, paid to Travelian's bank account, recorded by staff (then issued). jazzcash: off until enabled.",
+            "enum": [
+              "card",
+              "bank_transfer",
+              "jazzcash"
+            ],
+            "title": "Payment Method",
+            "type": "string"
+          },
           "ticket_id": {
             "description": "GroupTicketView.id from the public search.",
             "maxLength": 64,
@@ -6932,9 +7316,43 @@
       "ReceivingAccount": {
         "description": "A receiving account as Finance > Accounts & Ledgers manages it (active and inactive).",
         "properties": {
+          "account_number_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the last 4 digits; the full number is never stored.",
+            "title": "Account Number Masked"
+          },
+          "account_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Title"
+          },
           "active": {
             "title": "Active",
             "type": "boolean"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
           },
           "id": {
             "title": "Id",
@@ -6952,6 +7370,30 @@
             ],
             "title": "Method",
             "type": "string"
+          },
+          "qr_asset_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "S3 object key of the QR image.",
+            "title": "Qr Asset Key"
+          },
+          "qr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Public URL of the QR image (S3).",
+            "title": "Qr Url"
           }
         },
         "required": [
@@ -7135,6 +7577,16 @@
             "title": "Booking Enabled",
             "type": "boolean"
           },
+          "booking_mode": {
+            "default": "hold",
+            "description": "request: restricted airline (D32): send a request to book, never a hold.",
+            "enum": [
+              "hold",
+              "request"
+            ],
+            "title": "Booking Mode",
+            "type": "string"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
@@ -7242,6 +7694,33 @@
           "booking_enabled"
         ],
         "title": "RepriceView",
+        "type": "object"
+      },
+      "RequestView": {
+        "properties": {
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "message": {
+            "default": "This booking is not held or confirmed. Travelian's team will contact you to confirm the fare and arrange payment; the seats are only booked after that.",
+            "title": "Message",
+            "type": "string"
+          },
+          "selling_total": {
+            "$ref": "#/components/schemas/FlightMoney"
+          },
+          "status": {
+            "default": "requested",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking_id",
+          "selling_total"
+        ],
+        "title": "RequestView",
         "type": "object"
       },
       "ResetPasswordRequest": {
@@ -8311,6 +8790,116 @@
         "title": "SetSellingPriceRequest",
         "type": "object"
       },
+      "SignUploadRequest": {
+        "properties": {
+          "content_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "site_logo",
+              "payment_qr",
+              "payment_proof"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "content_type"
+        ],
+        "title": "SignUploadRequest",
+        "type": "object"
+      },
+      "SignedUploadView": {
+        "properties": {
+          "asset_key": {
+            "description": "Save this key on the record (account QR, site logo). Never a file or local path.",
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "public_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Url"
+          },
+          "url": {
+            "description": "POST the file here as multipart form data: `fields` first, then `file`.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "asset_key",
+          "max_bytes"
+        ],
+        "title": "SignedUploadView",
+        "type": "object"
+      },
+      "SiteAssetRequest": {
+        "properties": {
+          "asset_key": {
+            "maxLength": 300,
+            "minLength": 5,
+            "title": "Asset Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_key"
+        ],
+        "title": "SiteAssetRequest",
+        "type": "object"
+      },
+      "SiteAssetView": {
+        "properties": {
+          "asset_key": {
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "asset_key",
+          "url"
+        ],
+        "title": "SiteAssetView",
+        "type": "object"
+      },
       "SupplierPayment": {
         "description": "The Supplier payment tab. Only sent with the cost and margin permission.",
         "properties": {
@@ -8403,6 +8992,62 @@
           "expires_in"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "UpdateReceivingAccountRequest": {
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Full number as typed; only a masked form is stored.",
+            "title": "Account Number"
+          },
+          "account_title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Title"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "qr_asset_key": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From POST /v1/admin/uploads (purpose payment_qr).",
+            "title": "Qr Asset Key"
+          }
+        },
+        "title": "UpdateReceivingAccountRequest",
         "type": "object"
       },
       "UserAdminEvent": {
@@ -11688,6 +12333,130 @@
         ]
       }
     },
+    "/v1/admin/finance/payment-accounts/{account_id}": {
+      "patch": {
+        "description": "Bank name, account title, account number (stored masked) and QR image. Fields left out keep their value.",
+        "operationId": "update_payment_account_v1_admin_finance_payment_accounts__account_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReceivingAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not Super Admin (or Finance, once that role exists)."
+          },
+          "404": {
+            "description": "No account with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Payment Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/payment-accounts/{account_id}/activate": {
+      "post": {
+        "description": "Offer the account again (the Active toggle).",
+        "operationId": "activate_payment_account_v1_admin_finance_payment_accounts__account_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingAccount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not Super Admin (or Finance, once that role exists)."
+          },
+          "404": {
+            "description": "No inactive account with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Payment Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
     "/v1/admin/finance/payment-accounts/{account_id}/deactivate": {
       "post": {
         "description": "Stop offering the account for new payments. Payments already recorded keep it.",
@@ -11778,6 +12547,57 @@
         ]
       }
     },
+    "/v1/admin/notifications": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "list_notifications_v1_admin_notifications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Notifications",
+        "tags": [
+          "admin notifications"
+        ]
+      }
+    },
     "/v1/admin/payment-accounts": {
       "get": {
         "description": "The active receiving accounts, by method then name.",
@@ -11838,6 +12658,65 @@
         "summary": "List Roles",
         "tags": [
           "user administration"
+        ]
+      }
+    },
+    "/v1/admin/site-assets/{slot}": {
+      "put": {
+        "description": "Website & CMS: point a site slot (the logo) at an uploaded image.",
+        "operationId": "set_site_asset_v1_admin_site_assets__slot__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slot",
+            "required": true,
+            "schema": {
+              "const": "site_logo",
+              "title": "Slot",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteAssetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Site Asset",
+        "tags": [
+          "admin uploads"
         ]
       }
     },
@@ -15041,6 +15920,55 @@
         ]
       }
     },
+    "/v1/admin/uploads": {
+      "post": {
+        "operationId": "sign_upload_v1_admin_uploads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedUploadView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "S3 not set up."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sign Upload",
+        "tags": [
+          "admin uploads"
+        ]
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "operationId": "list_users_v1_admin_users_get",
@@ -16034,6 +16962,77 @@
           }
         ],
         "summary": "Create Group Booking",
+        "tags": [
+          "group ticketing"
+        ]
+      }
+    },
+    "/v1/group-ticketing/calendar": {
+      "get": {
+        "description": "The fare calendar for one sector (B7): each day's lowest real selling price, or no availability (D33).",
+        "operationId": "group_fare_calendar_v1_group_ticketing_calendar_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "origin",
+            "required": true,
+            "schema": {
+              "title": "Origin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "destination",
+            "required": true,
+            "schema": {
+              "title": "Destination",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "adults",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Adults",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Group Fare Calendar",
         "tags": [
           "group ticketing"
         ]
@@ -17037,6 +18036,55 @@
         ]
       }
     },
+    "/v1/live-ticketing/flights/requests": {
+      "post": {
+        "description": "Request to book (restricted airlines, D32): saved for staff to arrange; never a supplier hold or booking call.",
+        "operationId": "request_flight_v1_live_ticketing_flights_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "404": {
+            "description": "Quote expired."
+          },
+          "422": {
+            "description": "Passengers don't match."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Flight",
+        "tags": [
+          "live ticketing"
+        ]
+      }
+    },
     "/v1/live-ticketing/flights/search": {
       "post": {
         "description": "Search the flight provider. Fare IDs stay valid for 15 minutes, for the user who searched.",
@@ -17129,6 +18177,54 @@
         "summary": "Logo",
         "tags": [
           "logos"
+        ]
+      }
+    },
+    "/v1/public/bookings/lookup": {
+      "post": {
+        "description": "Find a booking without logging in: reference + the email or phone used to book. Read-only (D37).",
+        "operationId": "lookup_booking_v1_public_bookings_lookup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No booking with that reference and contact."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many lookups."
+          }
+        },
+        "summary": "Lookup Booking",
+        "tags": [
+          "public website"
         ]
       }
     },
@@ -17323,6 +18419,46 @@
         ]
       }
     },
+    "/v1/public/group-ticketing/calendar": {
+      "post": {
+        "description": "Every day for the sector: the lowest real selling price, or no availability. Never an invented price.",
+        "operationId": "group_calendar_v1_public_group_ticketing_calendar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Group Calendar",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
     "/v1/public/group-ticketing/search": {
       "post": {
         "description": "Group fares with selling prices only. Leave all of origin, destination and date out for everything.",
@@ -17364,6 +18500,28 @@
           }
         },
         "summary": "Search Groups",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/payment-methods": {
+      "get": {
+        "description": "What checkout can offer now; bank-transfer accounts (masked number, QR image) and the site logo.",
+        "operationId": "payment_methods_v1_public_payment_methods_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentMethodsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Payment Methods",
         "tags": [
           "public website"
         ]

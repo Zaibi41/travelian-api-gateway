@@ -47,6 +47,26 @@ class Settings(BaseSettings):
     skypass_client_secret: SecretStr | None = None
     aws_region: str | None = None
     ssm_parameter_prefix: str | None = None
+    # Staff notifications (holds, booking requests). Recorded in the database always; emailed through Amazon SES when
+    # NOTIFY_EMAIL_ENABLED and the server has AWS credentials. NOTIFY_EMAILS: comma-separated staff addresses.
+    notify_email_enabled: bool = False
+    notify_emails: str = ""
+    notify_email_from: str = "Travelian <noreply@travelian.pk>"
+    ses_region: str = "us-east-1"
+    # Airlines never held automatically (D32): IATA codes, comma-separated. Read from Parameter Store
+    # (<SSM_PARAMETER_PREFIX>/flights/restricted-airlines) when configured, refreshed every few minutes; else this value.
+    restricted_airlines: str = ""
+    # Payment methods on the public checkout. JazzCash is scaffolded only (D31) until merchant credentials exist.
+    bank_transfer_enabled: bool = False
+    jazzcash_enabled: bool = False
+    jazzcash_merchant_id: SecretStr | None = None
+    jazzcash_password: SecretStr | None = None
+    jazzcash_integrity_salt: SecretStr | None = None
+    jazzcash_base_url: str = "https://sandbox.jazzcash.com.pk"
+    # Admin-uploaded media (D38): S3 bucket and the public base URL its objects are served from.
+    assets_bucket: str | None = None
+    assets_region: str = "ap-southeast-1"
+    assets_public_base_url: str | None = None
     log_level: str = "INFO"
     cognito_issuer: str | None = None
     cognito_app_client_id: str | None = None
