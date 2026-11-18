@@ -69,7 +69,7 @@ def reservation_passengers(request: HoldRequest, slots: list[dict]) -> tuple[lis
         if passenger.id_type == "NATI" and passenger.document_number:
             row["nic"] = passenger.document_number
         elif "nic" in required:
-            errors.append((["passengers", index, "document_number"], "This flight needs the traveler's CNIC (13 digits)."))
+            errors.append((["passengers", index, "document_number"], "This airline needs the traveler's CNIC for this flight: choose CNIC as the ID type and enter the 13 digits."))
         if passenger.id_type == "PSPT" and passenger.document_number:
             row.update({"passport_number": passenger.document_number, "passport_country": _alpha2(passenger.document_country),
                         "passport_expiry": passenger.document_expiry.isoformat() if passenger.document_expiry else None})
@@ -199,7 +199,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     await notifications.booking_event(
         "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),
         fare_minor=selling_total, currency=currency, pnr=pnr, hold_expires_at=expires_at)
-    view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at,
+    view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at, label=None,  # a live SooperFare hold, not UAT data
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:
         view.supplier_cost = FlightMoney(amount_minor=record_total, currency=currency)  # type: ignore[arg-type]

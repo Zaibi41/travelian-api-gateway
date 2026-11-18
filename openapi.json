@@ -5798,10 +5798,18 @@
             "type": "string"
           },
           "label": {
-            "const": "UAT test data",
+            "anyOf": [
+              {
+                "const": "UAT test data",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "UAT test data",
-            "title": "Label",
-            "type": "string"
+            "description": "Southair UAT holds only; a live SooperFare hold has no label.",
+            "title": "Label"
           },
           "pnr": {
             "title": "Pnr",
