@@ -254,15 +254,16 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
     checklist = IssuanceChecklist(
         issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor >= target.total_minor,
         amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor, 0)),
-        hold_expires_at=target.hold_expires_at, ticketing_enabled=settings.southair_ticketing_enabled,
+        hold_expires_at=target.hold_expires_at, ticketing_enabled=issuance_service.ticketing_on(target.provider),
         can_request=issuable and status == "not_issued",
-        can_issue=issuable and viewer.can(ISSUE_TICKETS) and settings.southair_ticketing_enabled,
+        can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider),
     )
     if viewer.visibility.cost_and_margin and target.supplier_cost_minor is not None:
         checklist.supplier_amount = money(target.supplier_cost_minor)
         checklist.margin = money(target.total_minor - target.supplier_cost_minor)
         try:
-            cap = southair_normalize.parse_amount(((await configured_client().profile()).get("limit") or {}).get("cap"))
+            # Southair's balance only for a Southair booking: it says nothing about another supplier's account.
+            cap = None if (target.provider or "southair") != "southair" else southair_normalize.parse_amount(((await configured_client().profile()).get("limit") or {}).get("cap"))
             if cap is not None:
                 checklist.supplier_balance = BookingMoney(amount_minor=int(cap.value * 100), currency=target.currency)
         except SouthairError:
