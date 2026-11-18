@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.flights import FlightSearchRequest
 from app.services import public_booking as service
 
 router = APIRouter(prefix="/public", tags=["public website"])
@@ -46,6 +47,17 @@ async def search_groups(body: PublicGroupSearch, request: Request):
         return await service.search(body.origin, body.destination, body.departure_date, body.adults)
     except service.PublicError as error:
         return _error(error)
+
+
+@router.post("/flights/search", responses={429: {"description": "Too many searches."}})
+async def search_flights(body: FlightSearchRequest, request: Request):
+    """Live flights (all airlines Travelian sells), selling price only. Never supplier names, cost or supplier ids."""
+    try:
+        service.check_rate(service.SEARCH_LIMIT, _ip(request))
+        view = await service.search_flights(body)
+    except service.PublicError as error:
+        return _error(error)
+    return view.model_dump(mode="json", exclude_none=True, exclude={"providers"})
 
 
 @router.post("/group-ticketing/bookings", response_model=service.PublicBookingCreated, status_code=201,

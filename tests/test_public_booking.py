@@ -179,3 +179,31 @@ def test_payment_results_recorded_only_when_verified(payfast_on):
     assert forged.json() == {"reference": None, "result": "not_verified"}
     assert real.json() == {"reference": "TRV-G-1", "result": "paid"}
     assert notify.json() == {"status": "ok"}
+
+
+# ---------- public flights (Southair + SooperFare through the gateway) ----------
+
+def test_public_flight_search_hides_suppliers_and_is_cached():
+    from tests.sooperfare.test_flows import fake_sf, southair_down
+    from app.services import live_flights
+
+    public_booking._flight_cache.clear()
+    sf = fake_sf()
+    real_search = live_flights.search
+
+    async def search(request, viewer):
+        return await real_search(request, viewer, client_factory=southair_down, sooperfare_factory=lambda: sf)
+
+    body = {"origin": "khi", "destination": "LHE", "departure_date": "2026-12-10"}
+    with patch.object(live_flights, "search", search), patch.object(settings, "flight_markup_percent", __import__("decimal").Decimal("2")):
+        first = client.post("/v1/public/flights/search", json=body)
+        second = client.post("/v1/public/flights/search", json=body)
+    assert first.status_code == 200 and first.json() == second.json()
+    assert sf.availability.await_count == 1  # the second visitor got the cached answer
+    data = first.json()
+    flights = data["journeys"][0]["flights"]
+    assert [f["flight_number"] for f in flights] == ["PA400", "PA406"]
+    assert flights[0]["fares"][0]["selling_price"]["amount_minor"] == 2249100
+    text = first.text.lower()
+    for hidden in ("sooperfare", "southair", "supplier", "providers", "defd968f", "value|ev"):
+        assert hidden not in text, hidden
