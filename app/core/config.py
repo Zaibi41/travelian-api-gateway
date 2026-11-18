@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     # Hold (booking) and ticketing are separate switches, both off by default.
     southair_booking_enabled: bool = False
     southair_ticketing_enabled: bool = False
+    # SooperFare (airline aggregator: Airblue, AirSial, PIA, Fly Jinnah, ...). Calls go out from the static IP it whitelists.
+    sooperfare_base_url: str | None = None
+    sooperfare_username: str | None = None
+    sooperfare_password: SecretStr | None = None
+    sooperfare_timeout_seconds: float = Field(30.0, gt=0, le=90)
+    # Hold (reservation) and ticketing (booking confirm) are separate switches, both off by default.
+    sooperfare_booking_enabled: bool = False
+    sooperfare_ticketing_enabled: bool = False
     # Issuing stops this many seconds before the hold's time limit.
     ticketing_deadline_margin_seconds: int = Field(120, ge=0, le=3600)
     # Flight selling price = supplier fare + percent + fixed amount per passenger (D23).

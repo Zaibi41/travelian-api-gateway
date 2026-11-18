@@ -1,0 +1,1171 @@
+{
+ "status": true,
+ "message": "Operation Successfull",
+ "type": "json",
+ "data": {
+  "ref_id": "0df873cb-fdf9-4278-b72e-23d87047bc71",
+  "providers": [
+   {
+    "provider": {
+     "identifier": "PK",
+     "created_at": "2026-01-09T11:13:01+05:00",
+     "updated_at": "2026-11-18T20:48:03+05:00"
+    },
+    "legs": [
+     {
+      "ref_id": "c20fdd53-be04-4b36-83ce-6dedb94d709d",
+      "trip_nature": "domestic",
+      "fares_on_request": false,
+      "flights": [
+       {
+        "ref_id": "8e0622bc-9c46-4a6f-9e14-a7270085d2af",
+        "signature": "KHILHEPKPK302@2026-12-10 08:00",
+        "flight_operation": "self",
+        "is_recommended": 1,
+        "is_refundable": true,
+        "recommended_priority": 3,
+        "has_layovers": false,
+        "layovers_count": 0,
+        "layovers_time": 0,
+        "change_of_plane": false,
+        "travel_time": 105,
+        "distance": 0,
+        "marketing_carrier": {
+         "name": "Pakistan International Airlines",
+         "iata": "PK",
+         "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+         "created_at": "2025-05-07T17:42:09+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "departure_at": "2026-12-10T08:00:00+05:00",
+        "arrival_at": "2026-12-10T09:45:00+05:00",
+        "from": {
+         "name": "Jinnah International Airport",
+         "iata": "KHI",
+         "city": {
+          "name": "Karachi",
+          "code": "KHI",
+          "created_at": "2025-04-30T07:39:31+05:00",
+          "updated_at": "2025-10-01T15:12:56+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:38+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "to": {
+         "name": "Allama Iqbal International Airport",
+         "iata": "LHE",
+         "city": {
+          "name": "Lahore",
+          "code": "LHE",
+          "created_at": "2025-04-30T07:39:19+05:00",
+          "updated_at": "2025-10-01T18:26:44+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:44+05:00",
+         "updated_at": "2026-11-18T21:58:55+05:00"
+        },
+        "segments": [
+         {
+          "ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+          "operating_carrier": {
+           "name": "Pakistan International Airlines",
+           "iata": "PK",
+           "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+           "created_at": "2025-05-07T17:42:09+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "departure_at": "2026-12-10T08:00:00+05:00",
+          "arrival_at": "2026-12-10T09:45:00+05:00",
+          "from": {
+           "name": "Jinnah International Airport",
+           "iata": "KHI",
+           "city": {
+            "name": "Karachi",
+            "code": "KHI",
+            "created_at": "2025-04-30T07:39:31+05:00",
+            "updated_at": "2025-10-01T15:12:56+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:38+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "to": {
+           "name": "Allama Iqbal International Airport",
+           "iata": "LHE",
+           "city": {
+            "name": "Lahore",
+            "code": "LHE",
+            "created_at": "2025-04-30T07:39:19+05:00",
+            "updated_at": "2025-10-01T18:26:44+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:44+05:00",
+           "updated_at": "2026-11-18T21:58:55+05:00"
+          },
+          "from_terminal": {
+           "gate": ""
+          },
+          "to_terminal": {
+           "gate": ""
+          },
+          "cabin_class": "economy",
+          "flight_time": 105,
+          "layover_time": 0,
+          "flight_number": "PK302",
+          "distance": 1021.43,
+          "aircraft": {
+           "manufacturer": "32S",
+           "model": "32S",
+           "created_at": "2024-12-18T09:24:10+05:00",
+           "updated_at": "2024-12-18T09:24:10+05:00"
+          }
+         }
+        ],
+        "ancillaries": {
+         "baggages": [],
+         "meals": [],
+         "seatplans": [],
+         "ssrs": []
+        },
+        "fares": [
+         {
+          "ref_id": "5ad0e827-c50e-4635-a2e8-fda0e0f05d8e",
+          "signature": "Economy Lite|U|1",
+          "is_refundable": true,
+          "name": "Economy Lite",
+          "class": "U",
+          "name_class": "Economy Lite (U)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 14330,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 24876
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Economy Lite",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Economy Lite",
+            "description": "Checked baggage not included",
+            "weight_limit": 0,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 14330,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 24876,
+          "total_discount": 0,
+          "billable_price": 24876
+         },
+         {
+          "ref_id": "3f445d7f-0f56-4c03-8507-dd9e873d9e34",
+          "signature": "Smart|U|1",
+          "is_refundable": true,
+          "name": "Smart",
+          "class": "U",
+          "name_class": "Smart (U)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 15730,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 26276
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Smart",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Smart",
+            "description": "1 checked bag(s), up to 20 kg",
+            "weight_limit": 20,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 15730,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 26276,
+          "total_discount": 0,
+          "billable_price": 26276
+         },
+         {
+          "ref_id": "a756bc05-c694-4bbf-bd14-195c0ac78211",
+          "signature": "Freedom|U|1",
+          "is_refundable": true,
+          "name": "Freedom",
+          "class": "U",
+          "name_class": "Freedom (U)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 18540,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 29086
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Freedom",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "4335f7f4-9155-494e-aa24-0aa09310f703",
+            "title": "Freedom",
+            "description": "1 checked bag(s), up to 30 kg",
+            "weight_limit": 30,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 18540,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 29086,
+          "total_discount": 0,
+          "billable_price": 29086
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "ref_id": "87881869-1754-453e-a1c1-c8cb3416d3ad",
+      "trip_nature": "domestic",
+      "fares_on_request": false,
+      "flights": [
+       {
+        "ref_id": "1b3fdbf4-0a82-4232-a39f-b47fdd338c9c",
+        "signature": "KHILHEPKPK304@2026-12-10 14:00",
+        "flight_operation": "self",
+        "is_recommended": 1,
+        "is_refundable": true,
+        "recommended_priority": 3,
+        "has_layovers": false,
+        "layovers_count": 0,
+        "layovers_time": 0,
+        "change_of_plane": false,
+        "travel_time": 105,
+        "distance": 0,
+        "marketing_carrier": {
+         "name": "Pakistan International Airlines",
+         "iata": "PK",
+         "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+         "created_at": "2025-05-07T17:42:09+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "departure_at": "2026-12-10T14:00:00+05:00",
+        "arrival_at": "2026-12-10T15:45:00+05:00",
+        "from": {
+         "name": "Jinnah International Airport",
+         "iata": "KHI",
+         "city": {
+          "name": "Karachi",
+          "code": "KHI",
+          "created_at": "2025-04-30T07:39:31+05:00",
+          "updated_at": "2025-10-01T15:12:56+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:38+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "to": {
+         "name": "Allama Iqbal International Airport",
+         "iata": "LHE",
+         "city": {
+          "name": "Lahore",
+          "code": "LHE",
+          "created_at": "2025-04-30T07:39:19+05:00",
+          "updated_at": "2025-10-01T18:26:44+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:44+05:00",
+         "updated_at": "2026-11-18T21:58:55+05:00"
+        },
+        "segments": [
+         {
+          "ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+          "operating_carrier": {
+           "name": "Pakistan International Airlines",
+           "iata": "PK",
+           "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+           "created_at": "2025-05-07T17:42:09+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "departure_at": "2026-12-10T14:00:00+05:00",
+          "arrival_at": "2026-12-10T15:45:00+05:00",
+          "from": {
+           "name": "Jinnah International Airport",
+           "iata": "KHI",
+           "city": {
+            "name": "Karachi",
+            "code": "KHI",
+            "created_at": "2025-04-30T07:39:31+05:00",
+            "updated_at": "2025-10-01T15:12:56+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:38+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "to": {
+           "name": "Allama Iqbal International Airport",
+           "iata": "LHE",
+           "city": {
+            "name": "Lahore",
+            "code": "LHE",
+            "created_at": "2025-04-30T07:39:19+05:00",
+            "updated_at": "2025-10-01T18:26:44+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:44+05:00",
+           "updated_at": "2026-11-18T21:58:55+05:00"
+          },
+          "from_terminal": {
+           "gate": ""
+          },
+          "to_terminal": {
+           "gate": ""
+          },
+          "cabin_class": "economy",
+          "flight_time": 105,
+          "layover_time": 0,
+          "flight_number": "PK304",
+          "distance": 1021.43,
+          "aircraft": {
+           "manufacturer": "32S",
+           "model": "32S",
+           "created_at": "2024-12-18T09:24:10+05:00",
+           "updated_at": "2024-12-18T09:24:10+05:00"
+          }
+         }
+        ],
+        "ancillaries": {
+         "baggages": [],
+         "meals": [],
+         "seatplans": [],
+         "ssrs": []
+        },
+        "fares": [
+         {
+          "ref_id": "df427fae-eae7-4728-bc65-76cea45b4454",
+          "signature": "Economy Lite|L|1",
+          "is_refundable": true,
+          "name": "Economy Lite",
+          "class": "L",
+          "name_class": "Economy Lite (L)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 19380,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 29926
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Economy Lite",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Economy Lite",
+            "description": "Checked baggage not included",
+            "weight_limit": 0,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 19380,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 29926,
+          "total_discount": 0,
+          "billable_price": 29926
+         },
+         {
+          "ref_id": "b49b7cdf-1a55-411d-9d53-204cb6c2f451",
+          "signature": "Smart|L|1",
+          "is_refundable": true,
+          "name": "Smart",
+          "class": "L",
+          "name_class": "Smart (L)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 20790,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 31336
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Smart",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Smart",
+            "description": "1 checked bag(s), up to 20 kg",
+            "weight_limit": 20,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 20790,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 31336,
+          "total_discount": 0,
+          "billable_price": 31336
+         },
+         {
+          "ref_id": "b8bf3134-de98-4fbc-b861-c4f464ce963b",
+          "signature": "Freedom|L|1",
+          "is_refundable": true,
+          "name": "Freedom",
+          "class": "L",
+          "name_class": "Freedom (L)",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 23600,
+            "surcharge": 8426,
+            "taxes": 2120,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 34146
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Freedom",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "a1fc16f2-3d2f-4e34-9831-027fe201f79d",
+            "title": "Freedom",
+            "description": "1 checked bag(s), up to 30 kg",
+            "weight_limit": 30,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 23600,
+          "surcharge": 8426,
+          "taxes": 2120,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 34146,
+          "total_discount": 0,
+          "billable_price": 34146
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "ref_id": "71cb90ba-5fd0-40e7-b5d9-817d9eaa798e",
+      "trip_nature": "domestic",
+      "fares_on_request": false,
+      "flights": [
+       {
+        "ref_id": "2971d5c1-bd6b-4d69-b51f-4798cf86449f",
+        "signature": "KHIUETPKPK310@2026-12-10 08:00|UETLHEPKPK323@2026-12-10 10:20",
+        "flight_operation": "self",
+        "is_recommended": 1,
+        "is_refundable": true,
+        "recommended_priority": 3,
+        "has_layovers": true,
+        "layovers_count": 1,
+        "layovers_time": 60,
+        "change_of_plane": true,
+        "travel_time": 220,
+        "distance": 0,
+        "marketing_carrier": {
+         "name": "Pakistan International Airlines",
+         "iata": "PK",
+         "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+         "created_at": "2025-05-07T17:42:09+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "departure_at": "2026-12-10T08:00:00+05:00",
+        "arrival_at": "2026-12-10T11:40:00+05:00",
+        "from": {
+         "name": "Jinnah International Airport",
+         "iata": "KHI",
+         "city": {
+          "name": "Karachi",
+          "code": "KHI",
+          "created_at": "2025-04-30T07:39:31+05:00",
+          "updated_at": "2025-10-01T15:12:56+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:38+05:00",
+         "updated_at": "2026-11-18T21:57:26+05:00"
+        },
+        "to": {
+         "name": "Allama Iqbal International Airport",
+         "iata": "LHE",
+         "city": {
+          "name": "Lahore",
+          "code": "LHE",
+          "created_at": "2025-04-30T07:39:19+05:00",
+          "updated_at": "2025-10-01T18:26:44+05:00"
+         },
+         "country": {
+          "name": "Pakistan",
+          "alpha_2": "PK",
+          "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+          "url": "https://api.sooperfare.com/pk",
+          "created_at": "2025-04-30T02:39:15+05:00",
+          "updated_at": "2026-04-05T12:23:54+05:00"
+         },
+         "created_at": "2025-04-30T03:21:44+05:00",
+         "updated_at": "2026-11-18T21:58:55+05:00"
+        },
+        "segments": [
+         {
+          "ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+          "operating_carrier": {
+           "name": "Pakistan International Airlines",
+           "iata": "PK",
+           "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+           "created_at": "2025-05-07T17:42:09+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "departure_at": "2026-12-10T08:00:00+05:00",
+          "arrival_at": "2026-12-10T09:20:00+05:00",
+          "from": {
+           "name": "Jinnah International Airport",
+           "iata": "KHI",
+           "city": {
+            "name": "Karachi",
+            "code": "KHI",
+            "created_at": "2025-04-30T07:39:31+05:00",
+            "updated_at": "2025-10-01T15:12:56+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:38+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "to": {
+           "name": "Quetta Airport",
+           "iata": "UET",
+           "city": {
+            "name": "Quetta",
+            "code": "UET",
+            "created_at": "2025-04-30T07:39:30+05:00",
+            "updated_at": "2025-09-26T11:07:53+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:40+05:00",
+           "updated_at": "2026-11-18T20:42:48+05:00"
+          },
+          "from_terminal": {
+           "gate": ""
+          },
+          "to_terminal": {
+           "gate": ""
+          },
+          "cabin_class": "economy",
+          "flight_time": 80,
+          "layover_time": 0,
+          "flight_number": "PK310",
+          "distance": 595.2,
+          "aircraft": {
+           "manufacturer": "32S",
+           "model": "32S",
+           "created_at": "2024-12-18T09:24:10+05:00",
+           "updated_at": "2024-12-18T09:24:10+05:00"
+          }
+         },
+         {
+          "ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+          "operating_carrier": {
+           "name": "Pakistan International Airlines",
+           "iata": "PK",
+           "logo": "https://cdn.sooperfare.com/assets/client/images/airlines/PK.png",
+           "created_at": "2025-05-07T17:42:09+05:00",
+           "updated_at": "2026-11-18T21:57:26+05:00"
+          },
+          "departure_at": "2026-12-10T10:20:00+05:00",
+          "arrival_at": "2026-12-10T11:40:00+05:00",
+          "from": {
+           "name": "Quetta Airport",
+           "iata": "UET",
+           "city": {
+            "name": "Quetta",
+            "code": "UET",
+            "created_at": "2025-04-30T07:39:30+05:00",
+            "updated_at": "2025-09-26T11:07:53+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:40+05:00",
+           "updated_at": "2026-11-18T20:42:48+05:00"
+          },
+          "to": {
+           "name": "Allama Iqbal International Airport",
+           "iata": "LHE",
+           "city": {
+            "name": "Lahore",
+            "code": "LHE",
+            "created_at": "2025-04-30T07:39:19+05:00",
+            "updated_at": "2025-10-01T18:26:44+05:00"
+           },
+           "country": {
+            "name": "Pakistan",
+            "alpha_2": "PK",
+            "flag": "https://cdn.sooperfare.com/assets/client/images/flags/png/pk.png",
+            "url": "https://api.sooperfare.com/pk",
+            "created_at": "2025-04-30T02:39:15+05:00",
+            "updated_at": "2026-04-05T12:23:54+05:00"
+           },
+           "created_at": "2025-04-30T03:21:44+05:00",
+           "updated_at": "2026-11-18T21:58:55+05:00"
+          },
+          "from_terminal": {
+           "gate": ""
+          },
+          "to_terminal": {
+           "gate": ""
+          },
+          "cabin_class": "economy",
+          "flight_time": 80,
+          "layover_time": 60,
+          "flight_number": "PK323",
+          "distance": 725.05,
+          "aircraft": {
+           "manufacturer": "32S",
+           "model": "32S",
+           "created_at": "2024-12-18T09:24:10+05:00",
+           "updated_at": "2024-12-18T09:24:10+05:00"
+          }
+         }
+        ],
+        "ancillaries": {
+         "baggages": [],
+         "meals": [],
+         "seatplans": [],
+         "ssrs": []
+        },
+        "fares": [
+         {
+          "ref_id": "e25c1ffc-96bf-4364-a3b5-8b7caf2ac831",
+          "signature": "Economy Lite|V,V|1",
+          "is_refundable": true,
+          "name": "Economy Lite",
+          "class": "V,V",
+          "name_class": "Economy Lite",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 20790,
+            "surcharge": 16852,
+            "taxes": 4140,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 41782
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Economy Lite",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Economy Lite",
+            "description": "Checked baggage not included",
+            "weight_limit": 0,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Economy Lite",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Economy Lite",
+            "description": "Checked baggage not included",
+            "weight_limit": 0,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 20790,
+          "surcharge": 16852,
+          "taxes": 4140,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 41782,
+          "total_discount": 0,
+          "billable_price": 41782
+         },
+         {
+          "ref_id": "9a93dfdf-0e54-481d-b21d-82fdb9c2f8b8",
+          "signature": "Smart|V,V|1",
+          "is_refundable": true,
+          "name": "Smart",
+          "class": "V,V",
+          "name_class": "Smart",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 23600,
+            "surcharge": 16852,
+            "taxes": 4140,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 44592
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Smart",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Smart",
+            "description": "1 checked bag(s), up to 20 kg",
+            "weight_limit": 20,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Smart",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Smart",
+            "description": "1 checked bag(s), up to 20 kg",
+            "weight_limit": 20,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 23600,
+          "surcharge": 16852,
+          "taxes": 4140,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 44592,
+          "total_discount": 0,
+          "billable_price": 44592
+         },
+         {
+          "ref_id": "5dfb4bc3-5bb7-4bff-b091-c052cccf0298",
+          "signature": "Freedom|V,V|1",
+          "is_refundable": true,
+          "name": "Freedom",
+          "class": "V,V",
+          "name_class": "Freedom",
+          "available_seats": 0,
+          "passenger_fares": [
+           {
+            "traveler_type": "adult",
+            "total_passenger": 1,
+            "base_price": 29210,
+            "surcharge": 16852,
+            "taxes": 4140,
+            "fees": 0,
+            "service_charges": 0,
+            "ancillaries_charges": 0,
+            "total_price": 50202
+           }
+          ],
+          "fare_policies": [],
+          "baggage_policies": [
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Freedom",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "1fd07688-106d-48d2-9edc-13a6071a4336",
+            "title": "Freedom",
+            "description": "1 checked bag(s), up to 30 kg",
+            "weight_limit": 30,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Freedom",
+            "description": "1 hand bag(s), up to 7 kg",
+            "weight_limit": 7,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "carry",
+            "traveler_type": "adult"
+           },
+           {
+            "segment_ref_id": "22317704-59ae-461e-88a5-1a578b0ea0f4",
+            "title": "Freedom",
+            "description": "1 checked bag(s), up to 30 kg",
+            "weight_limit": 30,
+            "weight_unit": "kg",
+            "pieces": 1,
+            "type": "checked",
+            "traveler_type": "adult"
+           }
+          ],
+          "combinability_fares": [],
+          "currency": {
+           "name": "Pakistani Rupee",
+           "code": "PKR",
+           "symbol": "Rs",
+           "decimal": 0,
+           "flag": "https://cdn.sooperfare.com/assets/client/images/flags/currency/PKR.png",
+           "created_at": "2025-04-30T08:20:52+05:00",
+           "updated_at": "2025-04-30T08:20:52+05:00"
+          },
+          "base_price": 29210,
+          "surcharge": 16852,
+          "taxes": 4140,
+          "fees": 0,
+          "service_charges": 0,
+          "ancillaries_charges": 0,
+          "total_price": 50202,
+          "total_discount": 0,
+          "billable_price": 50202
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

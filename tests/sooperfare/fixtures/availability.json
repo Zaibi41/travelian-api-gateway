@@ -1,0 +1,36 @@
+{
+ "status": true,
+ "message": "Operation Successfull",
+ "type": "json",
+ "data": {
+  "ref_id": "ae420372-4094-4dbf-9370-946ad32aeb81",
+  "providers": [
+   {
+    "identifier": "PA",
+    "created_at": "2026-01-09T11:13:01+05:00",
+    "updated_at": "2026-11-18T20:48:03+05:00"
+   },
+   {
+    "identifier": "PF",
+    "created_at": "2026-01-09T11:13:01+05:00",
+    "updated_at": "2026-11-18T20:48:03+05:00"
+   },
+   {
+    "identifier": "PK",
+    "created_at": "2026-01-09T11:13:01+05:00",
+    "updated_at": "2026-11-18T20:48:03+05:00"
+   },
+   {
+    "identifier": "ONEAPI",
+    "created_at": "2026-01-09T11:13:01+05:00",
+    "updated_at": "2026-11-18T20:48:03+05:00"
+   },
+   {
+    "identifier": "Z8",
+    "created_at": "2026-08-07T18:57:20+05:00",
+    "updated_at": "2026-11-18T20:48:03+05:00"
+   }
+  ],
+  "analytics": []
+ }
+}
