@@ -48,7 +48,7 @@ def test_super_admin_adds_an_account_and_sees_it_listed(admin):
     assert response.status_code == 201
     created = response.json()
     assert created["label"] == "Meezan Bank, Travelian current account" and created["active"] is True
-    assert set(created) == {"id", "method", "label", "active"}
+    assert set(created) == {"id", "method", "label", "active", "bank_name", "account_title", "account_number_masked", "qr_asset_key", "qr_url"}
     assert client.get(PATH).json()["accounts"] == [created]
     assert connection.execute(text("SELECT created_by_user_id FROM payment_accounts")).scalar() == user_id
 

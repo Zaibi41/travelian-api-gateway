@@ -62,6 +62,7 @@ REQUEST = FlightSearchRequest(origin="KHI", destination="LHE", departure_date="2
 def setup():
     live_flights._quotes.clear()
     live_flights._sessions.clear()
+    live_flights._airlines.clear()
     with patch.object(settings, "flight_markup_percent", Decimal("2")), patch.object(settings, "flight_markup_fixed_minor", 0), \
          patch.object(settings, "sooperfare_booking_enabled", True), patch.object(settings, "southair_booking_enabled", False):
         yield
@@ -176,3 +177,10 @@ def test_airline_refusal_and_unclear_answer():
     with pytest.raises(flight_holds.HoldError) as error:
         hold(priced, unclear)
     assert error.value.code == "not_confirmed_hold" and unclear.reservation.await_count == 1  # never retried
+
+
+def test_the_airline_list_is_reused_per_route_but_fares_are_searched_every_time():
+    sf = fake_sf()
+    search(sf=sf)
+    search(sf=sf)
+    assert sf.availability.await_count == 1 and sf.search.await_count == 2

@@ -43,7 +43,7 @@ from app.schemas.group_holds import (
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
-from app.services import flight_holds, group_terms, pricing
+from app.services import flight_holds, group_terms, notifications, pricing
 from app.services.group_ticketing_status import ticketing_status
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departure_time, baggage_text, selling_price, supplier_cost
@@ -632,7 +632,11 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         raise GroupHoldError(500, _for_viewer(viewer, f"The booking couldn't be saved ({reason}). Nothing was held.",
                                               "The booking couldn't be saved. Nothing was held. Try again."), "not_saved") from None
 
+    lead = f"{resolved.passengers[0].title or ''} {resolved.passengers[0].first_name or ''} {resolved.passengers[0].last_name or ''}".strip()
     if request_only:  # a request: staff confirm the fare and hold it from the admin
+        await notifications.booking_event("booking_requested", reference=reference, passenger=lead, route=ticket.sector,
+                                          fare_minor=selling_each * request.adults, currency=currency, pnr=None, hold_expires_at=None,
+                                          note="Website request: nothing is held at the supplier yet.")
         return await read(reference, viewer)
 
     # 2. The hold. Never retried: a failure may still have held seats, so staff check the supplier.
@@ -681,6 +685,9 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         ))
     except Exception as error:  # noqa: BLE001 - the supplier holds seats we couldn't record: never lose the PNR
         raise await _unrecorded(booking_id, reference, held, provider, ticket.vendor, request.adults, viewer, error_reason(error)) from None
+    await notifications.booking_event("hold_created", reference=reference, passenger=lead, route=ticket.sector,
+                                      fare_minor=selling.amount_minor * request.adults, currency=selling.currency, pnr=held.pnr,
+                                      hold_expires_at=expires_at)
     if website:  # guests' details stay on their booking only; they are not added to Travelian's saved people
         return await read(reference, viewer)
     document = flight_holds.customer_card_document(request.contact, resolved.passengers)  # the same rule as the Flights hold

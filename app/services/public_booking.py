@@ -28,7 +28,7 @@ from app.core.field_visibility import NONE, BackOfficeUser
 from app.db import booking_people, group_holds as store, public_bookings
 from app.schemas.group_holds import GroupHoldContact, GroupHoldPassenger, GroupHoldRequest
 from app.schemas.group_ticketing import GroupInventory
-from app.services import group_holds
+from app.services import group_holds, notifications
 from app.services.group_ticketing import GroupInventoryUnavailable, fetch_all_group_inventory, filter_group_inventory
 from app.services.group_ticketing_view import inventory_view
 from app.vendors.payments import payfast
@@ -157,6 +157,9 @@ class PublicGroupBookingRequest(BaseModel):
     contact: GroupHoldContact
     passengers: list[GroupHoldPassenger] = Field(min_length=1, max_length=9)
     fare_terms_acknowledged: bool = Field(description="The guest agreed that this group fare is non-refundable and non-changeable.")
+    payment_method: Literal["card", "bank_transfer", "jazzcash"] = Field(
+        "card", description="card: PayFast online. bank_transfer: held at the supplier, paid to Travelian's bank account, "
+                            "recorded by staff (then issued). jazzcash: off until enabled.")
 
 
 class PublicMoney(BaseModel):
@@ -200,12 +203,58 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# ---------- payment methods offered at checkout ----------
+
+class BankAccountView(BaseModel):
+    bank_name: str | None = None
+    account_title: str | None = None
+    account_number_masked: str | None = None
+    qr_url: str | None = None
+
+
+class PaymentMethodsView(BaseModel):
+    card: bool
+    bank_transfer: bool
+    jazzcash: bool
+    bank_accounts: list[BankAccountView] = []
+    logo_url: str | None = None
+
+
+def bank_accounts() -> list[BankAccountView]:
+    from app.db import payment_accounts
+    from app.services import assets
+
+    return [BankAccountView(bank_name=a.bank_name, account_title=a.account_title, account_number_masked=a.account_number_masked,
+                            qr_url=assets.public_url(a.qr_asset_key))
+            for a in payment_accounts.list_accounts() if a.method == "bank_transfer" and a.account_title]
+
+
+async def payment_methods() -> PaymentMethodsView:
+    from app.api.routes.admin_uploads import site_assets
+    from app.vendors.payments import jazzcash
+
+    accounts = await run_in_threadpool(bank_accounts) if settings.bank_transfer_enabled else []
+    try:
+        logo = (await run_in_threadpool(site_assets)).get("site_logo")
+    except Exception:  # noqa: BLE001 - the logo is optional
+        logo = None
+    return PaymentMethodsView(card=payfast.configured(), bank_transfer=bool(accounts), jazzcash=jazzcash.enabled(),
+                              bank_accounts=accounts, logo_url=logo)
+
+
 async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated:
     hold_request = GroupHoldRequest(
         ticket_id=request.ticket_id, adults=request.adults, contact=request.contact, passengers=request.passengers,
         fare_terms_acknowledged=request.fare_terms_acknowledged, selling_price_per_adult=None,
     )
     live = settings.public_group_booking_enabled
+    if live and request.payment_method == "jazzcash":
+        from app.vendors.payments import jazzcash
+
+        if not jazzcash.enabled():
+            raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
+    if live and request.payment_method == "bank_transfer" and not (await payment_methods()).bank_transfer:
+        raise PublicError(409, "Bank transfer isn't available right now. Choose card.", "method_unavailable")
     try:
         view = await group_holds.hold(hold_request, WEBSITE, request_only=not live)
     except group_holds.GroupHoldError as error:
@@ -213,6 +262,14 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
     token, token_hash = public_bookings.new_token()
     booking = await run_in_threadpool(store.load, view.reference)
     await run_in_threadpool(public_bookings.mark_website, booking.id, token_hash)
+    if live and request.payment_method == "bank_transfer":
+        lead = request.passengers[0]
+        await notifications.booking_event(
+            "bank_transfer_hold", reference=view.reference, passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
+            route=booking.itinerary[0].get("sector") if booking.itinerary and isinstance(booking.itinerary[0], dict) else None,
+            fare_minor=booking.total_minor, currency=booking.currency, pnr=booking.pnr, hold_expires_at=booking.hold_expires_at,
+            note="Customer chose bank transfer. Record the payment in the Payments tab when it arrives, then issue. The hold "
+                 "keeps the supplier's own expiry (D29).")
     return PublicBookingCreated(reference=view.reference, access_token=token, booking=await booking_view(view.reference))
 
 
@@ -245,6 +302,77 @@ async def open_booking(reference: str, token: str) -> PublicBookingView:
     if not await run_in_threadpool(public_bookings.guest_can_open, reference, token):
         raise PublicError(404, "Booking not found. Check the reference and the link from your confirmation.", "not_found")
     return await booking_view(reference)
+
+
+# ---------- self-service lookup (B11, D37): reference + email or phone, read-only ----------
+
+LOOKUP_LIMIT = RateLimiter(10, 3600)  # lookups per IP per hour (stops guessing references)
+NEXT_STEPS = {
+    "requested": "Travelian's team will contact you to confirm the fare and arrange payment. Nothing is held or charged yet.",
+    "held": "Your seats are held. Pay before the hold time ends, or the booking expires and you'll need to search again.",
+    "paid": "Payment received. Travelian is issuing your tickets; you'll receive them once they're ready.",
+    "issued": "Your tickets are issued. Carry your passport or CNIC and arrive at the airport in good time.",
+    "expired": "The hold ended before payment, so the seats were released. Please search again to book.",
+    "cancelled": "This booking was cancelled.",
+}
+
+
+class LookupView(BaseModel):
+    reference: str
+    product: str
+    status: Literal["requested", "held", "paid", "issued", "expired", "cancelled"]
+    payment_status: Literal["unpaid", "part_paid", "paid"]
+    total: PublicMoney
+    paid: PublicMoney
+    hold_expires_at: datetime | None = None
+    legs: list[PublicLeg] = []
+    travelers: list[str] = []
+    airline_pnr: str | None = Field(None, description="Once tickets are issued.")
+    tickets: list[str] = []
+    next_steps: str
+
+
+def lookup_status(row: dict, now: datetime) -> str:
+    booking, issuance = row["booking_status"], row["issuance_status"]
+    if booking == "requested":
+        return "requested"
+    if booking == "ticket_issued" or issuance == "issued":
+        return "issued"
+    if booking in ("cancelled",):
+        return "cancelled"
+    if booking == "expired" or (booking in ("held", "pending_payment") and row["hold_expires_at"] and row["hold_expires_at"] <= now
+                                and row["payment_status"] != "paid"):
+        return "expired"
+    if row["payment_status"] == "paid" or booking in ("payment_received", "confirmed"):
+        return "paid"
+    return "held"
+
+
+async def lookup(reference: str, contact: str) -> LookupView:
+    row = await run_in_threadpool(public_bookings.lookup, reference, contact)
+    if row is None:
+        raise PublicError(404, "We couldn't find a booking with that reference and email or phone. Check both and try again.", "not_found")
+    status = lookup_status(row, _now())
+    legs = []
+    for leg in row["itinerary"] or []:
+        if not isinstance(leg, dict):
+            continue
+        departure = str(leg.get("departure_local") or "")
+        legs.append(PublicLeg(flight_number=leg.get("flight_number"), origin=leg.get("origin"), destination=leg.get("destination"),
+                              departure_date=leg.get("departure_date") or (departure[:10] or None),
+                              departure_time=leg.get("departure_time") or (departure[11:16] or None),
+                              arrival_time=leg.get("arrival_time") or (str(leg.get("arrival_local") or "")[11:16] or None)))
+    issued = status == "issued"
+    return LookupView(
+        reference=row["reference"], product=row["product"], status=status, payment_status=row["payment_status"],
+        total=PublicMoney(amount_minor=row["total_minor"], currency=row["currency"]),
+        paid=PublicMoney(amount_minor=row["paid_minor"], currency=row["currency"]),
+        hold_expires_at=row["hold_expires_at"] if status == "held" else None, legs=legs,
+        travelers=[" ".join(filter(None, (t["title"], t["first_name"], t["last_name"]))) for t in row["travelers"]],
+        airline_pnr=(row["final_pnr"] or row["pnr"]) if issued else None,
+        tickets=[t["ticket_number"] for t in row["travelers"] if t["ticket_number"]] if issued else [],
+        next_steps=NEXT_STEPS[status],
+    )
 
 
 # ---------- pay ----------

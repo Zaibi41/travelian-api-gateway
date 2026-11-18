@@ -84,7 +84,7 @@ def test_price_is_supplier_amount_plus_markup_and_cost_only_with_permission():
     body = {"origin": "LHE", "destination": "KHI", "departure_date": "2026-11-19", "adults": 1}
     with patch.object(settings, "flight_markup_percent", Decimal("0")):
         fare = call(VIEWERS["super_admin"], body, fake_client(live_uat_search_data())).json()["journeys"][0]["flights"][0]["fares"][0]
-    assert "selling_price" not in fare and fare["supplier_cost"]["amount_minor"] == 1_333_000
+    assert fare["selling_price"]["amount_minor"] == 1_333_000 and fare["supplier_cost"]["amount_minor"] == 1_333_000  # 0% markup
     with patch.object(settings, "flight_markup_percent", Decimal("5")):
         admin = call(VIEWERS["super_admin"], body, fake_client(live_uat_search_data())).json()["journeys"][0]["flights"][0]["fares"]
         staff = call(VIEWERS["staff"], body, fake_client(live_uat_search_data())).json()["journeys"][0]["flights"][0]["fares"]

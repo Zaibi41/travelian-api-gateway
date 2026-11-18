@@ -96,7 +96,7 @@ def test_children_need_explicit_fare_info_totals():
     assert refused.status_code == 422 and "Child and infant" in refused.json()["detail"] and refused.json()["code"] == "adults_only"
 
 
-@pytest.mark.parametrize("case,status", [("gone", 409), ("expired", 404), ("wrong_count", 422), ("no_markup", 409), ("supplier_down", 502)])
+@pytest.mark.parametrize("case,status", [("gone", 409), ("expired", 404), ("wrong_count", 422), ("supplier_down", 502)])
 def test_reprice_refusals(case, status):
     second = search_data(callsign="ZZ999") if case == "gone" else search_data()
     client = fake_client(search_data(), SouthairError("timeout") if case == "supplier_down" else second, fare_info={"FINAL_TOTAL": "915.40"})
@@ -107,8 +107,7 @@ def test_reprice_refusals(case, status):
         response = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": search_id, "fare_ids": fare_ids})
     patcher.stop()
     assert response.status_code == status, response.text
-    expected_code = {"gone": "fare_gone", "expired": "search_expired", "wrong_count": "invalid_selection", "no_markup": "no_selling_price",
-                     "supplier_down": "not_confirmed"}[case]
+    expected_code = {"gone": "fare_gone", "expired": "search_expired", "wrong_count": "invalid_selection", "supplier_down": "not_confirmed"}[case]
     assert response.json()["code"] == expected_code and response.json()["detail"]
 
 

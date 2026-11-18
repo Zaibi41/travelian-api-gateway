@@ -42,7 +42,7 @@ def mark_website(booking_id: str, guest_hash: str) -> None:
 def guest_can_open(reference: str, token: str) -> bool:
     if not token or len(token) > 200:
         return False
-    with agencies.application_engine().connect() as connection:
+    with agencies.application_engine().begin() as connection:
         stored = connection.scalar(text("SELECT guest_token_hash FROM bookings WHERE reference = :r AND channel = 'website'"),
                                    {"r": reference})
     return bool(stored) and hmac.compare_digest(stored, token_hash(token))
@@ -135,7 +135,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
 
 
 def latest_attempt(reference: str) -> Attempt | None:
-    with agencies.application_engine().connect() as connection:
+    with agencies.application_engine().begin() as connection:
         row = connection.execute(
             text("SELECT a.*, b.reference FROM payfast_attempts a JOIN bookings b ON b.id = a.booking_id"
                  " WHERE b.reference = :r ORDER BY a.created_at DESC LIMIT 1"), {"r": reference},
@@ -144,3 +144,33 @@ def latest_attempt(reference: str) -> Attempt | None:
         return None
     return Attempt(row["id"], row["booking_id"], row["reference"], row["basket_id"], row["amount_minor"], row["currency"],
                    row["status"], row["transaction_id"])
+
+
+def _digits(value: str) -> str:
+    return "".join(ch for ch in value if ch.isdigit())
+
+
+def lookup(reference: str, contact: str) -> dict | None:
+    """The booking when `contact` is the email or phone it was booked with (any booking, any channel), else None."""
+    contact = contact.strip()
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(
+            text("SELECT b.id, b.reference, b.product, b.booking_status, b.payment_status, b.issuance_status, b.hold_expires_at,"
+                 " b.currency, b.total_minor, b.pnr, b.itinerary, b.supplier_response ->> 'final_pnr' AS final_pnr,"
+                 " c.email, c.phone_code, c.phone,"
+                 " (SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) AS paid_minor"
+                 " FROM bookings b JOIN booking_customers c ON c.booking_id = b.id WHERE b.reference = :r"),
+            {"r": reference.strip().upper()},
+        ).mappings().one_or_none()
+        if row is None:
+            return None
+        by_email = "@" in contact and contact.lower() == (row["email"] or "").strip().lower()
+        given, stored = _digits(contact), _digits(f"{row['phone_code']}{row['phone']}")
+        by_phone = len(given) >= 7 and (stored.endswith(given[-10:]) or _digits(row["phone"]).endswith(given[-10:]))
+        if not (by_email or by_phone):
+            return None
+        travelers = connection.execute(
+            text("SELECT title, first_name, last_name, ticket_number FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+            {"b": row["id"]},
+        ).mappings().all()
+    return {**dict(row), "travelers": [dict(t) for t in travelers]}

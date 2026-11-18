@@ -14,6 +14,12 @@ PARAMETER_SETTINGS = {
     "skypass_endpoint": "group-ticketing/skypass/endpoint",
     "skypass_client_id": "group-ticketing/skypass/client-id",
     "skypass_client_secret": "group-ticketing/skypass/client-secret",
+    # Payments (D): rotated in Parameter Store without a code change; restart the service to pick them up.
+    "payfast_merchant_id": "payments/payfast/merchant-id",
+    "payfast_secured_key": "payments/payfast/secured-key",
+    "jazzcash_merchant_id": "payments/jazzcash/merchant-id",
+    "jazzcash_password": "payments/jazzcash/password",
+    "jazzcash_integrity_salt": "payments/jazzcash/integrity-salt",
 }
 
 

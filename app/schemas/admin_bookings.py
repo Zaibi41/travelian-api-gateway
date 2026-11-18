@@ -173,6 +173,18 @@ class ReceivingAccount(BaseModel):
     method: PaymentMethod
     label: str
     active: bool
+    bank_name: str | None = None
+    account_title: str | None = None
+    account_number_masked: str | None = Field(None, description="Only the last 4 digits; the full number is never stored.")
+    qr_asset_key: str | None = Field(None, description="S3 object key of the QR image.")
+    qr_url: str | None = Field(None, description="Public URL of the QR image (S3).")
+
+
+class UpdateReceivingAccountRequest(BaseModel):
+    bank_name: str | None = Field(None, max_length=1000)
+    account_title: str | None = Field(None, max_length=1000)
+    account_number: str | None = Field(None, max_length=40, description="Full number as typed; only a masked form is stored.")
+    qr_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose payment_qr).")
 
 
 class ReceivingAccountList(BaseModel):
@@ -184,6 +196,10 @@ class AddReceivingAccountRequest(BaseModel):
     # Length is checked after spaces are collapsed (2 to 120), with the same message as the command.
     label: str = Field(max_length=1000, description="The account's name staff see: 2 to 120 characters after extra spaces are removed. "
                                                      "Not the full account number.")
+    bank_name: str | None = Field(None, max_length=1000)
+    account_title: str | None = Field(None, max_length=1000)
+    account_number: str | None = Field(None, max_length=40, description="Full number as typed; only a masked form is stored.")
+    qr_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose payment_qr).")
 
 
 class SellingPriceItem(BaseModel):

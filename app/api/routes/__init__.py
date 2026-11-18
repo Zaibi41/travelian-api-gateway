@@ -2,6 +2,8 @@ from fastapi import APIRouter
 
 from app.api.routes.admin_bookings import router as admin_bookings_router
 from app.api.routes.admin_dashboard import router as admin_dashboard_router
+from app.api.routes.admin_notifications import router as admin_notifications_router
+from app.api.routes.admin_uploads import router as admin_uploads_router
 from app.api.routes.admin_users import router as admin_users_router
 from app.api.routes.agencies import router as agencies_router
 from app.api.routes.agency_applications import router as agency_applications_router
@@ -57,3 +59,5 @@ router.include_router(finance_payment_accounts_router)
 router.include_router(saved_people_booking_router)
 router.include_router(logos_router)
 router.include_router(public_router)
+router.include_router(admin_notifications_router)
+router.include_router(admin_uploads_router)

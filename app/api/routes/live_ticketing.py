@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from app.core.field_visibility import BackOfficeUser, require_back_office, require_search_viewer
 from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import FlightSearchView, HoldRequest, HoldView, RepriceRequest, RepriceView
-from app.services import flight_holds, live_flights
+from app.services import flight_holds, flight_requests, live_flights
 
 router = APIRouter(
     prefix="/live-ticketing",
@@ -55,4 +55,16 @@ async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, De
         if error.field_errors:  # per-field messages, shaped like request validation errors
             detail = [{"loc": ["body", *path], "msg": message, "type": "value_error"} for path, message in error.field_errors]
             return JSONResponse({"detail": detail, "code": error.code, "message": error.message, **error.extra}, status_code=error.status)
+        return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)
+
+
+@router.post(
+    "/flights/requests", response_model=flight_requests.RequestView, status_code=201,
+    responses={404: {"description": "Quote expired."}, 422: {"description": "Passengers don't match."}},
+)
+async def request_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, Depends(require_back_office)]):
+    """Request to book (restricted airlines, D32): saved for staff to arrange; never a supplier hold or booking call."""
+    try:
+        return await flight_requests.create(request, viewer)
+    except flight_holds.HoldError as error:
         return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)
