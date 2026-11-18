@@ -17239,6 +17239,49 @@
         ]
       }
     },
+    "/v1/public/flights/search": {
+      "post": {
+        "description": "Live flights (all airlines Travelian sells), selling price only. Never supplier names, cost or supplier ids.",
+        "operationId": "search_flights_v1_public_flights_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many searches."
+          }
+        },
+        "summary": "Search Flights",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
     "/v1/public/group-ticketing/bookings": {
       "post": {
         "description": "Book as a guest. With live booking on, seats are held at the supplier; otherwise a request is saved for staff.",

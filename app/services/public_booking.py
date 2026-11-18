@@ -113,6 +113,40 @@ async def search(origin: str | None, destination: str | None, departure_date, ad
     return view
 
 
+# ---------- flights search (Southair + SooperFare through the gateway's static IP) ----------
+
+#: The public site's searches share one "website" identity; its search ids are unguessable and expire with the search.
+WEBSITE_SEARCH_VIEWER = BackOfficeUser(user_id="website", role=group_holds.WEBSITE_ROLE, visibility=NONE, actions=frozenset())  # type: ignore[arg-type]
+_flight_cache: dict[tuple, tuple[float, object]] = {}
+_flight_locks: dict[tuple, asyncio.Lock] = {}
+
+
+async def search_flights(request) -> object:
+    """Live flights with selling prices only (no supplier names or cost). The same search within
+    PUBLIC_SEARCH_CACHE_SECONDS is answered from the cache, so visitors don't each call the suppliers."""
+    from app.services import live_flights
+
+    key = (request.origin, request.destination, request.departure_date, request.return_date, request.adults,
+           request.children, request.infants, request.cabin)
+    now = time.monotonic()
+    cached = _flight_cache.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    lock = _flight_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = _flight_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        view = await live_flights.search(request, WEBSITE_SEARCH_VIEWER)
+        ttl = min(settings.public_search_cache_seconds, live_flights.SEARCH_TTL_SECONDS - 60)
+        if view.status == "complete" and ttl > 0:
+            _flight_cache[key] = (time.monotonic() + ttl, view)
+        for stale in [k for k, (expires, _) in _flight_cache.items() if expires <= time.monotonic()]:
+            _flight_cache.pop(stale, None)
+            _flight_locks.pop(stale, None)
+        return view
+
+
 # ---------- book ----------
 
 class PublicGroupBookingRequest(BaseModel):
