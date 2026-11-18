@@ -20,6 +20,8 @@ from app.schemas.group_holds import FareTermsView
 
 Product = Literal["flight", "group", "hotel", "umrah"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
+#: A payment as shown: also PayFast (online, recorded only by the gateway from a verified PayFast result).
+RecordedPaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
@@ -143,7 +145,7 @@ class BookingPayment(BaseModel):
 
     id: str
     amount: BookingMoney
-    method: PaymentMethod
+    method: RecordedPaymentMethod
     received_into: str = Field(description="The Travelian account the money was received into.")
     reference: str = Field(description="The payer's transaction reference.")
     received_at: datetime

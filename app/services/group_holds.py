@@ -50,6 +50,9 @@ from app.services.group_ticketing_view import GroupLegView, GroupMoney, _departu
 from app.services.live_flights import money_text
 from app.services import supplier_logos
 
+#: The public website acting for a guest (no staff user; app.services.public_booking).
+WEBSITE_ROLE = "website"
+
 logger = logging.getLogger(__name__)
 REFERENCE_PREFIX = "TRV-GRP-"
 
@@ -292,6 +295,8 @@ async def _unrecorded(booking_id: str, reference: str, held: HeldSeats, provider
 def _status(booking: store.GroupBooking, now: datetime) -> str:
     if booking.booking_status == store.HOLD_UNRECORDED:
         return "not_recorded"
+    if booking.booking_status == "requested":  # a website request (live booking off): nothing held at the supplier
+        return "requested"
     if booking.issuance_status in ("processing", "unknown"):
         return booking.issuance_status
     if booking.booking_status == "ticket_issued" or booking.issuance_status == "issued":
@@ -544,8 +549,11 @@ def _itinerary(ticket: GroupTicket) -> list[dict]:
 
 
 async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
-               fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None) -> GroupHoldView:
-    if viewer.role not in BACK_OFFICE_ROLES:
+               fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None, request_only: bool = False) -> GroupHoldView:
+    """Hold seats at the supplier. request_only (website, live booking off): the same checks and record, saved as
+    'requested', and the supplier is never called."""
+    website = viewer.role == WEBSITE_ROLE  # a guest on the public site (app.services.public_booking)
+    if viewer.role not in BACK_OFFICE_ROLES and not website:
         raise GroupHoldError(403, "Only back-office users can hold group seats.", "not_allowed")
     if not request.fare_terms_acknowledged:
         raise GroupHoldError(422, group_terms.REQUIRED, "fare_terms_not_acknowledged", [(["fare_terms_acknowledged"], group_terms.REQUIRED)])
@@ -569,7 +577,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                              "This group fare is no longer available. Search again." if error.status != 503
                              else "Group fares can't be checked right now. Nothing was held.", "fare_gone") from None
     provider = provider_for(ticket.vendor)
-    if provider is None:
+    if provider is None and not request_only:
         raise GroupHoldError(409, "Seats on this group fare can't be held through Travelian yet. Nothing was held.", "hold_not_supported")
     if ticket.remaining is not None and ticket.remaining < request.adults:
         raise GroupHoldError(409, f"Only {ticket.remaining} seat{'s' if ticket.remaining != 1 else ''} left on this fare. Nothing was held.",
@@ -611,17 +619,21 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
             provider=ticket.vendor, currency=currency,
             selling_total_minor=selling_each * request.adults,
             supplier_total_minor=listing_cost.amount_minor * request.adults,
-            supplier_response={"adults": request.adults, "hold_minutes": hold_minutes(provider),
+            supplier_response={"adults": request.adults, "hold_minutes": hold_minutes(provider) if provider else None,
                                "ticket": {"id": str(request.ticket_id), "updated_at": ticket.updated_at, "ticket_type": ticket.ticket_type},
                                "source": source_record(ticket, None)},
             actor_user_id=viewer.user_id, customer=flight_holds._customer(resolved), travelers=travelers, itinerary=_itinerary(ticket),
-            reference_prefix=REFERENCE_PREFIX, fare_terms=group_terms.event_details(),
+            reference_prefix=REFERENCE_PREFIX, fare_terms=group_terms.event_details(), channel="website" if website else "staff",
+            status="requested" if request_only else None,
         ))
     except Exception as error:  # noqa: BLE001 - nothing was sent to the supplier
         reason = error_reason(error)
         logger.error("Group hold record not written; supplier not called", extra={"vendor": ticket.vendor, "error_type": reason})
         raise GroupHoldError(500, _for_viewer(viewer, f"The booking couldn't be saved ({reason}). Nothing was held.",
                                               "The booking couldn't be saved. Nothing was held. Try again."), "not_saved") from None
+
+    if request_only:  # a request: staff confirm the fare and hold it from the admin
+        return await read(reference, viewer)
 
     # 2. The hold. Never retried: a failure may still have held seats, so staff check the supplier.
     try:
@@ -669,6 +681,8 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         ))
     except Exception as error:  # noqa: BLE001 - the supplier holds seats we couldn't record: never lose the PNR
         raise await _unrecorded(booking_id, reference, held, provider, ticket.vendor, request.adults, viewer, error_reason(error)) from None
+    if website:  # guests' details stay on their booking only; they are not added to Travelian's saved people
+        return await read(reference, viewer)
     document = flight_holds.customer_card_document(request.contact, resolved.passengers)  # the same rule as the Flights hold
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
     view = await read(reference, viewer)
