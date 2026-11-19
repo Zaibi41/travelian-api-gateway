@@ -69,3 +69,30 @@ def test_ticketing_is_on_only_for_southair_bookings():
         assert not issuance.ticketing_on("sooperfare")
     with patch.object(settings, "southair_ticketing_enabled", False):
         assert not issuance.ticketing_on("southair")
+
+
+@pytest.mark.parametrize("http,listing,expected", [
+    (422, {"is_issued": False, "is_paid": False, "status": "active"}, "not_issued"),   # plain refusal, record untouched: retryable
+    (422, {"is_issued": False, "is_paid": True, "status": "active"}, "unknown"),       # refused, but SooperFare shows it paid
+    (422, None, "unknown"),                                                            # record can't be read
+    (409, {"is_issued": False, "is_paid": False, "status": "active"}, "unknown"),     # 409/401/429 never count as "nothing happened"
+    (None, {"is_issued": False, "is_paid": False, "status": "active"}, "unknown"),    # timeout
+])
+def test_a_failed_sooperfare_confirm_is_retryable_only_when_sooperfare_shows_nothing_happened(http, listing, expected):
+    from app.services import sooperfare_bookings
+    from app.vendors.flights.sooperfare.client import SooperfareError
+
+    items = [] if listing is None else [{"uuid": "uuid-1", "booking": {"reservation_status": listing["status"]},
+                                         "additional": {"is_issued": listing["is_issued"], "is_paid": listing["is_paid"]}}]
+    sf = MagicMock(confirm=AsyncMock(side_effect=SooperfareError("refused" if http else "timeout", "Refused.", status=http)),
+                   booking_list=AsyncMock(return_value={"data": items}))
+    request = {"method": "POST", "path": "/v1/booking/confirm", "body": {"booking_ref_id": "uuid-1", "txn_ref_id": "TRV-1", "amount": 22070.0,
+                                                                         "currency": "PKR", "remarks": "r"}}
+    record = sooperfare_bookings.Record("b1", "TRV-1", "sooperfare", "held", "IKVIMS", "uuid-1", 2207000, "PKR", {})
+    with patch.object(settings, "sooperfare_ticketing_enabled", True), patch.object(settings, "sooperfare_confirm_enabled", True), \
+         patch.object(store, "load", return_value=target("sooperfare")), patch.object(store, "claim", return_value=target("sooperfare")), \
+         patch.object(store, "release") as release, patch.object(sooperfare_bookings, "confirm_request", return_value=request), \
+         patch.object(sooperfare_bookings, "_load", return_value=record):
+        outcome = asyncio.run(issuance.issue("TRV-1", ADMIN, sooperfare_factory=lambda: sf))
+    assert outcome.result == expected and sf.confirm.await_count == 1
+    assert release.call_args.args[2] == ("not_issued" if expected == "not_issued" else "unknown")
