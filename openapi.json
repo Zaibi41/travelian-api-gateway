@@ -693,6 +693,21 @@
             ],
             "description": "Omitted when no customer was saved."
           },
+          "customer_email_problems": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CustomerEmailProblem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer emails not sent: staff contact the customer.",
+            "title": "Customer Email Problems"
+          },
           "customer_or_agency": {
             "anyOf": [
               {
@@ -2354,6 +2369,38 @@
           }
         },
         "title": "CustomerCard",
+        "type": "object"
+      },
+      "CustomerEmailProblem": {
+        "description": "A customer email whose last attempt wasn't delivered to SES (e.g. the SES sandbox refuses unverified addresses).",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Which email: booking_held, bank_transfer, payment_received, ticket_issued, ...",
+            "title": "Email",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "email",
+          "at"
+        ],
+        "title": "CustomerEmailProblem",
         "type": "object"
       },
       "DashboardFilterOptions": {
@@ -18902,6 +18949,57 @@
         "summary": "Logo",
         "tags": [
           "logos"
+        ]
+      }
+    },
+    "/v1/public/booking-links/{token}": {
+      "get": {
+        "description": "The booking a customer email's link opens: read-only (no payment from here), one booking, no login. Links expire at\nthe later of 30 days and 2 days after the last travel date.",
+        "operationId": "booking_by_link_v1_public_booking_links__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 8,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The link is unknown or has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests."
+          }
+        },
+        "summary": "Booking By Link",
+        "tags": [
+          "public website"
         ]
       }
     },

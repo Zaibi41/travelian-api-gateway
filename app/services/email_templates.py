@@ -75,6 +75,7 @@ class Booking:
     paid_minor: int | None = None
     tickets: list[tuple[str, str]] = field(default_factory=list)   # (passenger, ticket number)
     customer_name: str | None = None    # "Mr Mohammad Hafeez" for the greeting
+    view_url: str | None = None         # signed link that opens this booking (read-only); Find my booking when absent
 
 
 @dataclass
@@ -289,7 +290,7 @@ def _layout(*, reference: str, status: str, tone: str, preheader: str, body: str
   <tr><td class="pad" style="padding:20px 32px 24px;background:#F8FAFC;border-top:1px solid {LINE};font-family:{FONT};font-size:13px;line-height:1.6;color:{MUTED};">
     <p style="margin:0 0 6px;font-family:{DISPLAY};font-size:14px;font-weight:700;color:{NAVY};">Travelian</p>
     <p style="margin:0;">Call <a href="tel:+923244440014" style="color:{BLUE};text-decoration:none;">{PHONE}</a> &nbsp;·&nbsp;
-      WhatsApp <a href="{WHATSAPP}" style="color:{BLUE};text-decoration:none;">{PHONE}</a></p>
+      WhatsApp <a href="{_e(_whatsapp(reference))}" style="color:{BLUE};text-decoration:none;">{PHONE}</a></p>
     <p style="margin:0;"><a href="mailto:{EMAIL}" style="color:{BLUE};text-decoration:none;">{EMAIL}</a> &nbsp;·&nbsp; <a href="{SITE}" style="color:{BLUE};text-decoration:none;">www.travelian.pk</a></p>
     <p style="margin:0 0 10px;">{ADDRESS}</p>
     <p style="margin:0 0 10px;">{socials}</p>
@@ -304,9 +305,9 @@ def _layout(*, reference: str, status: str, tone: str, preheader: str, body: str
 
 # ---------- plain text ----------
 
-def _text(status: str, lines: list[str], *, audience: str = "customer") -> str:
+def _text(status: str, lines: list[str], *, audience: str = "customer", reference: str | None = None) -> str:
     footer = [
-        "", "--", "Travelian", f"Call or WhatsApp {PHONE}", f"{EMAIL} · www.travelian.pk", ADDRESS,
+        "", "--", "Travelian", f"Call {PHONE}" + (f" · WhatsApp {_whatsapp(reference)}" if reference else f" or WhatsApp {PHONE}"), f"{EMAIL} · www.travelian.pk", ADDRESS,
         "Please quote your booking reference in every message." if audience == "customer" else "Internal notification for Travelian staff.",
     ]
     return "\n".join([status.upper(), "", *lines, *footer]) + "\n"
@@ -348,9 +349,25 @@ def _greeting(booking: Booking) -> str:
     return f"Dear {booking.customer_name}," if booking.customer_name else "Hello,"
 
 
-def _manage(reference: str) -> str:
-    """My Bookings: the customer finds the booking with its reference and their email or phone."""
-    return f"{SITE}/my-bookings"
+def _manage(booking: Booking) -> str:
+    """The booking's signed link (opens it directly); Find my booking when there is none."""
+    return booking.view_url or f"{SITE}/find-booking"
+
+
+def _fallback(booking: Booking) -> str:
+    """Under every button: the way in that always works."""
+    return _p(f"Link not working? Go to <a href=\"{SITE}/find-booking\" style=\"color:{BLUE};\">travelian.pk/find-booking</a> and enter "
+              f"<strong>{_e(booking.reference)}</strong> with your email or phone number.", size=12, color=MUTED, margin="-10px 0 18px")
+
+
+def _fallback_text(booking: Booking) -> str:
+    return f"Link not working? Go to {SITE}/find-booking and enter {booking.reference} with your email or phone number."
+
+
+def _whatsapp(reference: str) -> str:
+    from urllib.parse import quote
+
+    return f"{WHATSAPP}?text={quote(f'Hello Travelian, I have a question about booking {reference}.')}"
 
 
 # ---------- customer templates ----------
@@ -368,12 +385,12 @@ def booking_held(booking: Booking) -> Email:
             + (_deadline(expires, "If the payment isn't completed in time, the airline releases the seats and the fare may change.") if expires else "")
             + _summary(booking, "On hold, payment pending", "waiting", total_label="Total to pay")
             + _p("", margin="0 0 10px")
-            + _button("Pay on My Bookings", _manage(booking.reference))
-            + _p(f"On My Bookings, enter <strong>{_e(booking.reference)}</strong> and your email or phone number, then pay by card. "
-                 "Questions? Reply to this email or message us on WhatsApp.", size=13, color=MUTED))
-    text = _text(status, [_greeting(booking), "", f"Your seats are on hold. Pay {amount} before the hold ends to get your e-ticket."]
+            + _button("View booking and pay", _manage(booking))
+            + _fallback(booking)
+            + _p("Questions? Reply to this email or message us on WhatsApp.", size=13, color=MUTED))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", f"Your seats are on hold. Pay {amount} before the hold ends to get your e-ticket."]
                  + ([f"Pay before: {pkt(expires)} ({utc(expires)})"] if expires else []) + [""] + _text_summary(booking, "On hold, payment pending")
-                 + ["", f"Pay on My Bookings: {_manage(booking.reference)} (enter {booking.reference} and your email or phone)"])
+                 + ["", f"View booking and pay: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Seats held: pay {amount} to confirm booking {booking.reference}", _layout(reference=booking.reference, status=status, tone="waiting",
                  preheader=preheader, body=body), text, preheader)
 
@@ -392,10 +409,10 @@ def book_only_held(booking: Booking) -> Email:
             + _steps([("We call you:", "a Travelian agent confirms the fare and the payment method with you."),
                       ("You pay:", "by bank transfer, JazzCash or card, as agreed."),
                       ("We issue your ticket:", "your e-ticket arrives by email as soon as the payment is confirmed.")])
-            + _button("View my booking", _manage(booking.reference)))
-    text = _text(status, [_greeting(booking), "", "Your seats are on hold. No payment has been taken. Our team will contact you to arrange payment."]
+            + _button("View my booking", _manage(booking)) + _fallback(booking))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", "Your seats are on hold. No payment has been taken. Our team will contact you to arrange payment."]
                  + ([f"Hold ends: {pkt(expires)} ({utc(expires)})"] if expires else []) + [""] + _text_summary(booking, "On hold, no payment yet")
-                 + ["", f"View my booking: {_manage(booking.reference)}"])
+                 + ["", f"View my booking: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Seats held for booking {booking.reference}: we'll contact you about payment", _layout(
         reference=booking.reference, status=status, tone="waiting", preheader=preheader, body=body), text, preheader)
 
@@ -419,13 +436,15 @@ def transfer_instructions(booking: Booking, accounts: list[Account], kind: str =
             + _steps([("Send the payment:", f"{_e(amount)} by {method}, with <strong>{_e(booking.reference)}</strong> as the reference."),
                       ("Send the receipt:", f"reply to this email or WhatsApp it to <strong>{PHONE}</strong>."),
                       ("Get your e-ticket:", "once our team confirms the payment, we issue your ticket and email it to you.")])
-            + _button("Send receipt on WhatsApp", f"{WHATSAPP}?text={_e('Payment receipt for booking ' + booking.reference)}", TEAL))
-    text = _text(status, [_greeting(booking), "", f"Your seats are on hold. Send {amount} by {method} before the hold ends, then send us the receipt."]
+            + _button("Send receipt on WhatsApp", f"{WHATSAPP}?text={_e('Payment receipt for booking ' + booking.reference)}", TEAL)
+            + _p(f'<a href="{_e(_manage(booking))}" style="color:{BLUE};">View my booking</a>', size=14, margin="-10px 0 18px"))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", f"Your seats are on hold. Send {amount} by {method} before the hold ends, then send us the receipt."]
                  + ([f"Pay before: {pkt(expires)} ({utc(expires)})"] if expires else [])
                  + _text_accounts(accounts, booking.reference, amount, "bank" if kind == "bank" else "jazzcash") + [""]
                  + _text_summary(booking, f"On hold, awaiting {method}")
                  + ["", "HOW YOUR TICKET IS ISSUED", f"1. Send {amount} by {method} with {booking.reference} as the reference.",
-                    f"2. Send the receipt: reply to this email or WhatsApp {PHONE}.", "3. Once we confirm the payment, we issue and email your e-ticket."])
+                    f"2. Send the receipt: reply to this email or WhatsApp {PHONE}.", "3. Once we confirm the payment, we issue and email your e-ticket.",
+                    "", f"View my booking: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Pay {amount} by {method} for booking {booking.reference}", _layout(
         reference=booking.reference, status=status, tone="waiting", preheader=preheader, body=body), text, preheader)
 
@@ -440,10 +459,10 @@ def payment_received(booking: Booking, method: str = "card") -> Email:
                  "Your ticket is being issued now; you'll get it in a separate email.")
             + _summary(booking, "Paid, ticket being issued", "done", total_label="Total")
             + _p("", margin="0 0 10px")
-            + _button("View my booking", _manage(booking.reference)))
-    text = _text(status, [_greeting(booking), "", f"We've received {paid} by {method} for booking {booking.reference}.",
+            + _button("View my booking", _manage(booking)) + _fallback(booking))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", f"We've received {paid} by {method} for booking {booking.reference}.",
                           "Your ticket is being issued now; you'll get it in a separate email.", ""] + _text_summary(booking, "Paid, ticket being issued")
-                 + ["", f"View my booking: {_manage(booking.reference)}"])
+                 + ["", f"View my booking: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Payment received for booking {booking.reference}", _layout(
         reference=booking.reference, status=status, tone="done", preheader=preheader, body=body), text, preheader)
 
@@ -461,11 +480,11 @@ def ticket_issued(booking: Booking) -> Email:
             + _box(_section_title("Before you fly")
                    + _p("Arrive at the airport at least 2 hours before a domestic flight and 3 hours before an international one. "
                         "Names must match your ID exactly.", size=14, margin="0"))
-            + _button("Download itinerary", _manage(booking.reference)))
-    text = _text(status, [_greeting(booking), "", "Your booking is confirmed and your ticket is issued.", "", "YOUR E-TICKETS"]
+            + _button("View booking and itinerary", _manage(booking)) + _fallback(booking))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", "Your booking is confirmed and your ticket is issued.", "", "YOUR E-TICKETS"]
                  + [f"{name}: {number}" for name, number in booking.tickets] + [""] + _text_summary(booking, "Confirmed, ticket issued")
                  + ["", "Arrive 2 hours before domestic and 3 hours before international flights. Names must match your ID.",
-                    f"Download itinerary: {_manage(booking.reference)}"])
+                    f"View booking and itinerary: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Your e-ticket: booking {booking.reference}" + (f", {booking.route}" if booking.route else ""), _layout(
         reference=booking.reference, status=status, tone="done", preheader=preheader, body=body), text, preheader)
 
@@ -481,10 +500,11 @@ def issuance_pending(booking: Booking) -> Email:
             + _summary(booking, "Paid, ticket being issued", "info", total_label="Total paid")
             + _p("", margin="0 0 10px")
             + _p(f"If you travel within 24 hours, call or WhatsApp us on <strong>{PHONE}</strong>.", size=14)
-            + _button("View my booking", _manage(booking.reference)))
-    text = _text(status, [_greeting(booking), "", "Your payment is received and safe. Issuing your ticket is taking a little longer than usual;",
+            + _button("View my booking", _manage(booking)) + _fallback(booking))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", "Your payment is received and safe. Issuing your ticket is taking a little longer than usual;",
                           "our team will email your e-ticket as soon as it's ready. You don't need to do anything.", ""]
-                 + _text_summary(booking, "Paid, ticket being issued") + ["", f"Travelling within 24 hours? Call or WhatsApp {PHONE}."])
+                 + _text_summary(booking, "Paid, ticket being issued") + ["", f"Travelling within 24 hours? Call or WhatsApp {PHONE}.",
+                                                                        f"View my booking: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"We're issuing your ticket: booking {booking.reference}", _layout(
         reference=booking.reference, status=status, tone="info", preheader=preheader, body=body), text, preheader)
 
@@ -505,11 +525,13 @@ def paid_not_ticketed(booking: Booking) -> Email:
             + _summary(booking, "Paid, not ticketed", "urgent", total_label="Total paid")
             + _p("", margin="0 0 10px")
             + _p("Reply to this email or message us on WhatsApp with your choice. A Travelian agent will also call you.", size=14)
-            + _button("Message us on WhatsApp", f"{WHATSAPP}?text={_e('Booking ' + booking.reference + ': refund or rebook')}", TEAL))
-    text = _text(status, [_greeting(booking), "", f"We received your payment of {paid}, but the airline released the seats before we could issue the ticket.",
+            + _button("Message us on WhatsApp", f"{WHATSAPP}?text={_e('Booking ' + booking.reference + ': refund or rebook')}", TEAL)
+            + _p(f'<a href="{_e(_manage(booking))}" style="color:{BLUE};">View my booking</a>', size=14, margin="-10px 0 18px"))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", f"We received your payment of {paid}, but the airline released the seats before we could issue the ticket.",
                           "Your money is safe. Choose what happens next:", f"1. Full refund: we return {paid} to the way you paid.",
                           "2. New booking: we find you seats; any fare difference is agreed with you first.", ""]
-                 + _text_summary(booking, "Paid, not ticketed") + ["", f"Reply to this email or WhatsApp {PHONE} with your choice."])
+                 + _text_summary(booking, "Paid, not ticketed") + ["", f"Reply to this email or WhatsApp {PHONE} with your choice.",
+                                                                 f"View my booking: {_manage(booking)}", _fallback_text(booking)])
     return Email(f"Booking {booking.reference}: choose a refund or a new booking", _layout(
         reference=booking.reference, status=status, tone="urgent", preheader=preheader, body=body), text, preheader)
 
@@ -536,7 +558,7 @@ def staff_alert(alert: StaffAlert) -> Email:
             + _rows([(label, _e(value)) for label, value in _staff_rows(alert)], mono={"Booking reference", "PNR", "PayFast transaction ID"})
             + (_box(_p(_e(alert.note), size=14, margin="0")) if alert.note else _p("", margin="0 0 12px"))
             + _button("Open in admin", _admin_link(alert.reference)))
-    text = _text(alert.title, [f"{label}: {value}" for label, value in _staff_rows(alert)] + ([""] + [alert.note] if alert.note else [])
+    text = _text(alert.title, reference=alert.reference, lines=[f"{label}: {value}" for label, value in _staff_rows(alert)] + ([""] + [alert.note] if alert.note else [])
                  + ["", f"Open in admin: {_admin_link(alert.reference)}"], audience="staff")
     return Email(f"Travelian: {alert.title}: {alert.reference}", _layout(
         reference=alert.reference, status=alert.title, tone="info", preheader=preheader, body=body, audience="staff"), text, preheader)
@@ -557,7 +579,7 @@ def staff_red_alert(alert: StaffAlert) -> Email:
             + (_box(_section_title("What to do", RED_INK) + _p(_e(alert.action), size=14, margin="0"), bg=RED_SOFT, line="#F5B5B5") if alert.action
                else _p("", margin="0 0 12px"))
             + _button("Open booking in admin", _admin_link(alert.reference), RED))
-    text = _text(subject, ["URGENT: PAYMENT RECEIVED, TICKET NOT ISSUED", ""] + [f"{label}: {value}" for label, value in _staff_rows(alert)]
+    text = _text(subject, reference=alert.reference, lines=["URGENT: PAYMENT RECEIVED, TICKET NOT ISSUED", ""] + [f"{label}: {value}" for label, value in _staff_rows(alert)]
                  + ([""] + ["WHAT TO DO", alert.action] if alert.action else []) + ["", f"Open in admin: {_admin_link(alert.reference)}"], audience="staff")
     return Email(subject, _layout(reference=alert.reference, status="Urgent staff alert", tone="urgent",
                                   preheader=preheader, body=body, audience="staff"), text, preheader)

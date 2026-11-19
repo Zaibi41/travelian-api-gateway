@@ -63,17 +63,21 @@ def email_configured() -> bool:
     return bool(settings.notify_email_enabled and recipients())
 
 
-def _send_email(subject: str, body: str) -> bool:
+def _message(subject: str, body: str, html: str | None) -> dict:
+    content = {"Text": {"Data": body, "Charset": "UTF-8"}}
+    if html:
+        content["Html"] = {"Data": html, "Charset": "UTF-8"}
+    return {"Subject": {"Data": subject[:200], "Charset": "UTF-8"}, "Body": content}
+
+
+def _send_email(subject: str, body: str, html: str | None = None) -> bool:
     if not settings.notify_email_enabled or not recipients():
         return False
     try:
         import boto3
 
         boto3.client("ses", region_name=settings.ses_region).send_email(
-            Source=settings.notify_email_from,
-            Destination={"ToAddresses": recipients()},
-            Message={"Subject": {"Data": subject[:200]}, "Body": {"Text": {"Data": body}}},
-        )
+            Source=settings.notify_email_from, Destination={"ToAddresses": recipients()}, Message=_message(subject, body, html))
         return True
     except Exception as error:  # noqa: BLE001 - email never blocks or changes a booking
         logger.warning("Staff notification email not sent", extra={"error_type": type(error).__name__})
@@ -107,14 +111,18 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
              f"Hold expires: {hold_expires_at.strftime('%d %b %Y %H:%M UTC') if hold_expires_at else '—'}"]
     if note:
         lines.append(note)
-    if await run_in_threadpool(_send_email, f"Travelian: {title}", "\n".join(lines)):
+    from app.services import email_templates as templates
+
+    email = templates.staff_alert(templates.StaffAlert(title=titles.get(kind, "Booking"), reference=reference, passenger=passenger, route=route,
+                                                       fare=details["fare"], pnr=pnr, hold_expires_at=hold_expires_at, note=note))
+    if await run_in_threadpool(_send_email, email.subject, email.text, email.html):
         try:
             await run_in_threadpool(_mark_emailed, notification_id)
         except Exception:  # noqa: BLE001
             pass
 
 
-def _send_email_reporting(subject: str, body: str) -> tuple[bool, str]:
+def _send_email_reporting(subject: str, body: str, html: str | None = None) -> tuple[bool, str]:
     """Send through SES; (sent, why not). Every skip or refusal is logged in words, so a missing SES setup is visible."""
     if not settings.notify_email_enabled:
         return False, "skipped: NOTIFY_EMAIL_ENABLED is off"
@@ -124,8 +132,7 @@ def _send_email_reporting(subject: str, body: str) -> tuple[bool, str]:
         import boto3
 
         boto3.client("ses", region_name=settings.ses_region).send_email(
-            Source=settings.notify_email_from, Destination={"ToAddresses": recipients()},
-            Message={"Subject": {"Data": subject[:200]}, "Body": {"Text": {"Data": body}}})
+            Source=settings.notify_email_from, Destination={"ToAddresses": recipients()}, Message=_message(subject, body, html))
         return True, "sent"
     except Exception as error:  # noqa: BLE001 - email never blocks or changes a booking
         code = getattr(error, "response", {}).get("Error", {}).get("Code") if hasattr(error, "response") else None
@@ -141,7 +148,18 @@ async def red_alert(kind: str, *, reference: str, subject: str, lines: list[str]
     except Exception as error:  # noqa: BLE001
         logger.error("Red alert not recorded", extra={"reference": reference, "error_type": type(error).__name__})
         return
-    sent, why = await run_in_threadpool(_send_email_reporting, subject, "\n".join(lines))
+    from datetime import datetime as _dt
+
+    from app.services import email_templates as templates
+
+    expires = details.get("hold_expires_at")
+    alert = templates.StaffAlert(
+        title=subject, reference=reference, passenger=details.get("passenger"), route=details.get("route"), travel_date=details.get("travel_date"),
+        pnr=details.get("pnr"), hold_expires_at=_dt.fromisoformat(expires) if isinstance(expires, str) else expires, amount=details.get("amount"),
+        payfast_transaction_id=details.get("payfast_transaction_id"), supplier=details.get("supplier"), hold_status=details.get("hold_status"),
+        reason=details.get("reason"), action=(lines[-1] if lines and lines[-1] else None))
+    email = templates.staff_red_alert(alert)
+    sent, why = await run_in_threadpool(_send_email_reporting, email.subject, email.text, email.html)
     if sent:
         try:
             await run_in_threadpool(_mark_emailed, notification_id)

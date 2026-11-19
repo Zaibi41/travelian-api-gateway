@@ -8,7 +8,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, Request
+from starlette.concurrency import run_in_threadpool
+
+from fastapi import APIRouter, Header, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -155,6 +157,26 @@ async def flight_payment_options(body: FlightPaymentQuery, request: Request):
 
 
 Token = Annotated[str, Header(alias="X-Booking-Token", min_length=8, max_length=200)]
+
+
+@router.get("/booking-links/{token}", response_model=service.LookupView, response_model_exclude_none=True,
+            responses={404: {"description": "The link is unknown or has expired."}, 429: {"description": "Too many requests."}})
+async def booking_by_link(token: Annotated[str, Path(min_length=8, max_length=100)], request: Request):
+    """The booking a customer email's link opens: read-only (no payment from here), one booking, no login. Links expire at
+    the later of 30 days and 2 days after the last travel date."""
+    from app.services import customer_emails
+
+    try:
+        service.check_rate(service.SEARCH_LIMIT, _ip(request))  # tokens can't be guessed; this only stops floods
+    except service.PublicError as error:
+        return _error(error)
+    reference = await run_in_threadpool(customer_emails.booking_for_link, token)
+    if reference is None:
+        return _error(service.PublicError(404, "This link has expired or isn't valid. Find your booking with its reference and your email or phone.", "link_expired"))
+    try:
+        return await service.lookup_by_link(reference)
+    except service.PublicError as error:
+        return _error(error)
 
 
 @router.get("/bookings/{reference}", response_model=service.PublicBookingView, response_model_exclude_none=True)

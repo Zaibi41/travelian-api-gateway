@@ -32,6 +32,7 @@ from app.schemas.live_flights import HoldContact, HoldPassenger, HoldRequest
 from app.services import group_holds, notifications
 from app.services.group_ticketing import GroupInventoryUnavailable, fetch_all_group_inventory, filter_group_inventory
 from app.services.group_ticketing_view import inventory_view
+from app.services import customer_emails
 from app.vendors.payments import payfast
 
 logger = logging.getLogger(__name__)
@@ -382,6 +383,8 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
             fare_minor=booking.total_minor, currency=booking.currency, pnr=booking.pnr, hold_expires_at=booking.hold_expires_at,
             note=f"Customer chose {method}. Check the {method} payment has arrived, record it in the Payments tab, then issue. "
                  "Nothing is issued automatically. The hold keeps the supplier's own expiry (D29).")
+    if live:
+        await customer_emails.send(view.reference, HOLD_EMAIL.get(request.payment_method or "card", "booking_held"))
     return PublicBookingCreated(reference=view.reference, access_token=token, booking=await booking_view(view.reference))
 
 
@@ -516,7 +519,12 @@ async def _hold_flight(hold_request: HoldRequest, request: PublicFlightRequest, 
             passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
             route=None, fare_minor=view.selling_total.amount_minor, currency=view.selling_total.currency, pnr=view.pnr,
             hold_expires_at=view.time_limit, note=note)
+    await customer_emails.send(view.booking_id, HOLD_EMAIL[method])
     return view.booking_id
+
+
+#: The customer email sent when a website booking is held, by payment method.
+HOLD_EMAIL = {"card": "booking_held", "book_only": "book_only_held", "bank_transfer": "bank_transfer", "jazzcash": "jazzcash"}
 
 
 #: A website flight hold can be paid online only while this much of the hold is left: time for the PayFast checkout
@@ -657,6 +665,18 @@ async def lookup(reference: str, contact: str) -> LookupView:
     row = await run_in_threadpool(public_bookings.lookup, reference, contact)
     if row is None:
         raise PublicError(404, "We couldn't find a booking with that reference and email or phone. Check both and try again.", "not_found")
+    return lookup_view(row)
+
+
+async def lookup_by_link(reference: str) -> LookupView:
+    """A booking opened with a valid signed email link (the link proved access): the same read-only view as Find my booking."""
+    row = await run_in_threadpool(lambda: public_bookings.lookup(reference, "", trusted=True))
+    if row is None:
+        raise PublicError(404, "This link has expired or isn't valid. Find your booking with its reference and your email or phone.", "link_expired")
+    return lookup_view(row)
+
+
+def lookup_view(row: dict) -> LookupView:
     status = lookup_status(row, _now())
     legs = []
     for leg in row["itinerary"] or []:

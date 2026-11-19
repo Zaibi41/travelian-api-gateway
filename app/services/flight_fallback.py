@@ -177,6 +177,12 @@ async def send_red_alert(kind: str, reference: str, *, reason: str, hold: str, a
                "passenger": ", ".join(facts["passengers"]), "route": route, "travel_date": travel_date, "fare": amount,
                "reason": reason, "note": f"{reason}. {action}"}
     await notifications.red_alert(kind, reference=reference, subject=subject, lines=lines, details=details)
+    # The customer: reassured once while staff issue, or told the choice (refund or rebook) when the hold is lost.
+    customer_kind = {"paid_not_issued": "issuance_pending", "paid_hold_lost": "paid_not_ticketed"}.get(kind)
+    if customer_kind:
+        from app.services import customer_emails
+
+        await customer_emails.send(reference, customer_kind)
 
 
 async def needs_staff(reference: str, reason: str, *, now: datetime | None = None, client_factory=None, sooperfare_factory=None) -> str:
