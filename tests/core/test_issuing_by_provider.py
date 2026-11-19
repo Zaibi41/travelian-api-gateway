@@ -28,10 +28,39 @@ def test_a_sooperfare_booking_is_refused_before_any_supplier_call(call):
         with pytest.raises(store.IssuanceRefused) as error:
             asyncio.run(getattr(issuance, call)("TRV-1", ADMIN, client_factory=lambda: southair))
     assert error.value.status == 409 and "SooperFare's portal" in error.value.message
-    if call == "issue":  # claimed, then put straight back to its previous status
-        assert release.call_args.args[2] == "not_issued" and release.call_args.args[4] == {"reason_code": "provider_not_supported"}
+    if call == "issue":  # refused before anything is claimed (SooperFare issuing waits for the owner's approval)
+        release.assert_not_called()
     southair.pnr_info.assert_not_awaited()
     southair.ticketing.assert_not_awaited()
+
+
+def test_the_reason_names_the_supplier_and_the_switch():
+    with patch.object(settings, "southair_ticketing_enabled", False), patch.object(settings, "sooperfare_ticketing_enabled", True), \
+         patch.object(settings, "sooperfare_confirm_enabled", False):
+        assert "Southair ticketing is switched off" in issuance.ticketing_reason("southair")
+        assert "SOOPERFARE_CONFIRM_ENABLED" in issuance.ticketing_reason("sooperfare")
+        assert "Tickets tab" in issuance.ticketing_reason("dhillu_sahi", "group")
+    with patch.object(settings, "sooperfare_ticketing_enabled", True), patch.object(settings, "sooperfare_confirm_enabled", True):
+        assert issuance.ticketing_on("sooperfare")
+
+
+def test_sooperfare_issue_sends_one_confirm_and_waits_for_ticket_numbers():
+    from app.services import sooperfare_bookings
+
+    confirm = AsyncMock(return_value={"status": True, "message": "Operation Successfull"})
+    sf = MagicMock(confirm=confirm, booking_list=AsyncMock(return_value={"data": [{"uuid": "uuid-1", "booking": {"reservation_status": "active"},
+                                                                                    "additional": {"is_issued": True}}]}))
+    request = {"method": "POST", "path": "/v1/booking/confirm", "body": {"booking_ref_id": "uuid-1", "txn_ref_id": "TRV-1", "amount": 22070.0,
+                                                                         "currency": "PKR", "remarks": "Travelian booking TRV-1, PNR IKVIMS"}}
+    record = sooperfare_bookings.Record("b1", "TRV-1", "sooperfare", "held", "IKVIMS", "uuid-1", 2207000, "PKR", {})
+    with patch.object(settings, "sooperfare_ticketing_enabled", True), patch.object(settings, "sooperfare_confirm_enabled", True), \
+         patch.object(store, "load", return_value=target("sooperfare")), patch.object(store, "claim", return_value=target("sooperfare")), \
+         patch.object(store, "release") as release, patch.object(sooperfare_bookings, "confirm_request", return_value=request), \
+         patch.object(sooperfare_bookings, "_load", return_value=record):
+        outcome = asyncio.run(issuance.issue("TRV-1", ADMIN, sooperfare_factory=lambda: sf))
+    confirm.assert_awaited_once_with("uuid-1", "TRV-1", 22070.0, "PKR", "Travelian booking TRV-1, PNR IKVIMS")
+    assert outcome.result == "unknown" and "Record the ticket numbers" in outcome.message
+    assert release.call_args.args[2:4] == ("unknown", "issuance_unknown") and release.call_args.args[4]["reason_code"] == "sooperfare_confirmed"
 
 
 def test_ticketing_is_on_only_for_southair_bookings():

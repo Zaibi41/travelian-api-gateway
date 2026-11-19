@@ -249,7 +249,7 @@ def test_ticketing_flag_off_and_permissions(held):
     connection, reference = held
     with patch.object(settings, "southair_ticketing_enabled", False), pytest.raises(IssuanceRefused) as error:
         issue(reference, FakeSouthair([]))
-    assert error.value.status == 409 and "turned off" in error.value.message
+    assert error.value.status == 409 and "switched off" in error.value.message
     with pytest.raises(IssuanceRefused) as error:
         issue(reference, FakeSouthair([]), viewer=STAFF)
     assert error.value.status == 403

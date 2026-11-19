@@ -189,7 +189,7 @@ def test_sooperfare_is_never_issued_from_travelian_even_with_its_flag_on():
     result, issue, alerts = _after(_target(provider="sooperfare"), ticketing=True)
     assert result == "needs_staff"
     issue.assert_not_awaited()
-    assert [kind for kind, _ in alerts] == ["needs_staff"] and "supplier's portal" in alerts[0][1]
+    assert [kind for kind, _ in alerts] == ["needs_staff"] and "SooperFare's portal" in alerts[0][1]
 
 
 def test_payment_after_the_hold_ended_is_never_sent_for_ticketing():
