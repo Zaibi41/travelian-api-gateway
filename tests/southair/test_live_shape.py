@@ -106,6 +106,18 @@ def test_pnr_state_from_the_recorded_uat_shape():
     assert normalize.pnr_state(pnr_info(), "63B55C").tickets == [("ADT", None), ("INF", None)]
 
 
+def test_ticket_number_is_read_from_sale_when_names_tkt_no_is_empty():
+    from tests.southair.fixtures import ticketed_pnr_info
+    state = normalize.pnr_state(ticketed_pnr_info(), "EB2F2F")
+    assert (state.kind, state.status, state.tickets) == ("issued", "OK", [("ADT", "9000000000672")])
+    as_list = ticketed_pnr_info()
+    as_list["names"][0]["sale"] = [{"tkt_no": None}, {"tkt_no": "9000000000673"}]
+    assert normalize.pnr_state(as_list, "EB2F2F").tickets == [("ADT", "9000000000673")]
+    no_ticket = ticketed_pnr_info()
+    no_ticket["names"][0]["sale"] = {"tkt_no": "-"}
+    assert normalize.pnr_state(no_ticket, "EB2F2F").kind == "unclear"  # paid, status OK, no number: never guessed
+
+
 def test_cash_amount_is_digits_only():
     assert normalize.cash_amount(normalize.Amount(Decimal("13330"), None)) == "13330"
     assert normalize.cash_amount(normalize.Amount(Decimal("457.70"), None)) == "457.7"

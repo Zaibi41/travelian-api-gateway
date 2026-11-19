@@ -92,6 +92,16 @@ def pnr_info(pnr="63B55C", status="BK", tickets=(None, None), paid=0, total=457.
     }
 
 
+def ticketed_pnr_info(pnr="EB2F2F", tickets=("9000000000672",), total=13570):
+    """Sanitized pnr_info after ticketing, as returned live in UAT (19 Nov 2026, PNR EB2F2F): res.status OK, everything paid,
+    invoice_no set, names[].tkt_no still empty and the ticket number in names[].sale.tkt_no. No passenger data."""
+    data = pnr_info(pnr=pnr, status="OK", tickets=tuple(None for _ in tickets), paid=total, total=total)
+    data["invoice_no"] = "305232-1912371347"
+    for name, number in zip(data["names"], tickets):
+        name["sale"] = {"tkt_no": number}
+    return data
+
+
 #: Ticketing answer as documented in the supplier guide (data.booking_status "OK", pnrn, invoice_no).
 TICKETING_OK = {"booking_status": "OK", "pnrn": "63B55C", "invoice_no": "INV-UAT-1"}
 

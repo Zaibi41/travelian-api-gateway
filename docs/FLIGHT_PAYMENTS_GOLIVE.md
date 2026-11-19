@@ -3,37 +3,36 @@
 Covers travelian (website + admin) and travelian-api-gateway, branch `feat/flight-payments` in both. The same file is in
 both repos' `docs/`. Nothing here was run against AWS or the server; every command is for you to run.
 
-## 0. Now: testing on production with UAT credentials (19 Nov 2026)
+## 0. Now: testing on production (19 Nov 2026)
 
-The live server runs every feature on **UAT credentials** (PayFast `ipguat.apps.net.pk`, Southair `sa.uat.ejmiral.com`):
-`PAYFAST_ALLOW_UAT=true`, `SOUTHAIR_BOOKING_ENABLED=true`, `SOUTHAIR_TICKETING_ENABLED=true`,
-`SOOPERFARE_BOOKING_ENABLED=true`, `SOOPERFARE_TICKETING_ENABLED=true`, `PUBLIC_FLIGHT_BOOKING_ENABLED=true`,
-`BANK_TRANSFER_ENABLED=true`, `JAZZCASH_ENABLED=true`. Card and 1Link are offered and auto-issuing is on; startup log:
-`PayFast mode: UAT (allowed for testing), auto-issuing: on`. Southair UAT has a zero balance, so auto-issuing is refused
-and each card booking ends as a red alert. Website Southair holds are UAT holds (not real seats). **SooperFare is
-production**: a hold on a SooperFare fare is a real airline reservation.
+- [ ] **Before opening the site to customers: Southair production credentials must be in place (PayFast is already production).**
 
-### When production credentials arrive
+**PayFast is production** since 19 Nov 2026 13:17 UTC (`PAYFAST_BASE_URL=https://ipg1.apps.net.pk`, live merchant keys,
+`PAYFAST_ALLOW_UAT=false`; startup log `PayFast mode: production, auto-issuing: on`): card payments take real money.
+It was switched because PayFast's UAT host answers 401 for its own checkout page files (`/Ecommerce/Flows/*`), so the
+UAT card page looked broken; production serves them.
 
-- [ ] Replace the PayFast and Southair values in `/opt/travelian-api/shared/.env` (back it up first), set
-      `PAYFAST_ALLOW_UAT=false`, restart (`sudo systemctl restart travelian-api.service`). The startup log must then say
-      `PayFast mode: production, auto-issuing: on`.
+**Southair is still UAT** (`sa.uat.ejmiral.com`) with `SOUTHAIR_BOOKING_ENABLED=true` and `SOUTHAIR_TICKETING_ENABLED=true`
+(kept on for testing, owner's decision): a Southair hold is a test PNR and an issued Southair ticket is a test ticket, even
+when the card payment is real. **SooperFare is production**: a hold on a SooperFare fare is a real airline reservation.
+Other switches on: `PUBLIC_FLIGHT_BOOKING_ENABLED`, `SOOPERFARE_BOOKING_ENABLED`, `SOOPERFARE_TICKETING_ENABLED`,
+`BANK_TRANSFER_ENABLED`, `JAZZCASH_ENABLED`.
 
-Env names that need production values (nothing else changes):
+### When Southair production credentials arrive
 
-| Env name | Today (UAT) | Production |
+- [ ] Back up `/opt/travelian-api/shared/.env`, replace the three Southair values below, then restart
+      (`sudo systemctl restart travelian-api.service`). With production Southair, auto-issuing spends real supplier balance.
+
+| Env name | Today | Production |
 |---|---|---|
-| `PAYFAST_BASE_URL` | `https://ipguat.apps.net.pk` | the production host PayFast gives you |
-| `PAYFAST_MERCHANT_ID` | UAT merchant | production merchant ID |
-| `PAYFAST_SECURED_KEY` | UAT key | production secured key |
-| `PAYFAST_ALLOW_UAT` | `true` | `false` |
-| `SOUTHAIR_BASE_URL` | `https://sa.uat.ejmiral.com:7777` | the production Southair URL |
+| `SOUTHAIR_BASE_URL` | `https://sa.uat.ejmiral.com:7777` (UAT) | the production Southair URL |
 | `SOUTHAIR_USERNAME` | UAT user | production user (funded account) |
 | `SOUTHAIR_PASSWORD` | UAT password | production password |
+| `PAYFAST_BASE_URL` / `PAYFAST_MERCHANT_ID` / `PAYFAST_SECURED_KEY` | production (done 19 Nov 2026) | no change |
+| `PAYFAST_ALLOW_UAT` | `false` (done) | no change |
 
-`PAYFAST_MERCHANT_NAME` stays `Travelian`. Production PayFast must allow
-`CHECKOUT_URL=https://api.travelian.pk/v1/public/payments/payfast/notify`. With production Southair, auto-issuing spends
-real supplier balance.
+PayFast key check (prints nothing secret): `GetAccessToken` with the `.env` values must answer an `ACCESS_TOKEN`. Production
+PayFast must allow `CHECKOUT_URL=https://api.travelian.pk/v1/public/payments/payfast/notify`.
 
 ## 1. Before deploying
 

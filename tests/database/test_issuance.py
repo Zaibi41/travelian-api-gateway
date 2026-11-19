@@ -15,7 +15,7 @@ from app.db.issuance import IssuanceRefused
 from app.services import issuance
 from app.vendors.flights.southair.client import SouthairError
 from tests.database.test_booking_people import ACTOR, save
-from tests.southair.fixtures import TICKETING_OK, pnr_info
+from tests.southair.fixtures import TICKETING_OK, pnr_info, ticketed_pnr_info
 
 APPROVER = BackOfficeUser(ACTOR, "super_admin", ALL, resolve_actions("super_admin", set()))
 STAFF = BackOfficeUser(ACTOR, "staff", NONE)
@@ -134,6 +134,54 @@ def test_unknown_can_be_verified_from_the_supplier(held):
     issue(reference, FakeSouthair([pnr_info(), SouthairError("timeout", "x")], ticketing=SouthairError("timeout", "x")))
     assert asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: FakeSouthair([pnr_info()]))).result == "not_issued"
     assert status(connection, reference).issuance_status == "not_issued"
+
+
+def test_ticket_number_in_sale_is_issued_not_unknown(held):
+    """UAT 19 Nov 2026 (TRV-ZL4HUF): ticketing OK, then pnr_info with the number only in names[].sale.tkt_no."""
+    connection, reference = held
+    after = ticketed_pnr_info(pnr="63B55C", tickets=("9000000000672", "9000000000673"), total=457.70)
+    assert issue(reference, FakeSouthair([pnr_info(), after])).result == "issued"
+    assert tickets(connection) == ["9000000000672", "9000000000673"]
+
+
+def test_unknown_from_the_old_reading_is_settled_by_check_with_supplier(held):
+    connection, reference = held
+    issue(reference, FakeSouthair([pnr_info(), pnr_info(status="OK", paid=457.70)]))  # what the old reading saw
+    assert status(connection, reference).issuance_status == "unknown"
+    checklist_attempt = issuance.describe("unknown", (actions(connection)[-1], {"reason_code": "unclear_after_ticketing",
+                                                                             "supplier_answer": "ok", "pnr_status": "OK"}, datetime.now(timezone.utc)))
+    assert checklist_attempt.can_check and "didn't show a ticket number" in checklist_attempt.reason and "accepted the request" in checklist_attempt.reason
+    after = ticketed_pnr_info(pnr="63B55C", tickets=("9000000000672", "9000000000673"), total=457.70)
+    fake = FakeSouthair([after])
+    assert asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: fake)).result == "issued"
+    assert fake.calls == ["pnr_info"]  # read-only: never a ticketing call
+    assert tickets(connection) == ["9000000000672", "9000000000673"] and actions(connection)[-1] == "issuance_verified"
+
+
+def test_check_with_supplier_after_a_failed_attempt(held):
+    connection, reference = held
+    with pytest.raises(IssuanceRefused):
+        issue(reference, FakeSouthair([pnr_info()], balance="1.00"))  # aborted: insufficient balance, nothing sent
+    last = issuance.describe("not_issued", ("issuance_aborted", {"reason_code": "insufficient_balance"}, datetime.now(timezone.utc)))
+    assert last.can_check and last.outcome == "aborted" and "Not enough balance" in last.reason
+    fake = FakeSouthair([pnr_info()])
+    outcome = asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: fake))
+    assert (outcome.result, outcome.issuance_status) == ("not_issued", "not_issued") and "safe to issue again" in outcome.message
+    assert fake.calls == ["pnr_info"] and actions(connection)[-1] == "issuance_checked"
+    # After a check, nothing more to check (it isn't a failed attempt any more); unclear on a check blocks issuing.
+    with pytest.raises(IssuanceRefused):
+        asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: FakeSouthair([pnr_info()])))
+    with pytest.raises(IssuanceRefused):
+        issue(reference, FakeSouthair([pnr_info()], balance="1.00"))
+    assert asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: FakeSouthair([pnr_info(paid=10)]))).result == "unknown"
+    assert status(connection, reference).issuance_status == "unknown"
+
+
+def test_check_with_supplier_is_refused_without_a_failed_or_unknown_attempt(held):
+    _, reference = held
+    with pytest.raises(IssuanceRefused) as error:
+        asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: FakeSouthair([])))
+    assert error.value.status == 409
 
 
 def test_resolve_not_issued_needs_a_reason_via_the_api_and_reopens_issuing(held):
