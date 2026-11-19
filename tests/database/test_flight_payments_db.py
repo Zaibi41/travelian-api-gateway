@@ -42,6 +42,12 @@ def website_hold(database):
 
 
 @pytest.fixture(autouse=True)
+def production_payfast(monkeypatch):
+    """Automatic issuing only runs on production PayFast (the UAT guard has its own tests): any host but ipguat counts."""
+    monkeypatch.setattr(settings, "payfast_base_url", "https://payfast-production.example")
+
+
+@pytest.fixture(autouse=True)
 def no_real_rehold(monkeypatch):
     """Re-holding searches the suppliers: here it is answered by a stub (tests that need it set their own). Never a real call."""
     from app.services import flight_fallback

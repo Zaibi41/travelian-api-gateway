@@ -41,6 +41,12 @@ MERCHANT, KEY = "14833", "test-secured-key"
 TOTAL = 46_700
 
 
+@pytest.fixture(autouse=True)
+def production_payfast(monkeypatch):
+    """Automatic issuing only runs on production PayFast (the UAT guard has its own tests): any host but ipguat counts."""
+    monkeypatch.setattr(settings, "payfast_base_url", "https://payfast-production.example")
+
+
 @pytest.fixture
 def pooled(monkeypatch):
     url = os.environ.get("TRAVELIAN_TEST_DATABASE_URL")

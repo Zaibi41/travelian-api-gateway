@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,6 +19,9 @@ async def lifespan(app: FastAPI):
     app.state.ready = False
     await asyncio.to_thread(load_parameter_store_settings)
     warn_if_dhillu_sahi_ids_missing()
+    from app.services.flight_payments import startup_summary
+
+    logging.getLogger("app.startup").warning(startup_summary())  # e.g. "PayFast mode: UAT, auto-issuing: off"
     app.state.ready = True
     # Group holds: expire past their time limit and give the seats back at the supplier.
     stop = asyncio.Event()

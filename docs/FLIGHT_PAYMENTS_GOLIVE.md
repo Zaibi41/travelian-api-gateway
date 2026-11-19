@@ -63,6 +63,12 @@ exist; decide then whether they move to Parameter Store (the only PayFast creden
 | `SSM_PARAMETER_PREFIX` | not set | See above. |
 | `PUBLIC_SITE_URL` / `PUBLIC_API_URL` | `https://travelian.pk` / `https://api.travelian.pk` | PayFast return and notification URLs. |
 
+**Guards (19 Nov 2026):** card and 1Link are offered, and tickets are issued automatically, **only when PayFast is on
+production** (`PAYFAST_BASE_URL` not `ipguat.apps.net.pk`). On UAT every paid booking goes to staff (red alert). The gateway
+logs `PayFast mode: production/UAT, auto-issuing: on/off` at startup. Bank transfer and JazzCash are offered only with an
+active receiving account that has the **full account number** (Accounts & Ledgers); JazzCash also needs `JAZZCASH_ENABLED`.
+`SOOPERFARE_TICKETING_ENABLED=true` is harmless: no SooperFare issue call exists, so paid SooperFare bookings get a red alert.
+
 ## 4. S3: uploads and public read
 
 Uploads (site logo `site/`, payment QR `payment-qr/`, payment proofs `payment-proof/`) go straight from the browser to S3
@@ -104,7 +110,10 @@ policy is ignored until `BlockPublicPolicy`/`RestrictPublicBuckets` are off ther
    `*@travelian.pk` senders (`aws-setup.sh`).
 2. Optional but recommended: a custom MAIL FROM (e.g. `mail.travelian.pk`) and a DMARC record, so alerts don't go to spam.
 3. **Sandbox (still on, 19 Nov 2026):** the account can only send to **verified addresses** (200/day): `NOTIFY_EMAILS`
-   reaches only those until production access is granted. Either verify each
+   reaches only those until production access is granted.
+   While in the sandbox SES also checks the IAM permission on each recipient's identity, so the `gateway-runtime` policy
+   of IAM user `travelian-gateway` lists `identity/travelian.pk@gmail.com` beside `identity/travelian.pk`. **After
+   production access is granted, remove `identity/travelian.pk@gmail.com` from the `gateway-runtime` policy.** Either verify each
    staff address in `NOTIFY_EMAILS` (fine for a few staff), or request production access (SES console > Account
    dashboard > Request production access; use case: transactional staff alerts). Check:
    `aws sesv2 get-account --region <SES_REGION>` (`ProductionAccessEnabled`).

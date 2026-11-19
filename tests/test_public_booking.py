@@ -289,7 +289,7 @@ def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method):
                      "id_type": "PSPT", "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2030-01-01",
                      "nationality": "PAK"}])
     with patch.object(settings, "public_group_booking_enabled", True), patch.object(jazzcash, "enabled", lambda: True), \
-         patch.object(public_booking, "payment_methods", AsyncMock(return_value=SimpleNamespace(bank_transfer=True))), \
+         patch.object(public_booking, "payment_methods", AsyncMock(return_value=SimpleNamespace(bank_transfer=True, jazzcash=True))), \
          patch.object(public_booking.group_holds, "hold", AsyncMock(return_value=SimpleNamespace(reference="TRV-GRP-1"))), \
          patch.object(public_booking.store, "load", lambda reference: booking), \
          patch.object(public_booking.public_bookings, "mark_website", lambda booking_id, token_hash: None), \

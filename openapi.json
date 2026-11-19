@@ -7090,10 +7090,12 @@
             "type": "array"
           },
           "bank_transfer": {
+            "description": "Only when an active bank account with a full account number exists.",
             "title": "Bank Transfer",
             "type": "boolean"
           },
           "card": {
+            "description": "Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).",
             "title": "Card",
             "type": "boolean"
           },
@@ -7104,8 +7106,17 @@
             "type": "boolean"
           },
           "jazzcash": {
+            "description": "Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.",
             "title": "Jazzcash",
             "type": "boolean"
+          },
+          "jazzcash_accounts": {
+            "description": "Where customers send a JazzCash payment.",
+            "items": {
+              "$ref": "#/components/schemas/BankAccountView"
+            },
+            "title": "Jazzcash Accounts",
+            "type": "array"
           },
           "logo_url": {
             "anyOf": [

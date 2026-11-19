@@ -35,6 +35,7 @@ from app.core.field_visibility import ISSUE_TICKETS, NONE, BackOfficeUser
 from app.db import flight_recovery
 from app.db import issuance as store
 from app.services import issuance, notifications
+from app.vendors.payments import payfast
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,16 @@ RECOVERY_INTERVAL_SECONDS = 60
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def auto_issuing() -> bool:
+    """Automatic issuing after a card payment: only with production PayFast (a UAT payment is test money) and Southair
+    ticketing on. SooperFare is never issued automatically (its confirm call isn't built)."""
+    return payfast.production() and settings.southair_ticketing_enabled
+
+
+def startup_summary() -> str:
+    return f"PayFast mode: {payfast.mode()}, auto-issuing: {'on' if auto_issuing() else 'off'}"
 
 
 def hold_over(target: store.Target, now: datetime) -> bool:
@@ -100,6 +111,8 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
     if hold_over(target, now):
         # Paid after the airline hold ended (or too close to it to ticket): never sent to the supplier for ticketing.
         return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
+    if not payfast.production():
+        return await staff(f"automatic issuing is off: PayFast is in {payfast.mode()} mode, so nothing was sent to the supplier")
     if not issuance.ticketing_on(target.provider):
         if (target.provider or "southair") not in issuance.ISSUING_PROVIDERS:
             return await staff("tickets for this supplier aren't issued from Travelian yet: issue in the supplier's portal and record the ticket numbers")
@@ -126,7 +139,7 @@ async def recover(now: datetime | None = None, client_factory=None, sooperfare_f
     before = now - timedelta(minutes=minutes)
     outcomes: dict[str, str] = {}
     for reference, status, provider in await run_in_threadpool(flight_recovery.stuck_card_payments, before):
-        if status == "not_issued" and not issuance.ticketing_on(provider):
+        if status == "not_issued" and not (auto_issuing() and issuance.ticketing_on(provider)):
             continue  # paid, issuance pending with staff by design (already alerted); nothing to retry
         claimed = await run_in_threadpool(flight_recovery.claim_recovery, reference, before, {"stuck_minutes": minutes})
         if claimed is None:

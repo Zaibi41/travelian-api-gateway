@@ -30,9 +30,13 @@ client = TestClient(app)
 MERCHANT, KEY = "14833", "test-secured-key"
 
 
+PRODUCTION = "https://payfast-production.example"  # any host but ipguat.apps.net.pk counts as production
+
+
 @pytest.fixture
 def payfast_on():
-    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)):
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(settings, "payfast_base_url", PRODUCTION):
         yield
 
 
@@ -141,7 +145,7 @@ def _target(provider="southair", paid=2207000, product="flight"):
                                  traveler_types=[(0, "ADT")])
 
 
-def _after(target, ticketing=True, issue=None):
+def _after(target, ticketing=True, issue=None, payfast_production=True):
     """after_verified_card_payment with the fallback (hold check, re-hold, red alert) mocked: alerts lists
     ("auto_issued", note) and ("needs_staff", reason)."""
     from app.services import flight_fallback
@@ -159,7 +163,7 @@ def _after(target, ticketing=True, issue=None):
     with patch.object(flight_payments.store, "load", lambda reference: target), patch.object(flight_payments, "_alert", alert), \
          patch.object(flight_fallback, "needs_staff", needs_staff), \
          patch.object(settings, "southair_ticketing_enabled", ticketing), patch.object(settings, "sooperfare_ticketing_enabled", ticketing), \
-         patch.object(issuance, "issue", issue):
+         patch.object(issuance, "issue", issue), patch.object(flight_payments.payfast, "production", lambda: payfast_production):
         result = asyncio.run(flight_payments.after_verified_card_payment("TRV-F-1"))
     return result, issue, alerts
 
@@ -294,8 +298,8 @@ def _book(method="card", live=True, restricted=False, hold=None, methods=None, c
     with patch.object(live_flights, "search", search), patch.object(live_flights, "reprice", reprice), \
          patch.object(settings, "flight_markup_percent", Decimal("0")), patch.object(settings, "public_flight_booking_enabled", live), \
          patch.object(settings, "sooperfare_booking_enabled", True), patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), \
-         patch.object(settings, "payfast_secured_key", SecretStr(KEY)), patch.object(jazzcash, "enabled", lambda: True), \
-         patch.object(public_booking, "payment_methods", AsyncMock(return_value=methods or SimpleNamespace(bank_transfer=True))), \
+         patch.object(settings, "payfast_secured_key", SecretStr(KEY)), patch.object(settings, "payfast_base_url", PRODUCTION), \
+         patch.object(public_booking, "payment_methods", AsyncMock(return_value=methods or SimpleNamespace(bank_transfer=True, jazzcash=True))), \
          patch.object(restricted_airlines, "segment_restricted", lambda segment: restricted), \
          patch.object(flight_holds, "hold", hold), patch.object(flight_requests, "create", create), \
          patch.object(public_booking.notifications, "booking_event", event), \
@@ -363,6 +367,7 @@ def test_payment_options_offer_card_for_sooperfare_fares():
 
     methods = SimpleNamespace(bank_transfer=True, jazzcash=False)
     with patch.object(live_flights, "search", search), patch.object(settings, "public_flight_booking_enabled", True), \
+         patch.object(settings, "payfast_base_url", PRODUCTION), \
          patch.object(settings, "sooperfare_booking_enabled", True), patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), \
          patch.object(settings, "payfast_secured_key", SecretStr(KEY)), patch.object(public_booking, "payment_methods", AsyncMock(return_value=methods)):
         results = client.post("/v1/public/flights/search", json={"origin": "KHI", "destination": "LHE", "departure_date": "2026-12-10"}).json()
@@ -399,7 +404,7 @@ def test_bank_transfer_and_jazzcash_hold_and_alert_staff_and_never_issue(method)
 
 
 def test_bank_transfer_is_refused_without_a_receiving_account():
-    response, hold, _, _ = _book("bank_transfer", methods=SimpleNamespace(bank_transfer=False))
+    response, hold, _, _ = _book("bank_transfer", methods=SimpleNamespace(bank_transfer=False, jazzcash=False))
     assert response.status_code == 409 and response.json()["code"] == "method_unavailable"
     hold.assert_not_awaited()
 
@@ -414,3 +419,68 @@ def test_a_failed_hold_shows_the_guest_one_plain_sentence_and_no_supplier_detail
     assert response.status_code == 502
     assert response.json() == {"detail": public_booking.HOLD_NOT_PLACED, "code": "hold_failed"}
     assert "ZWHLZG" not in response.text and "supplier" not in response.text.lower()
+
+
+# ---------- guards (19 Nov 2026): PayFast mode and payment-method availability ----------
+
+def test_uat_payfast_never_offers_card_or_issues_automatically():
+    """PayFast on UAT (ipguat.apps.net.pk): no card / 1Link at checkout, and a paid booking goes to staff (red alert)
+    instead of auto-issuing, even with every ticketing flag on."""
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(settings, "payfast_base_url", "https://ipguat.apps.net.pk"), patch.object(settings, "southair_ticketing_enabled", True):
+        assert payfast_mode() == ("UAT", False)
+        assert not public_booking.card_allowed("southair") and not public_booking.card_allowed("sooperfare")
+        assert not public_booking.flight_can_pay(_row(), datetime.now(timezone.utc))
+        assert flight_payments.startup_summary() == "PayFast mode: UAT, auto-issuing: off"
+    result, issue, alerts = _after(_target(), ticketing=True, payfast_production=False)
+    assert result == "needs_staff"
+    issue.assert_not_awaited()
+    assert "PayFast is in" in alerts[0][1]
+
+
+def test_production_payfast_offers_card_and_auto_issues_with_ticketing_on(payfast_on):
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        assert payfast_mode() == ("production", True)
+        assert flight_payments.startup_summary() == "PayFast mode: production, auto-issuing: on"
+    with patch.object(settings, "southair_ticketing_enabled", False):
+        assert flight_payments.startup_summary() == "PayFast mode: production, auto-issuing: off"
+    with patch.object(settings, "payfast_merchant_id", None):
+        assert flight_payments.startup_summary() == "PayFast mode: not configured, auto-issuing: off"
+
+
+def payfast_mode():
+    from app.vendors.payments import payfast
+
+    return payfast.mode(), flight_payments.auto_issuing()
+
+
+def test_sooperfare_ticketing_flag_on_never_reaches_a_supplier_call(payfast_on):
+    """SOOPERFARE_TICKETING_ENABLED=true is harmless: no SooperFare issue call exists; a card-paid SooperFare booking goes
+    to staff with a red alert."""
+    with patch.object(settings, "sooperfare_ticketing_enabled", True):
+        assert not issuance.ticketing_on("sooperfare")
+        result, issue, alerts = _after(_target(provider="sooperfare"), ticketing=True)
+    assert result == "needs_staff"
+    issue.assert_not_awaited()
+
+
+@pytest.mark.parametrize("accounts, bank, wallet", [
+    ([], False, False),
+    ([("bank_transfer", "Travelian Ltd", None, "PK36MEZN0001010105555555"), ("jazzcash", "Travelian", None, None)], False, False),  # IBAN only / no number
+    ([("bank_transfer", "Travelian Ltd", "0101-0105555555", None), ("jazzcash", "Travelian Wallet", "03001234567", None)], True, True),
+])
+def test_bank_transfer_and_jazzcash_are_offered_only_with_a_full_account_number(accounts, bank, wallet):
+    from app.db import payment_accounts
+
+    rows = [SimpleNamespace(method=m, label=t, account_title=t, account_number=n, iban=i, qr_asset_key=None, bank_name="Bank")
+            for m, t, n, i in accounts]
+    with patch.object(payment_accounts, "list_accounts", lambda include_inactive=False: rows), \
+         patch.object(settings, "bank_transfer_enabled", True), patch.object(settings, "jazzcash_enabled", True), \
+         patch("app.api.routes.admin_uploads.site_assets", lambda: {}):
+        methods = asyncio.run(public_booking.payment_methods())
+        with patch.object(settings, "jazzcash_enabled", False):
+            off = asyncio.run(public_booking.payment_methods())
+    assert (methods.bank_transfer, methods.jazzcash) == (bank, wallet)
+    assert off.jazzcash is False  # JAZZCASH_ENABLED off: never offered
+    if wallet:
+        assert methods.jazzcash_accounts[0].account_number == "03001234567"

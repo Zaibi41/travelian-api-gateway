@@ -308,12 +308,13 @@ class BankAccountView(BaseModel):
 
 
 class PaymentMethodsView(BaseModel):
-    card: bool
-    bank_transfer: bool
-    jazzcash: bool
+    card: bool = Field(description="Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).")
+    bank_transfer: bool = Field(description="Only when an active bank account with a full account number exists.")
+    jazzcash: bool = Field(description="Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.")
     flights: bool = Field(False, description="Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). "
                                              "False: a flight booking is a request and Travelian arranges payment.")
     bank_accounts: list[BankAccountView] = []
+    jazzcash_accounts: list[BankAccountView] = Field(default_factory=list, description="Where customers send a JazzCash payment.")
     logo_url: str | None = None
 
 
@@ -328,17 +329,27 @@ def bank_accounts() -> list[BankAccountView]:
             if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
 
 
+def jazzcash_accounts() -> list[BankAccountView]:
+    """Active JazzCash receiving accounts with the full account (wallet) number customers pay into."""
+    from app.db import payment_accounts
+
+    return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number)
+            for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
+
+
 async def payment_methods() -> PaymentMethodsView:
+    """What checkout may offer. Each method only when it can really be paid: card only on production PayFast; bank transfer
+    and JazzCash only with an active receiving account that has the full account number (Accounts & Ledgers)."""
     from app.api.routes.admin_uploads import site_assets
-    from app.vendors.payments import jazzcash
 
     accounts = await run_in_threadpool(bank_accounts) if settings.bank_transfer_enabled else []
+    wallets = await run_in_threadpool(jazzcash_accounts) if settings.jazzcash_enabled else []
     try:
         logo = (await run_in_threadpool(site_assets)).get("site_logo")
     except Exception:  # noqa: BLE001 - the logo is optional
         logo = None
-    return PaymentMethodsView(card=payfast.configured(), bank_transfer=bool(accounts), jazzcash=jazzcash.enabled(),
-                              flights=settings.public_flight_booking_enabled, bank_accounts=accounts, logo_url=logo)
+    return PaymentMethodsView(card=payfast.production(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
+                              flights=settings.public_flight_booking_enabled, bank_accounts=accounts, jazzcash_accounts=wallets, logo_url=logo)
 
 
 async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated:
@@ -347,11 +358,8 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
         fare_terms_acknowledged=request.fare_terms_acknowledged, selling_price_per_adult=None,
     )
     live = settings.public_group_booking_enabled
-    if live and request.payment_method == "jazzcash":
-        from app.vendors.payments import jazzcash
-
-        if not jazzcash.enabled():
-            raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
+    if live and request.payment_method == "jazzcash" and not (await payment_methods()).jazzcash:
+        raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
     if live and request.payment_method == "bank_transfer" and not (await payment_methods()).bank_transfer:
         raise PublicError(409, "Bank transfer isn't available right now. Choose card.", "method_unavailable")
     try:
@@ -412,9 +420,9 @@ def _flight_hold_allowed(quote) -> bool:
 
 
 def card_allowed(provider: str | None) -> bool:
-    """Card (and 1Link, both PayFast) for every flight supplier (decision of 19 Nov 2026, reversed the same day). Where the
-    gateway can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
-    return payfast.configured()
+    """Card (and 1Link, both PayFast) for every flight supplier, only while PayFast is on production. Where the gateway
+    can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
+    return payfast.production()
 
 
 class FlightPaymentOptions(BaseModel):
@@ -474,12 +482,11 @@ async def request_flight(request: PublicFlightRequest) -> PublicBookingCreated:
 async def _hold_flight(hold_request: HoldRequest, request: PublicFlightRequest, quote) -> str:
     """Hold the fare at the supplier for a guest (the same hold staff use). Payment comes after; no ticket is issued here."""
     from app.services import flight_holds
-    from app.vendors.payments import jazzcash
 
     method = request.payment_method
     if method == "card" and not card_allowed(quote.provider):
         raise PublicError(409, "Card payment isn't available right now. Choose another payment method.", "method_unavailable")
-    if method == "jazzcash" and not jazzcash.enabled():
+    if method == "jazzcash" and not (await payment_methods()).jazzcash:
         raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
     if method == "bank_transfer" and not (await payment_methods()).bank_transfer:
         raise PublicError(409, "Bank transfer isn't available right now. Choose card.", "method_unavailable")
@@ -577,7 +584,7 @@ async def booking_view(reference: str) -> PublicBookingView:
     first = booking.itinerary[0] if booking.itinerary and isinstance(booking.itinerary[0], dict) else {}
     travelers = [f"{t.title} {t.first_name} {t.last_name}".strip() for t in (people.travelers if people else [])]
     tickets = [t.ticket_number for t in (people.travelers if people else []) if t.ticket_number] if status == "issued" else []
-    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.configured()
+    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.production()
                and not booking.price_change.get("accepted") is False and booking.booking_status == "held")
     return PublicBookingView(
         reference=booking.reference, status=status, payment_status=booking.payment_status,  # type: ignore[arg-type]
@@ -679,7 +686,7 @@ class CheckoutView(BaseModel):
 
 async def start_payment(reference: str, token: str) -> CheckoutView:
     view = await open_booking(reference, token)
-    if not payfast.configured():
+    if not payfast.production():  # UAT PayFast never takes a customer's payment (test money only)
         raise PublicError(503, "Online payment isn't available right now.", "payments_off")
     if not view.can_pay:
         raise PublicError(409, "This booking can't be paid online now." if view.live else
