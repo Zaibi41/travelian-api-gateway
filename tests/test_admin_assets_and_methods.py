@@ -126,3 +126,43 @@ def test_wrong_type_or_s3_down_is_a_clear_error_and_nothing_is_signed():
         with pytest.raises(assets.AssetsError) as error:
             assets.sign_upload("payment_qr", "image/png")
     assert error.value.status == 503 and "S3 bucket" in error.value.message
+
+
+@pytest.mark.parametrize("purpose, folder", [("site_logo", "site"), ("payment_qr", "payment-qr"), ("payment_proof", "payment-proof")])
+def test_every_upload_purpose_is_signed_v4_into_its_own_folder(monkeypatch, purpose, folder):
+    """Every feature on the shared signer (B13, D38): Website & CMS > Site logo, Accounts & Ledgers QR images, and
+    payment proofs (purpose kept, no screen uses it yet). Same SigV4 signing for each; each only in its own folder."""
+    for name, value in {"AWS_ACCESS_KEY_ID": "AKIAEXAMPLEEXAMPLE", "AWS_SECRET_ACCESS_KEY": "dummy", "AWS_CONFIG_FILE": "/dev/null",
+                        "AWS_SHARED_CREDENTIALS_FILE": "/dev/null"}.items():
+        monkeypatch.setenv(name, value)
+    with patch.object(settings, "assets_bucket", "travelian-assets-test"), patch.object(settings, "assets_region", "ap-southeast-1"), \
+         patch.object(settings, "assets_public_base_url", "https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com"):
+        signed = assets.sign_upload(purpose, "image/png")
+    assert signed.fields["x-amz-algorithm"] == "AWS4-HMAC-SHA256" and signed.fields["key"] == signed.asset_key
+    assert signed.asset_key.startswith(f"{folder}/") and assets.valid_key(signed.asset_key, purpose)
+    assert not any(assets.valid_key(signed.asset_key, other) for other in assets.PURPOSES if other != purpose)
+
+
+def test_site_logo_route_saves_only_an_uploaded_logo_key():
+    """Website & CMS > Site logo: PUT /v1/admin/site-assets/site_logo keeps the key and its public URL; the public site reads it
+    back from /v1/public/payment-methods (logo_url)."""
+    from app.api.routes import admin_uploads
+    from app.core.field_visibility import ALL, BackOfficeUser, require_finance_accounts
+
+    saved = []
+    app.dependency_overrides[require_finance_accounts] = lambda: BackOfficeUser("u1", "super_admin", ALL)
+    try:
+        with patch.object(settings, "assets_public_base_url", "https://assets.example"), \
+             patch.object(admin_uploads, "_save", lambda slot, key, url, actor: saved.append((slot, key, url))):
+            ok = client.put("/v1/admin/site-assets/site_logo", json={"asset_key": "site/abc.png"})
+            wrong_folder = client.put("/v1/admin/site-assets/site_logo", json={"asset_key": "payment-qr/abc.png"})
+            with patch.object(settings, "assets_public_base_url", None):
+                not_set_up = client.put("/v1/admin/site-assets/site_logo", json={"asset_key": "site/abc.png"})
+    finally:
+        app.dependency_overrides.clear()
+    assert ok.status_code == 200 and ok.json() == {"slot": "site_logo", "asset_key": "site/abc.png", "url": "https://assets.example/site/abc.png"}
+    assert wrong_folder.status_code == 422 and not_set_up.status_code == 503
+    assert saved == [("site_logo", "site/abc.png", "https://assets.example/site/abc.png")]
+    with patch.object(admin_uploads, "site_assets", lambda: {"site_logo": "https://assets.example/site/abc.png"}), \
+         patch.object(public_booking, "bank_accounts", lambda: []):
+        assert client.get("/v1/public/payment-methods").json()["logo_url"] == "https://assets.example/site/abc.png"
