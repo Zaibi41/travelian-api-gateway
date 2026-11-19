@@ -241,6 +241,16 @@ class RecordPaymentResponse(BaseModel):
     payment_status: PaymentStatus
 
 
+class IssuanceAttempt(BaseModel):
+    """The last issuing attempt or supplier check, with its real reason in plain words."""
+
+    at: datetime
+    outcome: Literal["issued", "not_issued", "unknown", "aborted", "checked"]
+    reason: str = Field(description="What happened, in plain words (no supplier names).")
+    supplier_answer: str | None = Field(None, description="What the supplier answered to the ticketing request, in plain words.")
+    pnr_status: str | None = Field(None, description="The PNR status code the supplier showed afterwards (e.g. OK, BK).")
+
+
 class IssuanceChecklist(BaseModel):
     """What stands between this booking and a ticket. Supplier fields only with the cost and margin permission."""
 
@@ -258,16 +268,6 @@ class IssuanceChecklist(BaseModel):
     margin: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
     last_attempt: IssuanceAttempt | None = Field(None, description="The last issuing attempt or supplier check, with its reason.")
     can_check: bool = Field(False, description="Check with supplier is available (unknown or failed issuance; read-only).")
-
-
-class IssuanceAttempt(BaseModel):
-    """The last issuing attempt or supplier check, with its real reason in plain words."""
-
-    at: datetime
-    outcome: Literal["issued", "not_issued", "unknown", "aborted", "checked"]
-    reason: str = Field(description="What happened, in plain words (no supplier names).")
-    supplier_answer: str | None = Field(None, description="What the supplier answered to the ticketing request, in plain words.")
-    pnr_status: str | None = Field(None, description="The PNR status code the supplier showed afterwards (e.g. OK, BK).")
 
 
 class IssueTicketRequest(BaseModel):
