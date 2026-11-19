@@ -67,6 +67,9 @@ class RateLimiter:
 
 
 SEARCH_LIMIT = RateLimiter(30, 60)  # searches per IP per minute
+# B24 / D46: fare calendars only read what searches already found (the gateway checks missing dates itself, a few at a
+# time), so a page asking again while dates fill in doesn't use up the live-search allowance.
+CALENDAR_LIMIT = RateLimiter(120, 60)  # calendar reads per IP per minute
 BOOK_LIMIT = RateLimiter(5, 3600)  # bookings per IP per hour
 PAY_LIMIT = RateLimiter(20, 3600)  # payment starts and views per IP per hour
 
