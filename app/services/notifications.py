@@ -53,6 +53,11 @@ def recipients() -> list[str]:
     return [address.strip() for address in settings.notify_emails.split(",") if "@" in address]
 
 
+def email_configured() -> bool:
+    """Email alerts are switched on and have someone to go to (SES itself is only known when a send is tried)."""
+    return bool(settings.notify_email_enabled and recipients())
+
+
 def _send_email(subject: str, body: str) -> bool:
     if not settings.notify_email_enabled or not recipients():
         return False

@@ -1,4 +1,4 @@
-"""B3/B4/B13: uploads signed for S3 only, masked account numbers, payment methods (JazzCash off), JazzCash unreachable."""
+"""B3/B4/B13/B16: uploads signed for S3 only, full receiving-account numbers (D40), payment methods (JazzCash off), JazzCash unreachable."""
 
 from unittest.mock import MagicMock, patch
 
@@ -13,11 +13,17 @@ from app.services import assets, public_booking
 client = TestClient(app)
 
 
-def test_account_numbers_are_only_ever_stored_masked():
-    assert payment_accounts.mask_number("PK36 SCBL 0000 0011 2345 6702") == "**** **** 6702"
-    assert payment_accounts.mask_number("") is None
+def test_receiving_account_number_and_iban_are_kept_in_full():
+    # D40: the account customers pay into is never masked; the short form is only for lists.
+    assert payment_accounts.clean_number(" 0011-2345 6702 ") == "0011-2345 6702"
+    assert payment_accounts.mask_number("0011-2345 6702") == "**** **** 6702"
+    assert payment_accounts.clean_iban("pk36 scbl 0000 0011 2345 6702") == "PK36SCBL0000001123456702"
+    assert payment_accounts.clean_number("") is None and payment_accounts.clean_iban(None) is None
+    for bad in ("123", "12ab5678", "**** 1234"):
+        with pytest.raises(payment_accounts.AccountError):
+            payment_accounts.clean_number(bad)
     with pytest.raises(payment_accounts.AccountError):
-        payment_accounts.mask_number("123")
+        payment_accounts.clean_iban("1234")
 
 
 def test_uploads_are_signed_for_s3_images_only():
@@ -47,13 +53,35 @@ def test_payment_methods_and_jazzcash_off():
     assert client.post("/v1/public/payments/jazzcash/notify", json={"pp_ResponseCode": "000"}).json() == {"status": "ignored", "verified": False}
 
 
-def test_bank_transfer_lists_only_active_accounts_with_masked_numbers():
-    accounts = [payment_accounts.Account("a1", "bank_transfer", "HBL main", True, "HBL", "Travelian (Pvt) Ltd", "**** **** 6702", "payment-qr/x.png"),
+def test_customers_see_the_full_account_number_and_iban_to_pay_into():
+    accounts = [payment_accounts.Account("a1", "bank_transfer", "HBL main", True, "HBL", "Travelian (Pvt) Ltd", "**** **** 6702", "payment-qr/x.png",
+                                         "0011 2345 6702", "PK36HABB0000001123456702"),
+                # Old row from before 0024 (only the last 4 digits): a customer couldn't pay into it, so it isn't offered.
+                payment_accounts.Account("a3", "bank_transfer", "Old", True, "MCB", "Travelian", "**** **** 1111"),
                 payment_accounts.Account("a2", "jazzcash", "Wallet", True)]
     with patch.object(payment_accounts, "list_accounts", lambda include_inactive=False: accounts), \
          patch.object(settings, "bank_transfer_enabled", True), patch.object(settings, "assets_public_base_url", "https://assets.example"), \
          patch("app.api.routes.admin_uploads.site_assets", lambda: {}):
         body = client.get("/v1/public/payment-methods").json()
     assert body["bank_transfer"] is True
-    assert body["bank_accounts"] == [{"bank_name": "HBL", "account_title": "Travelian (Pvt) Ltd", "account_number_masked": "**** **** 6702",
+    assert body["bank_accounts"] == [{"bank_name": "HBL", "account_title": "Travelian (Pvt) Ltd", "account_number": "0011 2345 6702",
+                                      "iban": "PK36HABB0000001123456702",
                                       "qr_url": "https://assets.example/payment-qr/x.png"}]
+
+
+def test_umrah_is_hidden_by_default_and_switches_with_a_setting():
+    # D39: one server setting, read by the website at load time (no rebuild).
+    assert client.get("/v1/public/site-config").json() == {"umrah_enabled": False}
+    with patch.object(settings, "umrah_enabled", True):
+        assert client.get("/v1/public/site-config").json() == {"umrah_enabled": True}
+
+
+def test_email_alerts_report_whether_they_are_set_up():
+    from app.services import notifications
+
+    with patch.object(settings, "notify_email_enabled", False), patch.object(settings, "notify_emails", "ops@example.invalid"):
+        assert notifications.email_configured() is False
+    with patch.object(settings, "notify_email_enabled", True), patch.object(settings, "notify_emails", ""):
+        assert notifications.email_configured() is False
+    with patch.object(settings, "notify_email_enabled", True), patch.object(settings, "notify_emails", "ops@example.invalid"):
+        assert notifications.email_configured() is True

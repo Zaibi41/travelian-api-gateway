@@ -294,9 +294,11 @@ def _now() -> datetime:
 # ---------- payment methods offered at checkout ----------
 
 class BankAccountView(BaseModel):
+    """The account customers pay into, in full (D40): masking never applies to Travelian's receiving account."""
     bank_name: str | None = None
     account_title: str | None = None
-    account_number_masked: str | None = None
+    account_number: str | None = None
+    iban: str | None = None
     qr_url: str | None = None
 
 
@@ -312,9 +314,11 @@ def bank_accounts() -> list[BankAccountView]:
     from app.db import payment_accounts
     from app.services import assets
 
-    return [BankAccountView(bank_name=a.bank_name, account_title=a.account_title, account_number_masked=a.account_number_masked,
+    # Only accounts a customer can actually pay into: a title plus the full number, IBAN or a QR image.
+    return [BankAccountView(bank_name=a.bank_name, account_title=a.account_title, account_number=a.account_number, iban=a.iban,
                             qr_url=assets.public_url(a.qr_asset_key))
-            for a in payment_accounts.list_accounts() if a.method == "bank_transfer" and a.account_title]
+            for a in payment_accounts.list_accounts()
+            if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
 
 
 async def payment_methods() -> PaymentMethodsView:

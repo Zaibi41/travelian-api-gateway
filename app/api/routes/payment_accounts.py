@@ -39,7 +39,8 @@ def _view(account: store.Account) -> ReceivingAccount:
 
     return ReceivingAccount(id=account.id, method=account.method, label=account.label, active=account.active,
                             bank_name=account.bank_name, account_title=account.account_title,
-                            account_number_masked=account.account_number_masked, qr_asset_key=account.qr_asset_key,
+                            account_number_masked=account.account_number_masked, account_number=account.account_number, iban=account.iban,
+                            qr_asset_key=account.qr_asset_key,
                             qr_url=assets.public_url(account.qr_asset_key))
 
 
@@ -72,7 +73,7 @@ async def add_payment_account(body: AddReceivingAccountRequest,
     try:
         account = await run_in_threadpool(lambda: store.add(body.method, body.label, viewer.user_id, bank_name=body.bank_name,
                                                             account_title=body.account_title, account_number=body.account_number,
-                                                            qr_asset_key=_qr_key(body.qr_asset_key)))
+                                                            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)
@@ -94,11 +95,11 @@ async def deactivate_payment_account(account_id: str,
 @finance_router.patch("/{account_id}", response_model=ReceivingAccount, responses={404: {"description": "No account with that id."}})
 async def update_payment_account(account_id: str, body: UpdateReceivingAccountRequest,
                                  viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
-    """Bank name, account title, account number (stored masked) and QR image. Fields left out keep their value."""
+    """Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value."""
     try:
         account = await run_in_threadpool(lambda: store.update_details(
             account_id, bank_name=body.bank_name, account_title=body.account_title, account_number=body.account_number,
-            qr_asset_key=_qr_key(body.qr_asset_key)))
+            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)
