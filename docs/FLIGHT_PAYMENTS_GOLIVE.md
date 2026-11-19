@@ -26,7 +26,22 @@ both repos' `docs/`. Nothing here was run against AWS or the server; every comma
 3. Website: build and deploy (the admin needs the new statuses, filter, card and the Edit account dialog).
 4. Turn flags on (section 3), restart the gateway, and run one UAT card booking end to end before real customers.
 
-## 3. Gateway `.env` / Parameter Store
+## 3. Gateway `.env` (server)
+
+Put these lines in `/opt/travelian-api/shared/.env` **at deploy time** (step 2.1), not before: the live server runs older
+code until then. Done on 19 Nov 2026 (with OK): S3 bucket `travelian-assets-106237071463` (ap-southeast-1, public read on
+`site/*` and `payment-qr/*` only, CORS for POST) and IAM user `travelian-gateway` (policy `gateway-runtime`: upload to the
+three folders, SES send as `*@travelian.pk`, read `/travelian/gateway/*`). Its access key is in
+`~/travelian-gateway-server-key.env` (mode 600) on the admin's machine: copy its two lines (`AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`) into the server `.env`, then **delete `~/travelian-gateway-server-key.env`** (`shred -u` or `rm`).
+
+**`SSM_PARAMETER_PREFIX`: leave it out** unless a value really moves to Parameter Store. When it is set, an existing
+parameter replaces the `.env` value (PayFast at startup; restricted airlines re-read every few minutes), a missing one
+keeps the `.env` value, and a failed Parameter Store call stops the gateway from starting. None of the
+`/travelian/gateway/*` parameters exist yet. Before changing it on the server, check its current `.env`: the same prefix
+also covers Dhillu & Sahi and SkyPass settings. **PayFast keys stay in the server `.env`** until production credentials
+exist; decide then whether they move to Parameter Store (the only PayFast credentials in AWS today, Secrets Manager
+`travelian/payments/payfast`, are UAT).
 
 | Setting | Go-live value | Notes |
 |---|---|---|
@@ -38,12 +53,14 @@ both repos' `docs/`. Nothing here was run against AWS or the server; every comma
 | `JAZZCASH_ENABLED` | `false` | JazzCash is a scaffold; leave off until its flow is confirmed. |
 | `FLIGHT_ISSUANCE_STUCK_MINUTES` | `10` (default) | Stuck-issuance recovery: one retry after 10 minutes. |
 | `NOTIFY_EMAIL_ENABLED` | `true` once SES works (section 5) | Off: alerts only in the admin. |
-| `NOTIFY_EMAILS` | staff addresses, comma-separated | |
-| `NOTIFY_EMAIL_FROM` | `Travelian <alerts@travelian.pk>` (or `noreply@`) | Must be on the SES-verified domain. |
-| `SES_REGION` | the region where travelian.pk is verified (default `us-east-1`) | |
-| `ASSETS_BUCKET` | `travelian-assets-<account id>` | From `deploy/aws-setup.sh`. |
-| `ASSETS_REGION` | the bucket's region (e.g. `ap-southeast-1`) | Uploads are signed for this region (SigV4). |
-| `ASSETS_PUBLIC_BASE_URL` | `https://<bucket>.s3.<region>.amazonaws.com` | Images are read from here: needs public read (section 4). |
+| `NOTIFY_EMAILS` | staff addresses, comma-separated | Until SES production access is granted, only **verified** addresses receive mail (today: `travelian.pk@gmail.com`). |
+| `NOTIFY_EMAIL_FROM` | `Travelian <noreply@travelian.pk>` | travelian.pk is verified in SES (us-east-1, DKIM). |
+| `SES_REGION` | `us-east-1` | Where travelian.pk is verified. |
+| `ASSETS_BUCKET` | `travelian-assets-106237071463` | Created 19 Nov 2026. |
+| `ASSETS_REGION` | `ap-southeast-1` | Uploads are signed for this region (SigV4). |
+| `ASSETS_PUBLIC_BASE_URL` | `https://travelian-assets-106237071463.s3.ap-southeast-1.amazonaws.com` | Public read on `site/*`, `payment-qr/*` (section 4). |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | from `~/travelian-gateway-server-key.env` | Lightsail has no instance roles; IAM user `travelian-gateway`. Then delete the local file. |
+| `SSM_PARAMETER_PREFIX` | not set | See above. |
 | `PUBLIC_SITE_URL` / `PUBLIC_API_URL` | `https://travelian.pk` / `https://api.travelian.pk` | PayFast return and notification URLs. |
 
 ## 4. S3: uploads and public read
@@ -86,7 +103,8 @@ policy is ignored until `BlockPublicPolicy`/`RestrictPublicBuckets` are off ther
    DNS). Domain verification lets any `@travelian.pk` sender work; the server IAM policy already allows only
    `*@travelian.pk` senders (`aws-setup.sh`).
 2. Optional but recommended: a custom MAIL FROM (e.g. `mail.travelian.pk`) and a DMARC record, so alerts don't go to spam.
-3. **Sandbox:** new SES accounts are in the sandbox and can only send to verified addresses (200/day). Either verify each
+3. **Sandbox (still on, 19 Nov 2026):** the account can only send to **verified addresses** (200/day): `NOTIFY_EMAILS`
+   reaches only those until production access is granted. Either verify each
    staff address in `NOTIFY_EMAILS` (fine for a few staff), or request production access (SES console > Account
    dashboard > Request production access; use case: transactional staff alerts). Check:
    `aws sesv2 get-account --region <SES_REGION>` (`ProductionAccessEnabled`).
