@@ -50,6 +50,9 @@ async def create(request: HoldRequest, viewer: BackOfficeUser, channel: str = "s
         customer=flight_holds._customer(request), travelers=travelers, itinerary=[ref.segment for ref in quote.refs if ref.segment],
         details={"restricted_airline": restricted, "quoted_at_selling_total_minor": quote.selling_total_minor}, channel=channel,
     ))
+    # B23: the customer and travelers are saved to (or matched with) Customers & Travelers like every other booking,
+    # whether staff or the website made the request. Never blocks the request.
+    await run_in_threadpool(flight_holds._save_people, request, reference, viewer.user_id if channel == "staff" else None, None, links)
     await notifications.booking_event(
         "restricted_request" if restricted else "booking_requested", reference=reference, passenger=flight_holds._lead_name(request),
         route=flight_holds._route(quote.refs), fare_minor=quote.selling_total_minor, currency=quote.currency, pnr=None,

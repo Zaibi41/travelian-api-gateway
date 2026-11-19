@@ -664,3 +664,25 @@ def test_search_is_back_office_only(db):
     client = TestClient(app)
     assert client.get("/v1/admin/customers/search", params={"q": "usm"}).status_code == 403
     assert client.get("/v1/admin/travelers/search", params={"q": "usm"}).status_code == 403
+
+
+def test_a_website_booking_saves_its_customer_with_no_staff_actor_and_a_repeat_booking_matches_the_same_person(db):
+    """B23: website bookings (no staff user) save their people too, and the same passport books again as the same
+    person with two bookings, never a second record."""
+    connection, metadata = db
+    customer = store.HoldCustomer("Web", "Guest", "92", "3009876543", "web.guest@example.invalid")
+    traveler = lambda: store.HoldTraveler(0, "Web", "Guest", "MR", date(1991, 2, 3), "PAK", passport("WB1234567"))  # noqa: E731
+    first = save(connection, metadata, pnr="WEB001", actor_user_id=ACTOR)
+    second = save(connection, metadata, pnr="WEB002", actor_user_id=ACTOR)
+    one = store.save_from_hold(None, None, first, customer, [traveler()])
+    two = store.save_from_hold(None, None, second, customer, [traveler()])
+    assert {o.role: o.status for o in one}["traveler"] == "saved"  # new person on the first booking
+    assert {o.role: o.status for o in two}["traveler"] == "linked"  # matched by passport on the second
+    person_ids = {o.person_id for o in one + two if o.person_id}
+    assert len(person_ids) == 1  # one person, linked from both bookings
+    people = connection.execute(text("SELECT count(*) FROM saved_people WHERE first_name = 'Web'")).scalar()
+    assert people == 1
+    linked = connection.execute(text("SELECT count(*) FROM booking_customers WHERE person_id = :p"), {"p": person_ids.pop()}).scalar()
+    assert linked == 2
+    actors = connection.execute(text("SELECT DISTINCT created_by_user_id FROM saved_people WHERE first_name = 'Web'")).scalars().all()
+    assert actors == [None]

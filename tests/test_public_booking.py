@@ -231,6 +231,11 @@ def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a
         return await real_reprice(search_id, fare_ids, viewer, sooperfare_factory=lambda: sf)
 
     saved = {}
+    people = []
+
+    def save_people(request, reference, actor, owner, links, document=None):
+        people.append((reference, actor, owner, request.contact.email, [p.document_number for p in request.passengers]))
+        return []
 
     def save_request(**kwargs):
         saved.update(kwargs)
@@ -244,6 +249,7 @@ def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a
     with patch.object(live_flights, "search", search), patch.object(live_flights, "reprice", reprice), \
          patch.object(settings, "flight_markup_percent", __import__("decimal").Decimal("0")), \
          patch.object(supplier_bookings, "save_request", save_request), patch.object(flight_holds, "resolve_saved", lambda request, viewer: (request, {})), \
+         patch.object(flight_holds, "_save_people", save_people), \
          patch.object(public_booking.store, "load", lambda reference: SimpleNamespace(id="b-web", **vars(view))), \
          patch.object(public_booking.public_bookings, "mark_website", lambda booking_id, token_hash: None), \
          patch.object(public_booking, "booking_view", AsyncMock(return_value=created)):
@@ -263,6 +269,8 @@ def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a
     assert [(t.first_name, t.document_number) for t in saved["travelers"]] == [("Test", "3520112345671")]  # full details saved
     assert saved["selling_total_minor"] == 2205000 + 2000  # the gateway's price, never the page's
     assert missing_email.status_code == 422
+    # B23: the guest is saved to (or matched with) Customers & Travelers, as Travelian's own (no agency owner, no staff actor).
+    assert people == [("TRV-R-WEB1", None, None, "guest@example.invalid", ["3520112345671"])]
 
 
 @pytest.mark.parametrize("method", ["bank_transfer", "jazzcash"])
@@ -293,3 +301,15 @@ def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method):
     assert created.booking.status == "held" and created.booking.payment_status == "unpaid"
     event.assert_awaited_once()
     assert event.await_args.args[0] == "bank_transfer_hold" and "Nothing is issued automatically" in event.await_args.kwargs["note"]
+
+
+def test_every_group_booking_path_saves_its_people():
+    """B23: website group requests and website live holds save (or match) the customer and travelers, like staff holds."""
+    import inspect
+    from app.services import group_holds
+
+    source = inspect.getsource(group_holds.hold)
+    request_branch = source[source.index("if request_only:  # a request"):source.index("# 2. The hold.")]
+    assert "_save_people" in request_branch
+    tail = source[source.index("hold_created"):]
+    assert tail.index("_save_people") < tail.index("if website:")  # saved before the website returns
