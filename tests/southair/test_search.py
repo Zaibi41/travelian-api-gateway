@@ -70,8 +70,8 @@ def test_staff_and_agency_get_opaque_ids_and_selling_price_only(role):
     response = call(VIEWERS[role])
     assert response.status_code == 200
     body = response.json()
-    # Opaque IDs are random and may contain any short digit run, so check values with IDs removed.
-    without_ids = json.dumps({**body, "search_id": None, "journeys": [{**j, "flights": [{**f, "id": None, "fares": [{**x, "id": None} for x in f["fares"]]} for f in j["flights"]]} for j in body["journeys"]]})
+    # Opaque IDs and the expiry timestamp (microseconds) are random and may contain any short digit run, so check without them.
+    without_ids = json.dumps({**body, "search_id": None, "expires_at": None, "journeys": [{**j, "flights": [{**f, "id": None, "fares": [{**x, "id": None} for x in f["fares"]]} for f in j["flights"]]} for j in body["journeys"]]})
     for secret in SECRETS:
         assert secret not in without_ids, secret
     flights = body["journeys"][0]["flights"]
