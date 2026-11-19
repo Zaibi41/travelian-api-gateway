@@ -887,6 +887,17 @@
           "statuses": {
             "$ref": "#/components/schemas/BookingStatuses"
           },
+          "supplier_booking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupplierBookingView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SooperFare bookings, supplier-names permission only."
+          },
           "supplier_payment": {
             "anyOf": [
               {
@@ -9331,6 +9342,89 @@
         "title": "SiteConfig",
         "type": "object"
       },
+      "SupplierBookingView": {
+        "description": "The supplier's own booking (supplier-names permission only): its ids and, after a cancel request, what it says.",
+        "properties": {
+          "booking_id": {
+            "description": "The supplier's booking id (SooperFare: booking uuid).",
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "can_cancel": {
+            "default": false,
+            "title": "Can Cancel",
+            "type": "boolean"
+          },
+          "cancel_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel At"
+          },
+          "cancel_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Message"
+          },
+          "cancel_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "requested",
+              "confirmed",
+              "failed"
+            ],
+            "title": "Cancel State",
+            "type": "string"
+          },
+          "order_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The supplier's order reference (SooperFare: order_ref_id, e.g. spa-0rj).",
+            "title": "Order Ref"
+          },
+          "status_at_supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reservation status the supplier last showed.",
+            "title": "Status At Supplier"
+          },
+          "supplier": {
+            "title": "Supplier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier",
+          "booking_id"
+        ],
+        "title": "SupplierBookingView",
+        "type": "object"
+      },
       "SupplierPayment": {
         "description": "The Supplier payment tab. Only sent with the cost and margin permission.",
         "properties": {
@@ -11919,6 +12013,184 @@
           }
         ],
         "summary": "Set Selling Price",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/supplier-cancel": {
+      "post": {
+        "description": "Cancel a held SooperFare booking at SooperFare (staff confirm first in the admin). The booking is marked Cancelled\nonly when SooperFare's own record says so; otherwise it shows \"Cancel requested\". Logged in the audit trail.",
+        "operationId": "cancel_at_supplier_v1_admin_bookings__booking_id__supplier_cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierBookingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue tickets permission."
+          },
+          "409": {
+            "description": "Not a held SooperFare booking."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare refused or didn't answer; nothing changed."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel At Supplier",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/supplier-check": {
+      "post": {
+        "description": "Read-only: what SooperFare shows for this booking now; marks it Cancelled once SooperFare confirms a requested cancel.",
+        "operationId": "check_at_supplier_v1_admin_bookings__booking_id__supplier_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierBookingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No SooperFare reservation."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare couldn't be read."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Check At Supplier",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/supplier-confirm-preview": {
+      "get": {
+        "description": "The exact request Travelian would send to SooperFare to issue this booking. Read-only: nothing is sent.",
+        "operationId": "supplier_confirm_preview_v1_admin_bookings__booking_id__supplier_confirm_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No SooperFare reservation."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Supplier Confirm Preview",
         "tags": [
           "admin bookings"
         ]

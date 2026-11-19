@@ -46,6 +46,7 @@ def fake_sf(search="search_PA", quote="quote_PA", resv=None, lst=None, resv_erro
     client.quote = AsyncMock(return_value=load(quote))
     client.reservation = AsyncMock(return_value=resv or reservation(), side_effect=resv_error)
     client.booking_list = AsyncMock(return_value=lst or listing())
+    client.cancel = AsyncMock(return_value={"status": True, "message": "Operation Successfull", "data": {"transaction": {"txn_ref_id": "txn-1"}}})
     return client
 
 
@@ -165,6 +166,13 @@ def test_hold_total_that_differs_is_not_saved():
     with pytest.raises(flight_holds.HoldError) as error:
         hold(priced, sf)
     assert error.value.code == "total_unverified" and error.value.extra["pnr"] == "ZWHLZG"
+    # Never left open at SooperFare: the unverified reservation is cancelled at once, and staff are told.
+    assert sf.cancel.await_count == 1 and sf.cancel.await_args.args[0] == reservation()["data"]["uuid"]
+    assert "asked SooperFare to cancel it" in error.value.message and "Rs 28,070" in error.value.message
+    sf.cancel.side_effect = RuntimeError("down")
+    with pytest.raises(flight_holds.HoldError) as again:
+        hold(priced, sf)
+    assert again.value.code == "total_unverified" and "cancel it in SooperFare's portal" in again.value.message
 
 
 def test_refusals_before_any_reservation():
