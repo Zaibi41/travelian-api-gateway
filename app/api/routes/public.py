@@ -120,6 +120,19 @@ async def book_group(body: service.PublicGroupBookingRequest, request: Request):
         return _error(error)
 
 
+@router.post("/flights/requests", response_model=service.PublicBookingCreated, status_code=201,
+             responses={404: {"description": "The search expired."}, 409: {"description": "The fare is gone or changed."},
+                        422: {"description": "Check the details."}, 429: {"description": "Too many bookings."}})
+async def request_flight(body: service.PublicFlightRequest, request: Request):
+    """A guest's flight booking, saved as a request for Travelian's team (D43): repriced by the gateway, never held,
+    ticketed or charged here, and no PNR is given. Staff are notified and confirm the fare and payment with the customer."""
+    try:
+        service.check_rate(service.BOOK_LIMIT, _ip(request))
+        return await service.request_flight(body)
+    except service.PublicError as error:
+        return _error(error)
+
+
 Token = Annotated[str, Header(alias="X-Booking-Token", min_length=8, max_length=200)]
 
 
