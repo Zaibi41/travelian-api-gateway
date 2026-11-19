@@ -308,7 +308,7 @@ class BankAccountView(BaseModel):
 
 
 class PaymentMethodsView(BaseModel):
-    card: bool = Field(description="Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).")
+    card: bool = Field(description="Card / 1Link through PayFast: on production PayFast, or UAT with PAYFAST_ALLOW_UAT (testing).")
     bank_transfer: bool = Field(description="Only when an active bank account with a full account number exists.")
     jazzcash: bool = Field(description="Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.")
     flights: bool = Field(False, description="Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). "
@@ -348,7 +348,7 @@ async def payment_methods() -> PaymentMethodsView:
         logo = (await run_in_threadpool(site_assets)).get("site_logo")
     except Exception:  # noqa: BLE001 - the logo is optional
         logo = None
-    return PaymentMethodsView(card=payfast.production(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
+    return PaymentMethodsView(card=payfast.payments_allowed(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
                               flights=settings.public_flight_booking_enabled, bank_accounts=accounts, jazzcash_accounts=wallets, logo_url=logo)
 
 
@@ -420,9 +420,10 @@ def _flight_hold_allowed(quote) -> bool:
 
 
 def card_allowed(provider: str | None) -> bool:
-    """Card (and 1Link, both PayFast) for every flight supplier, only while PayFast is on production. Where the gateway
+    """Card (and 1Link, both PayFast) for every flight supplier, only while PayFast is on production (or UAT with
+    PAYFAST_ALLOW_UAT, for testing). Where the gateway
     can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
-    return payfast.production()
+    return payfast.payments_allowed()
 
 
 class FlightPaymentOptions(BaseModel):
@@ -509,7 +510,8 @@ async def _hold_flight(hold_request: HoldRequest, request: PublicFlightRequest, 
             note = (f"Website flight. Customer chose {label}. Check the {label} payment has arrived, record it in the Payments tab, then "
                     "issue. Nothing is issued automatically. Pay attention to the hold's time limit.")
         await notifications.booking_event(
-            "bank_transfer_hold", reference=view.booking_id, passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
+            "book_only_hold" if method == "book_only" else "bank_transfer_hold", reference=view.booking_id,
+            passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
             route=None, fare_minor=view.selling_total.amount_minor, currency=view.selling_total.currency, pnr=view.pnr,
             hold_expires_at=view.time_limit, note=note)
     return view.booking_id
@@ -584,7 +586,7 @@ async def booking_view(reference: str) -> PublicBookingView:
     first = booking.itinerary[0] if booking.itinerary and isinstance(booking.itinerary[0], dict) else {}
     travelers = [f"{t.title} {t.first_name} {t.last_name}".strip() for t in (people.travelers if people else [])]
     tickets = [t.ticket_number for t in (people.travelers if people else []) if t.ticket_number] if status == "issued" else []
-    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.production()
+    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.payments_allowed()
                and not booking.price_change.get("accepted") is False and booking.booking_status == "held")
     return PublicBookingView(
         reference=booking.reference, status=status, payment_status=booking.payment_status,  # type: ignore[arg-type]
@@ -686,7 +688,7 @@ class CheckoutView(BaseModel):
 
 async def start_payment(reference: str, token: str) -> CheckoutView:
     view = await open_booking(reference, token)
-    if not payfast.production():  # UAT PayFast never takes a customer's payment (test money only)
+    if not payfast.payments_allowed():  # UAT PayFast only with PAYFAST_ALLOW_UAT (test money)
         raise PublicError(503, "Online payment isn't available right now.", "payments_off")
     if not view.can_pay:
         raise PublicError(409, "This booking can't be paid online now." if view.live else

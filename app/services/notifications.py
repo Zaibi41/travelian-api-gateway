@@ -24,7 +24,7 @@ from app.db import agencies
 logger = logging.getLogger(__name__)
 
 KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold", "paid_issuance_pending", "auto_issued",
-         "auto_issue_failed", "paid_not_ticketed", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost")}
+         "auto_issue_failed", "paid_not_ticketed", "book_only_hold", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost")}
 
 #: Red alerts: a customer paid by card and has no ticket. Shown as urgent in the admin (Notifications > Booking alerts).
 URGENT_KINDS = frozenset({"paid_not_issued", "paid_not_issued_30m", "paid_hold_lost"})
@@ -88,6 +88,7 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
         "booking_requested": "New booking request",
         "restricted_request": "Request to book (restricted airline): no supplier hold",
         "bank_transfer_hold": "Held for bank transfer: payment pending",
+        "book_only_hold": "Held (Book Only) — no payment yet",
         "paid_issuance_pending": "Paid by card: issuance pending",
         "auto_issued": "Paid by card: ticket issued automatically",
         "auto_issue_failed": "Paid by card: automatic issuance failed, issue by hand",

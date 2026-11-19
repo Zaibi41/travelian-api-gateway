@@ -154,6 +154,9 @@ class Settings(BaseSettings):
     # Public search answers are cached this long (seconds), so visitors don't each call the suppliers.
     public_search_cache_seconds: int = Field(120, ge=0, le=3600)
     # PayFast (Pakistan) hosted checkout. Sandbox host: https://ipguat.apps.net.pk.
+    # PayFast on UAT (ipguat.apps.net.pk) is test money. Off (default): card / 1Link are not offered and nothing is issued
+    # automatically. On: everything runs on UAT as on production, for end-to-end testing before production credentials.
+    payfast_allow_uat: bool = False
     payfast_merchant_id: SecretStr | None = None
     payfast_secured_key: SecretStr | None = None
     payfast_merchant_name: str = "Travelian"

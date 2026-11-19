@@ -399,8 +399,8 @@ def test_bank_transfer_and_jazzcash_hold_and_alert_staff_and_never_issue(method)
     assert response.status_code == 201, response.text
     hold.assert_awaited_once()
     event.assert_awaited_once()
-    assert event.await_args.args[0] == "bank_transfer_hold" and "Nothing is issued automatically" in event.await_args.kwargs["note"]
-    assert event.await_args.kwargs["pnr"] == "ZWHLZG"
+    assert event.await_args.args[0] == ("book_only_hold" if method == "book_only" else "bank_transfer_hold")
+    assert "Nothing is issued automatically" in event.await_args.kwargs["note"] and event.await_args.kwargs["pnr"] == "ZWHLZG"
 
 
 def test_bank_transfer_is_refused_without_a_receiving_account():
@@ -484,3 +484,36 @@ def test_bank_transfer_and_jazzcash_are_offered_only_with_a_full_account_number(
     assert off.jazzcash is False  # JAZZCASH_ENABLED off: never offered
     if wallet:
         assert methods.jazzcash_accounts[0].account_number == "03001234567"
+
+
+def test_book_only_alert_has_its_own_title(request):
+    from app.services import notifications
+
+    asyncio.run(notifications.booking_event("book_only_hold", reference="TRV-F-BO1", passenger="MR TEST Booking", route=None,
+                                            fare_minor=100, currency="PKR", pnr="ABC123", hold_expires_at=None, note="Book Only"))
+    kind, reference, _ = request.node.notifications[-1]
+    assert (kind, reference) == ("book_only_hold", "TRV-F-BO1")
+
+
+def test_book_only_alert_title_text():
+    import inspect
+
+    from app.services import notifications
+
+    assert '"book_only_hold": "Held (Book Only) — no payment yet"' in inspect.getsource(notifications.booking_event)
+
+
+def test_payfast_allow_uat_switch_turns_card_and_auto_issuing_on_for_uat_testing():
+    """PAYFAST_ALLOW_UAT: testing everything on UAT credentials. Off: UAT never offers card or issues automatically."""
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(settings, "payfast_base_url", "https://ipguat.apps.net.pk"), patch.object(settings, "southair_ticketing_enabled", True):
+        with patch.object(settings, "payfast_allow_uat", True):
+            assert flight_payments.startup_summary() == "PayFast mode: UAT (allowed for testing), auto-issuing: on"
+            assert public_booking.card_allowed("southair") and public_booking.flight_can_pay(_row(), datetime.now(timezone.utc))
+        with patch.object(settings, "payfast_allow_uat", False):
+            assert flight_payments.startup_summary() == "PayFast mode: UAT, auto-issuing: off"
+            assert not public_booking.card_allowed("southair")
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(settings, "payfast_base_url", PRODUCTION), patch.object(settings, "payfast_allow_uat", True), \
+         patch.object(settings, "southair_ticketing_enabled", True):
+        assert flight_payments.startup_summary() == "PayFast mode: production, auto-issuing: on"  # the switch only matters on UAT

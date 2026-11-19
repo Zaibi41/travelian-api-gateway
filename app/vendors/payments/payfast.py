@@ -54,8 +54,18 @@ def production() -> bool:
     return configured() and not sandbox()
 
 
+def payments_allowed() -> bool:
+    """Card / 1Link may be offered and a verified payment may issue automatically: production PayFast, or UAT with
+    PAYFAST_ALLOW_UAT on (testing on UAT credentials)."""
+    return production() or (configured() and sandbox() and settings.payfast_allow_uat)
+
+
 def mode() -> str:
-    return "not configured" if not configured() else "UAT" if sandbox() else "production"
+    if not configured():
+        return "not configured"
+    if sandbox():
+        return "UAT (allowed for testing)" if settings.payfast_allow_uat else "UAT"
+    return "production"
 
 
 def _merchant_id() -> str:
