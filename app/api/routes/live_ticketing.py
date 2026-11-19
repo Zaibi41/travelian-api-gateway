@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse
 from app.core.field_visibility import BackOfficeUser, require_back_office, require_search_viewer
 from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import FlightSearchView, HoldRequest, HoldView, RepriceRequest, RepriceView
-from app.services import flight_holds, flight_requests, live_flights
+from app.api.routes.public import FlightCalendarQuery
+from app.services import flight_holds, flight_requests, live_flights, public_booking
 
 router = APIRouter(
     prefix="/live-ticketing",
@@ -20,6 +21,14 @@ router = APIRouter(
     responses={401: {"description": "Not signed in."}, 403: {"description": "Role may not search."}},
 )
 Viewer = Annotated[BackOfficeUser, Depends(require_search_viewer)]
+
+
+@router.post("/flights/calendar", response_model=public_booking.FlightCalendar, response_model_exclude_none=True)
+async def flight_calendar(viewer: Viewer, body: FlightCalendarQuery):
+    """Admin Search > Flights date picker: the same fare calendar as the website (lowest real selling price per adult
+    per date; unknown dates have no price and a few are checked in the background; ask again while `pending`).
+    The website's call is rate-limited by IP; this one is for signed-in staff."""
+    return await public_booking.flight_calendar(body.origin, body.destination, body.adults, body.cabin, body.start)
 
 
 @router.post("/flights/search", response_model=FlightSearchView, response_model_exclude_none=True)

@@ -18765,6 +18765,59 @@
         ]
       }
     },
+    "/v1/live-ticketing/flights/calendar": {
+      "post": {
+        "description": "Admin Search > Flights date picker: the same fare calendar as the website (lowest real selling price per adult\nper date; unknown dates have no price and a few are checked in the background; ask again while `pending`).\nThe website's call is rate-limited by IP; this one is for signed-in staff.",
+        "operationId": "flight_calendar_v1_live_ticketing_flights_calendar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightCalendarQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightCalendar"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Role may not search."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Flight Calendar",
+        "tags": [
+          "live ticketing"
+        ]
+      }
+    },
     "/v1/live-ticketing/flights/reprice": {
       "post": {
         "description": "Repeat the search for the selected fares and return the total to confirm (valid 10 minutes).",
