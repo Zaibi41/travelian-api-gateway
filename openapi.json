@@ -6,14 +6,14 @@
           "account_number": {
             "anyOf": [
               {
-                "maxLength": 40,
+                "maxLength": 60,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Full number as typed; only a masked form is stored.",
+            "description": "The full account number, stored and shown in full (D40).",
             "title": "Account Number"
           },
           "account_title": {
@@ -39,6 +39,19 @@
               }
             ],
             "title": "Bank Name"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IBAN; spaces are removed.",
+            "title": "Iban"
           },
           "label": {
             "description": "The account's name staff see: 2 to 120 characters after extra spaces are removed. Not the full account number.",
@@ -447,8 +460,9 @@
         "type": "object"
       },
       "BankAccountView": {
+        "description": "The account customers pay into, in full (D40): masking never applies to Travelian's receiving account.",
         "properties": {
-          "account_number_masked": {
+          "account_number": {
             "anyOf": [
               {
                 "type": "string"
@@ -457,7 +471,7 @@
                 "type": "null"
               }
             ],
-            "title": "Account Number Masked"
+            "title": "Account Number"
           },
           "account_title": {
             "anyOf": [
@@ -480,6 +494,17 @@
               }
             ],
             "title": "Bank Name"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iban"
           },
           "qr_url": {
             "anyOf": [
@@ -6729,6 +6754,11 @@
       },
       "NotificationList": {
         "properties": {
+          "email_enabled": {
+            "description": "Alerts are also emailed to staff. False until email is set up on the server (deploy/aws-setup.sh: SES sender and recipients); alerts still appear here.",
+            "title": "Email Enabled",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/NotificationView"
@@ -6738,7 +6768,8 @@
           }
         },
         "required": [
-          "items"
+          "items",
+          "email_enabled"
         ],
         "title": "NotificationList",
         "type": "object"
@@ -7443,6 +7474,18 @@
       "ReceivingAccount": {
         "description": "A receiving account as Finance > Accounts & Ledgers manages it (active and inactive).",
         "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The full account number customers pay into (D40: never masked).",
+            "title": "Account Number"
+          },
           "account_number_masked": {
             "anyOf": [
               {
@@ -7452,7 +7495,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only the last 4 digits; the full number is never stored.",
+            "description": "Short form for lists (last 4 digits).",
             "title": "Account Number Masked"
           },
           "account_title": {
@@ -7480,6 +7523,18 @@
               }
             ],
             "title": "Bank Name"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IBAN, upper case, no spaces.",
+            "title": "Iban"
           },
           "id": {
             "title": "Id",
@@ -9027,6 +9082,20 @@
         "title": "SiteAssetView",
         "type": "object"
       },
+      "SiteConfig": {
+        "properties": {
+          "umrah_enabled": {
+            "description": "Show Umrah anywhere on the site (D39). Off: every Umrah entry point and URL is hidden.",
+            "title": "Umrah Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "umrah_enabled"
+        ],
+        "title": "SiteConfig",
+        "type": "object"
+      },
       "SupplierPayment": {
         "description": "The Supplier payment tab. Only sent with the cost and margin permission.",
         "properties": {
@@ -9126,14 +9195,14 @@
           "account_number": {
             "anyOf": [
               {
-                "maxLength": 40,
+                "maxLength": 60,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Full number as typed; only a masked form is stored.",
+            "description": "The full account number, stored and shown in full (D40).",
             "title": "Account Number"
           },
           "account_title": {
@@ -9159,6 +9228,19 @@
               }
             ],
             "title": "Bank Name"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IBAN; spaces are removed.",
+            "title": "Iban"
           },
           "qr_asset_key": {
             "anyOf": [
@@ -12462,7 +12544,7 @@
     },
     "/v1/admin/finance/payment-accounts/{account_id}": {
       "patch": {
-        "description": "Bank name, account title, account number (stored masked) and QR image. Fields left out keep their value.",
+        "description": "Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value.",
         "operationId": "update_payment_account_v1_admin_finance_payment_accounts__account_id__patch",
         "parameters": [
           {
@@ -18676,7 +18758,7 @@
     },
     "/v1/public/payment-methods": {
       "get": {
-        "description": "What checkout can offer now; bank-transfer accounts (masked number, QR image) and the site logo.",
+        "description": "What checkout can offer now; bank-transfer accounts (full number, IBAN, QR image) and the site logo.",
         "operationId": "payment_methods_v1_public_payment_methods_get",
         "responses": {
           "200": {
@@ -18713,6 +18795,28 @@
           }
         },
         "summary": "Payfast Return",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/site-config": {
+      "get": {
+        "description": "Switches the website reads at load time, so they change with a server setting and no rebuild.",
+        "operationId": "site_config_v1_public_site_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Site Config",
         "tags": [
           "public website"
         ]

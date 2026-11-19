@@ -139,6 +139,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: list[str] = []
     # Public website booking (guests, no login). Off until turned on per product.
     public_group_booking_enabled: bool = False
+    # D39: Umrah is hidden on the website (nav, search tab, links, URLs) until this is turned on. Nothing is deleted.
+    umrah_enabled: bool = False
     # Where PayFast sends the customer back (the public website) and its server notification (this gateway).
     public_site_url: str = Field("https://travelian.pk", pattern=r"^https?://[^/]+$")
     public_api_url: str = Field("https://api.travelian.pk", pattern=r"^https?://[^/]+$")

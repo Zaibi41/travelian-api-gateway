@@ -134,8 +134,20 @@ async def get_booking(reference: str, token: Token, request: Request):
 
 @router.get("/payment-methods", response_model=service.PaymentMethodsView, response_model_exclude_none=True)
 async def payment_methods():
-    """What checkout can offer now; bank-transfer accounts (masked number, QR image) and the site logo."""
+    """What checkout can offer now; bank-transfer accounts (full number, IBAN, QR image) and the site logo."""
     return await service.payment_methods()
+
+
+class SiteConfig(BaseModel):
+    umrah_enabled: bool = Field(description="Show Umrah anywhere on the site (D39). Off: every Umrah entry point and URL is hidden.")
+
+
+@router.get("/site-config", response_model=SiteConfig)
+async def site_config() -> SiteConfig:
+    """Switches the website reads at load time, so they change with a server setting and no rebuild."""
+    from app.core.config import settings
+
+    return SiteConfig(umrah_enabled=settings.umrah_enabled)
 
 
 @router.post("/bookings/{reference}/payments/jazzcash", include_in_schema=False)
