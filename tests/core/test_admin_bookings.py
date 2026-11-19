@@ -343,11 +343,12 @@ def issuance_target(**overrides):
     return store.Target(**values)
 
 
-def checklist(monkeypatch, viewer, target, balance="50000.00"):
+def checklist(monkeypatch, viewer, target, balance="50000.00", last=None):
     from unittest.mock import AsyncMock, MagicMock
     from app.core.config import settings
     from app.db import issuance as store
     monkeypatch.setattr(store, "load", lambda reference: target)
+    monkeypatch.setattr(store, "last_attempt", lambda booking_id: last)
     supplier = MagicMock()
     supplier.profile = AsyncMock(return_value={"limit": {"cap": balance, "ccy": "PKR"}})
     monkeypatch.setattr(routes, "configured_client", lambda: supplier)
@@ -377,6 +378,25 @@ def test_checklist_blockers(monkeypatch):
     body = checklist(monkeypatch, ISSUER, target).json()
     assert body["can_issue"] is False and body["can_request"] is False and body["amount_due"]["amount_minor"] == 600_000
     assert any("Full payment" in b for b in body["blockers"]) and any("expired" in b for b in body["blockers"])
+
+
+def test_checklist_shows_the_last_attempt_reason_and_check_with_supplier(monkeypatch):
+    last = ("issuance_unknown", {"reason_code": "unclear_after_ticketing", "supplier_answer": "ok", "pnr_status": "OK"}, NOW)
+    body = checklist(monkeypatch, ISSUER, issuance_target(issuance_status="unknown"), last=last).json()
+    attempt = body["last_attempt"]
+    assert attempt["outcome"] == "unknown" and attempt["pnr_status"] == "OK" and attempt["supplier_answer"] == "accepted the request"
+    assert "didn't show a ticket number for every passenger" in attempt["reason"] and "Southair" not in attempt["reason"]
+    assert body["can_check"] is True
+    assert checklist(monkeypatch, STAFF, issuance_target(issuance_status="unknown"), last=last).json()["can_check"] is False  # no permission
+
+
+def test_checklist_still_loads_when_the_last_attempt_cant_be_read(monkeypatch):
+    from app.db import issuance as store
+    body = checklist(monkeypatch, ISSUER, issuance_target()).json()
+    assert "last_attempt" not in body and body["can_check"] is False
+    monkeypatch.setattr(store, "last_attempt", lambda booking_id: (_ for _ in ()).throw(RuntimeError("db")))
+    response = client(monkeypatch, viewer=ISSUER).get("/v1/admin/bookings/TRV-2/issuance")
+    assert response.status_code == 200 and "last_attempt" not in response.json()
 
 
 @pytest.mark.parametrize("path,body", [("/issue", None), ("/verify", None), ("/resolve", {"outcome": "not_issued", "reason": "Supplier said so"})])

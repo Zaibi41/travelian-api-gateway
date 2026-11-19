@@ -258,7 +258,11 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         can_request=issuable and status == "not_issued",
         can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider),
     )
-    attempt = await issuance_service.last_attempt(target)
+    try:
+        attempt = await issuance_service.last_attempt(target)
+    except Exception:  # noqa: BLE001 - the last attempt is information only; the checks above still show
+        logger.warning("Last issuance attempt couldn't be read", exc_info=True)
+        attempt = None
     if attempt is not None:
         checklist.last_attempt = IssuanceAttempt(at=attempt.at, outcome=attempt.outcome, reason=attempt.reason,
                                                  supplier_answer=attempt.supplier_answer, pnr_status=attempt.pnr_status)
