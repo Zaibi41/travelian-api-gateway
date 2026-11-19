@@ -108,7 +108,11 @@ def test_uploads_are_signed_with_signature_v4_on_the_regional_endpoint(monkeypat
     import json
 
     policy = json.loads(base64.b64decode(signed.fields["policy"]))
-    assert ["content-length-range", 1, 2 * 1024 * 1024] in policy["conditions"]  # S3 itself refuses a file over 2 MB
+    # S3 enforces these itself, so a signed POST can't be reused for another key, type, bucket or a bigger file
+    # (checked live against the bucket on 19 Nov 2026: other key / type -> AccessDenied, over 2 MB -> EntityTooLarge).
+    assert ["content-length-range", 1, 2 * 1024 * 1024] in policy["conditions"]
+    assert {"key": signed.asset_key} in policy["conditions"] and {"bucket": "travelian-assets-test"} in policy["conditions"]
+    assert {"Content-Type": content_type} in policy["conditions"]
 
 
 def test_wrong_type_or_s3_down_is_a_clear_error_and_nothing_is_signed():
