@@ -41,8 +41,11 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     logger.info("Flight holds expired", extra={"count": len(flights)})
     for item in flights:
         if item.paid_minor:
-            logger.warning("Expired flight booking has a payment recorded: refund by hand",
+            logger.warning("Flight hold ended with a payment recorded: paid, not ticketed (refund or rebook by hand)",
                            extra={"reference": item.reference, "amount_minor": item.paid_minor, "currency": item.currency})
+            from app.services import flight_fallback
+
+            await flight_fallback.hold_lost(item.reference, "the airline hold expired with money paid and no ticket")
     expired = await run_in_threadpool(store.expire_due, now, frozenset(NO_RELEASE_SOURCES))
     outcome["expired"] = expired
     for reference in expired:

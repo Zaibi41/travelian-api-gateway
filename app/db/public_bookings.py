@@ -50,8 +50,8 @@ def summary(reference: str) -> dict | None:
     """A website booking of any product, for the guest's view: statuses, totals, paid amount and itinerary."""
     with agencies.application_engine().begin() as connection:
         row = connection.execute(text(
-            "SELECT b.id, b.reference, b.product, b.pnr, b.booking_status, b.payment_status, b.issuance_status, b.hold_expires_at,"
-            " b.currency, b.total_minor, b.itinerary, b.supplier_response ->> 'final_pnr' AS final_pnr,"
+            "SELECT b.id, b.reference, b.product, b.provider_id, b.pnr, b.booking_status, b.payment_status, b.issuance_status,"
+            " b.hold_expires_at, b.currency, b.total_minor, b.itinerary, b.supplier_response ->> 'final_pnr' AS final_pnr,"
             " COALESCE((SELECT SUM(p.amount_minor) FROM booking_payments p WHERE p.booking_id = b.id), 0) AS paid_minor"
             " FROM bookings b WHERE b.reference = :r"), {"r": reference}).mappings().one_or_none()
     return dict(row) if row else None
@@ -96,6 +96,7 @@ class Outcome:
     reference: str
     status: str  # paid | failed | already_paid | already_failed | amount_mismatch | unknown_basket
     payment_status: str | None = None
+    product: str | None = None
 
 
 def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: str | None, amount_minor: int | None,
@@ -103,7 +104,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
     """Apply one verified PayFast result. Idempotent: an attempt changes state once; later copies are ignored."""
     with agencies.application_engine().begin() as connection:
         row = connection.execute(
-            text("SELECT a.*, b.reference, b.total_minor, b.currency AS booking_currency, b.booking_status,"
+            text("SELECT a.*, b.reference, b.product, b.total_minor, b.currency AS booking_currency, b.booking_status,"
                  " b.hold_expires_at <= :now AS hold_over"
                  " FROM payfast_attempts a JOIN bookings b ON b.id = a.booking_id WHERE a.basket_id = :basket FOR UPDATE OF a, b"),
             {"basket": basket_id, "now": now},
@@ -149,7 +150,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
             "amount_minor": row["amount_minor"], "currency": row["currency"], "method": "payfast", "received_into": PAYFAST_LABEL,
             "payer_reference": transaction_id or basket_id, "payment_status": status, "source": source, "needs_review": review,
         })
-    return Outcome(row["reference"], "paid", status)
+    return Outcome(row["reference"], "paid", status, row["product"])
 
 
 def latest_attempt(reference: str) -> Attempt | None:

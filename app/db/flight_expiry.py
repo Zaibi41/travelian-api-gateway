@@ -3,12 +3,14 @@
 A flight booking whose hold time has passed and that isn't issued becomes 'expired'. The hold lapses at the airline by
 itself, so nothing is sent to any supplier. Covered: held, pending payment and payment received, with issuance not
 started or only requested. Left alone: issued, cancelled, already expired, and issuing in progress or unclear
-(processing, unknown: a ticket may exist; staff resolve those). A payment already recorded stays as it is; the job
-reports the booking so the refund can be handled by hand. Each expiry is logged on the booking (hold_expired).
+(processing, unknown: a ticket may exist; staff resolve those). A booking with money recorded becomes
+'paid_not_ticketed' instead (the customer paid and has no ticket: staff refund or rebook by hand, and are alerted); the
+payment stays as it is. Each expiry is logged on the booking (hold_expired).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -29,6 +31,10 @@ class FlightExpired:
     reference: str
     paid_minor: int
     currency: str
+    status: str = "expired"  # or 'paid_not_ticketed' when money was recorded
+    pnr: str | None = None
+    hold_expires_at: datetime | None = None
+    total_minor: int | None = None
 
 
 def count_due(now: datetime) -> int:
@@ -42,16 +48,22 @@ def expire_due(now: datetime) -> list[FlightExpired]:
     expired: list[FlightExpired] = []
     with agencies.application_engine().begin() as connection:
         rows = connection.execute(
-            text("SELECT b.id, b.reference, b.pnr, b.currency, b.hold_expires_at,"
+            text("SELECT b.id, b.reference, b.pnr, b.currency, b.hold_expires_at, b.total_minor,"
                  " (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) AS paid" + _DUE
                  + " ORDER BY b.hold_expires_at FOR UPDATE OF b SKIP LOCKED"), {"now": now},
         ).mappings().all()
         for row in rows:
-            connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
-                               {"b": row["id"]})
+            status = "paid_not_ticketed" if row["paid"] else "expired"
+            action = json.dumps({"reason": "hold_expired", "at": now.isoformat(), "amount_minor": int(row["paid"])}) if row["paid"] else None
+            connection.execute(text(
+                "UPDATE bookings SET booking_status = :s, supplier_response = CASE WHEN CAST(:a AS jsonb) IS NULL THEN supplier_response"
+                " ELSE COALESCE(supplier_response, '{}'::jsonb) || jsonb_build_object('action_needed', CAST(:a AS jsonb)) END,"
+                " updated_at = now(), revision = revision + 1 WHERE id = :b"), {"s": status, "a": action, "b": row["id"]})
             details = {"pnr": row["pnr"], "time_limit": row["hold_expires_at"].isoformat()}
             if row["paid"]:
-                details.update(amount_minor=int(row["paid"]), currency=row["currency"], reason_code="payment_recorded_refund_by_hand")
+                details.update(amount_minor=int(row["paid"]), currency=row["currency"], reason_code="payment_recorded_refund_by_hand",
+                               status=status)
             _event(connection, row["id"], None, "hold_expired", details)
-            expired.append(FlightExpired(row["reference"], int(row["paid"]), row["currency"]))
+            expired.append(FlightExpired(row["reference"], int(row["paid"]), row["currency"], status, row["pnr"], row["hold_expires_at"],
+                                         int(row["total_minor"])))
     return expired

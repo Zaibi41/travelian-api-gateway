@@ -51,3 +51,7 @@ def _no_real_notifications(request, monkeypatch):
     monkeypatch.setattr(notifications, "_record", lambda kind, reference, title, details: recorded.append((kind, reference, details)) or "n1")
     monkeypatch.setattr(notifications, "_send_email", lambda subject, body: False)
     request.node.notifications = recorded
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_notifications: write staff notifications to the test database instead of stubbing them")

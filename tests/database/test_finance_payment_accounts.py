@@ -139,3 +139,38 @@ def test_staff_still_read_the_active_list_for_the_payments_tab(database):
     admin_client.post(PATH, json={"method": "jazzcash", "label": "JazzCash business wallet"})
     staff, _ = client_as(connection, "staff")
     assert [a["label"] for a in staff.get("/v1/admin/payment-accounts").json()["accounts"]] == ["JazzCash business wallet"]
+
+
+def test_qr_image_is_saved_returned_replaced_and_removed(database):
+    """Add a bank account with an uploaded QR, read it back (admin list and checkout), replace it, then remove it."""
+    from unittest.mock import patch
+
+    from app.core.config import settings
+    from app.services import public_booking
+
+    connection, _, _ = database
+    client, _ = client_as(connection, "super_admin")
+    base = "https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com"
+    with patch.object(settings, "assets_public_base_url", base), patch.object(settings, "bank_transfer_enabled", True):
+        created = client.post(PATH, json={"method": "bank_transfer", "label": "Meezan QR", "account_title": "Travelian (Private) Limited",
+                                          "account_number": "0101-0105555555", "qr_asset_key": "payment-qr/first.png"})
+        assert created.status_code == 201, created.text
+        account_id = created.json()["id"]
+        assert created.json()["qr_url"] == f"{base}/payment-qr/first.png"
+        listed = next(a for a in client.get(PATH).json()["accounts"] if a["id"] == account_id)
+        assert listed["qr_url"] == f"{base}/payment-qr/first.png"  # shown again when the account is reopened
+        checkout = [a.qr_url for a in public_booking.bank_accounts() if a.account_title == "Travelian (Private) Limited"]
+        assert checkout == [f"{base}/payment-qr/first.png"]  # and at checkout
+
+        replaced = client.patch(f"{PATH}/{account_id}", json={"qr_asset_key": "payment-qr/second.webp"})
+        assert replaced.json()["qr_url"] == f"{base}/payment-qr/second.webp"
+        kept = client.patch(f"{PATH}/{account_id}", json={"bank_name": "Meezan Bank"})
+        assert kept.json()["qr_asset_key"] == "payment-qr/second.webp"  # untouched when left out
+        removed = client.patch(f"{PATH}/{account_id}", json={"remove_qr": True})
+        assert removed.json()["qr_asset_key"] is None and removed.json()["qr_url"] is None
+
+        # A key that isn't an uploaded QR (never signed for this purpose) is refused; nothing is saved.
+        bad = client.post(PATH, json={"method": "bank_transfer", "label": "Broken QR", "account_title": "X Ltd",
+                                      "account_number": "0101-0105555556", "qr_asset_key": "site/logo.png"})
+        assert bad.status_code == 422 and "Upload the QR image first" in bad.json()["detail"]
+        assert not any(a["label"] == "Broken QR" for a in client.get(PATH).json()["accounts"])

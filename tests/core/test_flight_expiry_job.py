@@ -22,13 +22,24 @@ def run(expired):
 
 
 def test_expired_flights_are_counted_and_payments_flagged_by_booking(caplog):
+    from app.services import flight_fallback
+
     caplog.set_level("INFO")
-    outcome, expire, supplier = run([flight_expiry.FlightExpired("TRV-ML2RP3", 2_666_000, "PKR"), flight_expiry.FlightExpired("TRV-AB12CD", 0, "PKR")])
+    lost = []
+
+    async def hold_lost(reference, reason):
+        lost.append(reference)
+
+    with patch.object(flight_fallback, "hold_lost", hold_lost):
+        outcome, expire, supplier = run([flight_expiry.FlightExpired("TRV-ML2RP3", 2_666_000, "PKR", "paid_not_ticketed"),
+                                     flight_expiry.FlightExpired("TRV-AB12CD", 0, "PKR")])
     assert outcome["flights_expired"] == ["TRV-ML2RP3", "TRV-AB12CD"] and expire.call_args.args == (NOW,)
     counted = next(r for r in caplog.records if r.getMessage() == "Flight holds expired")
     assert counted.count == 2
-    flagged = [r for r in caplog.records if r.getMessage().startswith("Expired flight booking has a payment recorded")]
+    flagged = [r for r in caplog.records if r.getMessage().startswith("Flight hold ended with a payment recorded")]
     assert [(r.reference, r.amount_minor) for r in flagged] == [("TRV-ML2RP3", 2_666_000)]
+    # Staff get the "hold lost" red alert for the paid one only (refund or rebook by hand).
+    assert lost == ["TRV-ML2RP3"]
     assert supplier.mock_calls == []  # no supplier or airline call
 
 

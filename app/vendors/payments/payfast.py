@@ -48,6 +48,16 @@ def sandbox() -> bool:
     return "ipguat." in settings.payfast_base_url
 
 
+def production() -> bool:
+    """PayFast is set up against its production host (not ipguat.apps.net.pk). Only then is card offered at checkout and
+    can a card payment issue a ticket automatically (UAT payments are test money)."""
+    return configured() and not sandbox()
+
+
+def mode() -> str:
+    return "not configured" if not configured() else "UAT" if sandbox() else "production"
+
+
 def _merchant_id() -> str:
     if not configured():
         raise PayFastError("not_configured")

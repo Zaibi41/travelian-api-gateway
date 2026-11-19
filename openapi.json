@@ -1257,6 +1257,18 @@
             "title": "On Hold",
             "type": "integer"
           },
+          "paid_not_issued": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only: paid and no ticket, needing staff (Paid, issuance pending or Paid, not ticketed).",
+            "title": "Paid Not Issued"
+          },
           "payment_pending": {
             "anyOf": [
               {
@@ -1946,7 +1958,9 @@
               "cancelled",
               "expired",
               "hold_unrecorded",
-              "requested"
+              "requested",
+              "paid_not_ticketed",
+              "paid_issuance_pending"
             ],
             "title": "Booking",
             "type": "string"
@@ -2918,6 +2932,60 @@
           "currency"
         ],
         "title": "FlightMoney",
+        "type": "object"
+      },
+      "FlightPaymentOptions": {
+        "properties": {
+          "bank_transfer": {
+            "title": "Bank Transfer",
+            "type": "boolean"
+          },
+          "card": {
+            "title": "Card",
+            "type": "boolean"
+          },
+          "held": {
+            "description": "The fare will be held at the airline and paid here. False: it is sent as a request (no payment).",
+            "title": "Held",
+            "type": "boolean"
+          },
+          "jazzcash": {
+            "title": "Jazzcash",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "held",
+          "card",
+          "bank_transfer",
+          "jazzcash"
+        ],
+        "title": "FlightPaymentOptions",
+        "type": "object"
+      },
+      "FlightPaymentQuery": {
+        "properties": {
+          "fare_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Fare Ids",
+            "type": "array"
+          },
+          "search_id": {
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "fare_ids"
+        ],
+        "title": "FlightPaymentQuery",
         "type": "object"
       },
       "FlightSearchRequest": {
@@ -6825,6 +6893,12 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "urgent": {
+            "default": false,
+            "description": "A red alert: a customer paid by card and has no ticket. Shown first, in red.",
+            "title": "Urgent",
+            "type": "boolean"
           }
         },
         "required": [
@@ -7016,16 +7090,33 @@
             "type": "array"
           },
           "bank_transfer": {
+            "description": "Only when an active bank account with a full account number exists.",
             "title": "Bank Transfer",
             "type": "boolean"
           },
           "card": {
+            "description": "Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).",
             "title": "Card",
             "type": "boolean"
           },
+          "flights": {
+            "default": false,
+            "description": "Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). False: a flight booking is a request and Travelian arranges payment.",
+            "title": "Flights",
+            "type": "boolean"
+          },
           "jazzcash": {
+            "description": "Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.",
             "title": "Jazzcash",
             "type": "boolean"
+          },
+          "jazzcash_accounts": {
+            "description": "Where customers send a JazzCash payment.",
+            "items": {
+              "$ref": "#/components/schemas/BankAccountView"
+            },
+            "title": "Jazzcash Accounts",
+            "type": "array"
           },
           "logo_url": {
             "anyOf": [
@@ -7242,6 +7333,7 @@
             "title": "Route"
           },
           "status": {
+            "description": "paid_not_ticketed: paid, and Travelian's team will contact the customer.",
             "enum": [
               "requested",
               "held",
@@ -7251,7 +7343,8 @@
               "released",
               "processing",
               "unknown",
-              "not_recorded"
+              "not_recorded",
+              "paid_not_ticketed"
             ],
             "title": "Status",
             "type": "string"
@@ -7289,7 +7382,7 @@
         "type": "object"
       },
       "PublicFlightRequest": {
-        "description": "A website flight booking (B19, D43). It is saved as a request: nothing is held or ticketed, no PNR is given and no\npayment is taken here. The gateway reprices the fare itself (the price is never taken from the page); staff confirm\nthe fare and payment with the customer, then book and issue from the admin.",
+        "description": "A website flight booking (B19, D43). The gateway reprices the fare itself (the price is never taken from the page).\nWith PUBLIC_FLIGHT_BOOKING_ENABLED off, or for a restricted airline (D32), or when booking is off for the fare's\nprovider, it is saved as a request: nothing is held or ticketed, no PNR is given and no payment is taken; staff\nconfirm the fare and payment with the customer. Otherwise the fare is held at the supplier and paid by\n`payment_method` (card: PayFast, then issued automatically when ticketing is on, D48; bank transfer and JazzCash:\nheld until staff verify the money and issue by hand, D49).",
         "properties": {
           "contact": {
             "$ref": "#/components/schemas/HoldContact",
@@ -7313,6 +7406,18 @@
             "minItems": 1,
             "title": "Passengers",
             "type": "array"
+          },
+          "payment_method": {
+            "default": "card",
+            "description": "Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.",
+            "enum": [
+              "card",
+              "bank_transfer",
+              "jazzcash",
+              "book_only"
+            ],
+            "title": "Payment Method",
+            "type": "string"
           },
           "search_id": {
             "description": "From POST /v1/public/flights/search.",
@@ -9310,6 +9415,12 @@
             ],
             "description": "From POST /v1/admin/uploads (purpose payment_qr).",
             "title": "Qr Asset Key"
+          },
+          "remove_qr": {
+            "default": false,
+            "description": "Remove the QR image (customers stop seeing it at checkout). Ignored with qr_asset_key.",
+            "title": "Remove Qr",
+            "type": "boolean"
           }
         },
         "title": "UpdateReceivingAccountRequest",
@@ -10860,7 +10971,9 @@
                     "cancelled",
                     "expired",
                     "hold_unrecorded",
-                    "requested"
+                    "requested",
+                    "paid_not_ticketed",
+                    "paid_issuance_pending"
                   ],
                   "type": "string"
                 },
@@ -10967,7 +11080,8 @@
                     "expiring_soon",
                     "awaiting_issuance",
                     "hold_deadlines",
-                    "payment_pending"
+                    "payment_pending",
+                    "paid_not_issued"
                   ],
                   "type": "string"
                 },
@@ -12600,7 +12714,7 @@
     },
     "/v1/admin/finance/payment-accounts/{account_id}": {
       "patch": {
-        "description": "Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value.",
+        "description": "Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value; remove_qr clears\nthe QR image.",
         "operationId": "update_payment_account_v1_admin_finance_payment_accounts__account_id__patch",
         "parameters": [
           {
@@ -18642,9 +18756,57 @@
         ]
       }
     },
+    "/v1/public/flights/payment-options": {
+      "post": {
+        "description": "Which payment methods checkout offers for the chosen fares (the booking route applies the same rules).",
+        "operationId": "flight_payment_options_v1_public_flights_payment_options_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightPaymentQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightPaymentOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The search expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests."
+          }
+        },
+        "summary": "Flight Payment Options",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
     "/v1/public/flights/requests": {
       "post": {
-        "description": "A guest's flight booking, saved as a request for Travelian's team (D43): repriced by the gateway, never held,\nticketed or charged here, and no PNR is given. Staff are notified and confirm the fare and payment with the customer.",
+        "description": "A guest's flight booking, repriced by the gateway. PUBLIC_FLIGHT_BOOKING_ENABLED off (or a restricted airline, or\nbooking off for the fare's provider): saved as a request for Travelian's team, never held, ticketed or charged, no PNR.\nOn: held at the supplier, then paid by `payment_method`: card through PayFast (issued automatically only after\nPayFast's verified payment, when ticketing is on, D48), or bank transfer / JazzCash (staff verify and issue, D49).",
         "operationId": "request_flight_v1_public_flights_requests_post",
         "requestBody": {
           "content": {
@@ -18678,6 +18840,9 @@
           },
           "429": {
             "description": "Too many bookings."
+          },
+          "502": {
+            "description": "The fare couldn't be held; nothing was charged."
           }
         },
         "summary": "Request Flight",

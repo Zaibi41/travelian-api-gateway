@@ -37,13 +37,16 @@ def db(database):
     return connection
 
 
-def test_expired_unpaid_and_paid_holds_become_expired_and_the_paid_one_is_reported(db):
+def test_unpaid_hold_becomes_expired_and_a_paid_one_paid_not_ticketed(db):
+    """A paid flight whose hold ends has no ticket: 'paid_not_ticketed' (refund or rebook by hand), not plain 'expired'."""
     unpaid = flight(db, 1)
     paid = flight(db, 2, paid=2_878_000, status="pending_payment")
     assert flight_expiry.count_due(NOW) == 2
-    expired = {item.reference: item.paid_minor for item in flight_expiry.expire_due(NOW)}
-    assert expired == {unpaid: 0, paid: 2_878_000}
-    assert status(db, unpaid) == status(db, paid) == "expired"
+    expired = {item.reference: (item.paid_minor, item.status) for item in flight_expiry.expire_due(NOW)}
+    assert expired == {unpaid: (0, "expired"), paid: (2_878_000, "paid_not_ticketed")}
+    assert (status(db, unpaid), status(db, paid)) == ("expired", "paid_not_ticketed")
+    action = db.scalar(sa.text("SELECT supplier_response -> 'action_needed' FROM bookings WHERE reference = :r"), {"r": paid})
+    assert action["reason"] == "hold_expired" and action["amount_minor"] == 2_878_000
     assert db.scalar(sa.text("SELECT count(*) FROM booking_payments")) == 1  # the payment stays as it is
     details = db.execute(sa.text("SELECT e.details FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
                                  " AND e.action = 'hold_expired'"), {"r": paid}).scalar_one()

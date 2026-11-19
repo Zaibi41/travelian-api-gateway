@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from app.api.routes import router
 from app.api.routes.operations import router as operations_router
 from app.core.config import settings
 from app.core.parameter_store import load_parameter_store_settings
+from app.services.flight_payments import run_forever as run_flight_issuance_recovery
 from app.services.group_hold_expiry import run_forever as run_group_hold_expiry
 from app.vendors.group_ticketing.dhillu_sahi.inventory import warn_if_ids_missing as warn_if_dhillu_sahi_ids_missing
 
@@ -17,20 +19,26 @@ async def lifespan(app: FastAPI):
     app.state.ready = False
     await asyncio.to_thread(load_parameter_store_settings)
     warn_if_dhillu_sahi_ids_missing()
+    from app.services.flight_payments import startup_summary
+
+    logging.getLogger("app.startup").warning(startup_summary())  # e.g. "PayFast mode: UAT, auto-issuing: off"
     app.state.ready = True
     # Group holds: expire past their time limit and give the seats back at the supplier.
     stop = asyncio.Event()
     job = asyncio.create_task(run_group_hold_expiry(stop))
+    # Card-paid website flights not issued (or stuck mid-issue after a restart): one retry, or staff alerted.
+    recovery = asyncio.create_task(run_flight_issuance_recovery(stop))
     try:
         yield
     finally:
         app.state.ready = False
         stop.set()
-        job.cancel()
-        try:
-            await job
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
-            pass
+        for task in (job, recovery):
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
 
 
 app = FastAPI(

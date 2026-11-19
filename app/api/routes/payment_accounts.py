@@ -95,11 +95,12 @@ async def deactivate_payment_account(account_id: str,
 @finance_router.patch("/{account_id}", response_model=ReceivingAccount, responses={404: {"description": "No account with that id."}})
 async def update_payment_account(account_id: str, body: UpdateReceivingAccountRequest,
                                  viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
-    """Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value."""
+    """Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value; remove_qr clears
+    the QR image."""
     try:
         account = await run_in_threadpool(lambda: store.update_details(
             account_id, bank_name=body.bank_name, account_title=body.account_title, account_number=body.account_number,
-            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban))
+            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban, remove_qr=body.remove_qr))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)

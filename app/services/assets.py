@@ -52,6 +52,18 @@ class SignedUpload:
     max_bytes: int
 
 
+def s3_client():
+    """Signature Version 4 against the bucket's own regional endpoint. boto3's default for a presigned POST is the legacy
+    Signature Version 2 on the global endpoint (fields AWSAccessKeyId / signature), which S3 refuses for buckets created
+    after June 2020 ("Please use AWS4-HMAC-SHA256"): every admin upload failed in the browser."""
+    import boto3
+    from botocore.config import Config
+
+    region = settings.assets_region
+    return boto3.client("s3", region_name=region, endpoint_url=f"https://s3.{region}.amazonaws.com",
+                        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}))
+
+
 def sign_upload(purpose: str, content_type: str, client=None) -> SignedUpload:
     if purpose not in PURPOSES:
         raise AssetsError(422, "Unknown upload purpose.", "invalid_purpose")
@@ -62,10 +74,7 @@ def sign_upload(purpose: str, content_type: str, client=None) -> SignedUpload:
         raise AssetsError(503, "Uploads aren't set up yet (S3 bucket and credentials).", "uploads_off")
     key = f"{PURPOSES[purpose]}/{uuid4()}.{extension}"
     try:
-        if client is None:
-            import boto3
-
-            client = boto3.client("s3", region_name=settings.assets_region)
+        client = client or s3_client()
         post = client.generate_presigned_post(
             Bucket=settings.assets_bucket, Key=key,
             Fields={"Content-Type": content_type, "Cache-Control": "public, max-age=31536000, immutable"},

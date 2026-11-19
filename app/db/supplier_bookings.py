@@ -118,6 +118,37 @@ def save_request(*, provider: str, currency: str, selling_total_minor: int, supp
     return reference
 
 
+def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None,
+                 supplier_total_minor: int, selling_total_minor: int, supplier_response: dict[str, Any]) -> str:
+    """A new supplier hold (re-hold of the same fare) for an existing paid booking whose hold was lost. Only while the booking
+    is open, not issued, from the same provider and at the same selling total; travelers' costs are rescaled to the new
+    supplier total. The previous PNR is kept on the booking and in the audit log (rehold_created)."""
+    from app.services.pricing import scale
+
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(text(
+            "SELECT id, pnr, provider_id, booking_status, issuance_status, total_minor FROM bookings WHERE reference = :r FOR UPDATE"),
+            {"r": reference}).one_or_none()
+        if (row is None or row.booking_status not in ("held", "pending_payment", "payment_received") or row.issuance_status != "not_issued"
+                or (row.provider_id or "southair") != provider or row.total_minor != selling_total_minor):
+            raise ValueError("The booking can't take a new hold.")
+        connection.execute(text(
+            "UPDATE bookings SET pnr = :pnr, supplier_ref = :ref, hold_expires_at = :exp, supplier_cost_minor = :cost,"
+            " booking_status = 'held', supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
+            " || jsonb_build_object('rehold', CAST(:response AS jsonb), 'previous_pnr', CAST(:previous AS text)),"
+            " updated_at = now(), revision = revision + 1 WHERE id = :b"),
+            {"pnr": pnr, "ref": supplier_ref, "exp": hold_expires_at, "cost": supplier_total_minor, "b": row.id,
+             "response": json.dumps(supplier_response, default=str), "previous": row.pnr})
+        travelers = connection.execute(text("SELECT id, cost_minor FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                       {"b": row.id}).all()
+        for (traveler_id, _), cost in zip(travelers, scale([previous or 0 for _, previous in travelers], supplier_total_minor)):
+            connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
+        _event(connection, row.id, None, "rehold_created", {"pnr": pnr, "previous_pnr": row.pnr,
+                                                             "time_limit": hold_expires_at.isoformat() if hold_expires_at else None,
+                                                             "supplier_total_minor": supplier_total_minor})
+    return reference
+
+
 def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None, currency: str,
               selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any],
               actor_user_id: str, audit: dict[str, Any],

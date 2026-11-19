@@ -270,7 +270,8 @@ class PublicLeg(BaseModel):
 
 class PublicBookingView(BaseModel):
     reference: str
-    status: Literal["requested", "held", "confirmed", "issued", "expired", "released", "processing", "unknown", "not_recorded"]
+    status: Literal["requested", "held", "confirmed", "issued", "expired", "released", "processing", "unknown", "not_recorded",
+                    "paid_not_ticketed"] = Field(description="paid_not_ticketed: paid, and Travelian's team will contact the customer.")
     payment_status: Literal["unpaid", "part_paid", "paid"]
     live: bool = Field(description="True when seats are held at the airline's supplier; false for a request staff will follow up.")
     can_pay: bool = Field(description="Online payment can be started now.")
@@ -307,10 +308,13 @@ class BankAccountView(BaseModel):
 
 
 class PaymentMethodsView(BaseModel):
-    card: bool
-    bank_transfer: bool
-    jazzcash: bool
+    card: bool = Field(description="Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).")
+    bank_transfer: bool = Field(description="Only when an active bank account with a full account number exists.")
+    jazzcash: bool = Field(description="Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.")
+    flights: bool = Field(False, description="Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). "
+                                             "False: a flight booking is a request and Travelian arranges payment.")
     bank_accounts: list[BankAccountView] = []
+    jazzcash_accounts: list[BankAccountView] = Field(default_factory=list, description="Where customers send a JazzCash payment.")
     logo_url: str | None = None
 
 
@@ -325,17 +329,27 @@ def bank_accounts() -> list[BankAccountView]:
             if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
 
 
+def jazzcash_accounts() -> list[BankAccountView]:
+    """Active JazzCash receiving accounts with the full account (wallet) number customers pay into."""
+    from app.db import payment_accounts
+
+    return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number)
+            for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
+
+
 async def payment_methods() -> PaymentMethodsView:
+    """What checkout may offer. Each method only when it can really be paid: card only on production PayFast; bank transfer
+    and JazzCash only with an active receiving account that has the full account number (Accounts & Ledgers)."""
     from app.api.routes.admin_uploads import site_assets
-    from app.vendors.payments import jazzcash
 
     accounts = await run_in_threadpool(bank_accounts) if settings.bank_transfer_enabled else []
+    wallets = await run_in_threadpool(jazzcash_accounts) if settings.jazzcash_enabled else []
     try:
         logo = (await run_in_threadpool(site_assets)).get("site_logo")
     except Exception:  # noqa: BLE001 - the logo is optional
         logo = None
-    return PaymentMethodsView(card=payfast.configured(), bank_transfer=bool(accounts), jazzcash=jazzcash.enabled(),
-                              bank_accounts=accounts, logo_url=logo)
+    return PaymentMethodsView(card=payfast.production(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
+                              flights=settings.public_flight_booking_enabled, bank_accounts=accounts, jazzcash_accounts=wallets, logo_url=logo)
 
 
 async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated:
@@ -344,11 +358,8 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
         fare_terms_acknowledged=request.fare_terms_acknowledged, selling_price_per_adult=None,
     )
     live = settings.public_group_booking_enabled
-    if live and request.payment_method == "jazzcash":
-        from app.vendors.payments import jazzcash
-
-        if not jazzcash.enabled():
-            raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
+    if live and request.payment_method == "jazzcash" and not (await payment_methods()).jazzcash:
+        raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
     if live and request.payment_method == "bank_transfer" and not (await payment_methods()).bank_transfer:
         raise PublicError(409, "Bank transfer isn't available right now. Choose card.", "method_unavailable")
     try:
@@ -373,14 +384,20 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
 
 
 class PublicFlightRequest(BaseModel):
-    """A website flight booking (B19, D43). It is saved as a request: nothing is held or ticketed, no PNR is given and no
-    payment is taken here. The gateway reprices the fare itself (the price is never taken from the page); staff confirm
-    the fare and payment with the customer, then book and issue from the admin."""
+    """A website flight booking (B19, D43). The gateway reprices the fare itself (the price is never taken from the page).
+    With PUBLIC_FLIGHT_BOOKING_ENABLED off, or for a restricted airline (D32), or when booking is off for the fare's
+    provider, it is saved as a request: nothing is held or ticketed, no PNR is given and no payment is taken; staff
+    confirm the fare and payment with the customer. Otherwise the fare is held at the supplier and paid by
+    `payment_method` (card: PayFast, then issued automatically when ticketing is on, D48; bank transfer and JazzCash:
+    held until staff verify the money and issue by hand, D49)."""
 
     search_id: str = Field(min_length=8, max_length=64, description="From POST /v1/public/flights/search.")
     fare_ids: list[str] = Field(min_length=1, max_length=2, description="The chosen fare, and its return fare for a round trip.")
     contact: HoldContact = Field(description="Name, phone (code and number) and email: all required.")
     passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
+    payment_method: Literal["card", "bank_transfer", "jazzcash", "book_only"] = Field(
+        "card", description="Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid "
+                            "later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.")
 
     @model_validator(mode="after")
     def guest_details(self):
@@ -394,6 +411,52 @@ class PublicFlightRequest(BaseModel):
         return self
 
 
+def _flight_hold_allowed(quote) -> bool:
+    """The website may hold this fare at the supplier: switched on, booking on for its provider, not a restricted airline."""
+    from app.services import live_flights, restricted_airlines
+
+    return (settings.public_flight_booking_enabled and quote is not None and live_flights.booking_enabled(quote.provider)
+            and not any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs))
+
+
+def card_allowed(provider: str | None) -> bool:
+    """Card (and 1Link, both PayFast) for every flight supplier, only while PayFast is on production. Where the gateway
+    can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
+    return payfast.production()
+
+
+class FlightPaymentOptions(BaseModel):
+    held: bool = Field(description="The fare will be held at the airline and paid here. False: it is sent as a request (no payment).")
+    card: bool
+    bank_transfer: bool
+    jazzcash: bool
+
+
+async def flight_payment_options(search_id: str, fare_ids: list[str]) -> FlightPaymentOptions:
+    """What checkout may offer for these fares (decided here, never by the page). Reads the search; no supplier call."""
+    from app.services import live_flights, restricted_airlines
+
+    session = live_flights.get_session(search_id, WEBSITE_SEARCH_VIEWER.user_id)
+    if session is None:
+        raise PublicError(404, "This search has expired. Search again.", "search_expired")
+    try:
+        refs = live_flights._selected_refs(session, fare_ids)
+    except live_flights.RepriceError as error:
+        raise PublicError(error.status, error.message, error.code) from None
+    provider = refs[0].provider
+    held = (settings.public_flight_booking_enabled and live_flights.booking_enabled(provider)
+            and not any(restricted_airlines.segment_restricted(ref.segment) for ref in refs))
+    if not held:
+        return FlightPaymentOptions(held=False, card=False, bank_transfer=False, jazzcash=False)
+    methods = await payment_methods()
+    return FlightPaymentOptions(held=True, card=card_allowed(provider), bank_transfer=methods.bank_transfer, jazzcash=methods.jazzcash)
+
+
+#: A hold failure the guest can act on is shown as is; anything else (supplier errors, a hold that couldn't be verified or
+#: saved) gets one plain sentence: no supplier names, PNRs or staff instructions on the public site.
+HOLD_NOT_PLACED = "We couldn't hold this fare with the airline, and nothing was charged. Please search again or choose another fare."
+
+
 async def request_flight(request: PublicFlightRequest) -> PublicBookingCreated:
     from app.services import flight_holds, flight_requests, live_flights
 
@@ -403,21 +466,87 @@ async def request_flight(request: PublicFlightRequest) -> PublicBookingCreated:
         raise PublicError(error.status if error.status < 500 else 502, error.message, error.code) from None
     hold_request = HoldRequest(quote_id=priced.quote_id, confirmed_total=priced.selling_total, contact=request.contact,
                                passengers=request.passengers, accept_price_change=True)
-    try:
-        view = await flight_requests.create(hold_request, WEBSITE_SEARCH_VIEWER, channel="website")
-    except flight_holds.HoldError as error:
-        raise PublicError(error.status, error.message, error.code) from None
+    if not _flight_hold_allowed(live_flights.get_quote(priced.quote_id, WEBSITE_SEARCH_VIEWER.user_id)):
+        try:
+            view = await flight_requests.create(hold_request, WEBSITE_SEARCH_VIEWER, channel="website")
+        except flight_holds.HoldError as error:
+            raise PublicError(error.status, error.message, error.code) from None
+        reference = view.booking_id
+    else:
+        reference = await _hold_flight(hold_request, request, live_flights.get_quote(priced.quote_id, WEBSITE_SEARCH_VIEWER.user_id))
     token, token_hash = public_bookings.new_token()
-    await run_in_threadpool(public_bookings.mark_website_reference, view.booking_id, token_hash)
-    return PublicBookingCreated(reference=view.booking_id, access_token=token, booking=await booking_view(view.booking_id))
+    await run_in_threadpool(public_bookings.mark_website_reference, reference, token_hash)
+    return PublicBookingCreated(reference=reference, access_token=token, booking=await booking_view(reference))
+
+
+async def _hold_flight(hold_request: HoldRequest, request: PublicFlightRequest, quote) -> str:
+    """Hold the fare at the supplier for a guest (the same hold staff use). Payment comes after; no ticket is issued here."""
+    from app.services import flight_holds
+
+    method = request.payment_method
+    if method == "card" and not card_allowed(quote.provider):
+        raise PublicError(409, "Card payment isn't available right now. Choose another payment method.", "method_unavailable")
+    if method == "jazzcash" and not (await payment_methods()).jazzcash:
+        raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
+    if method == "bank_transfer" and not (await payment_methods()).bank_transfer:
+        raise PublicError(409, "Bank transfer isn't available right now. Choose card.", "method_unavailable")
+    try:
+        view = await flight_holds.hold(hold_request, WEBSITE_SEARCH_VIEWER)
+    except flight_holds.HoldError as error:
+        if error.status >= 500 or error.code in ("booking_off", "not_allowed", "no_selling_price"):
+            logger.warning("Website flight hold not placed", extra={"code": error.code, "status": error.status})
+            raise PublicError(502 if error.status >= 500 else 409, HOLD_NOT_PLACED, "hold_failed") from None
+        raise PublicError(error.status, error.message, error.code) from None
+    # D49: bank transfer and JazzCash never confirm or issue anything themselves. The booking stays held and staff are told
+    # (in the admin and by email) to check the money arrived, record it, and only then issue.
+    if method in ("bank_transfer", "jazzcash", "book_only"):
+        lead = hold_request.passengers[0]
+        if method == "book_only":
+            note = ("Website flight. Customer chose Book Only (no payment yet). Contact them to arrange payment, record it in the Payments "
+                    "tab, then issue. Nothing is issued automatically. Pay attention to the hold's time limit.")
+        else:
+            label = "bank transfer" if method == "bank_transfer" else "JazzCash"
+            note = (f"Website flight. Customer chose {label}. Check the {label} payment has arrived, record it in the Payments tab, then "
+                    "issue. Nothing is issued automatically. Pay attention to the hold's time limit.")
+        await notifications.booking_event(
+            "bank_transfer_hold", reference=view.booking_id, passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
+            route=None, fare_minor=view.selling_total.amount_minor, currency=view.selling_total.currency, pnr=view.pnr,
+            hold_expires_at=view.time_limit, note=note)
+    return view.booking_id
+
+
+#: A website flight hold can be paid online only while this much of the hold is left: time for the PayFast checkout
+#: plus the ticketing margin, so a paid booking can still be issued before the airline releases it.
+FLIGHT_CHECKOUT_SECONDS = 15 * 60
+
+
+def flight_can_pay(row: dict, now: datetime) -> bool:
+    expires = row["hold_expires_at"]
+    return (row["product"] == "flight" and row["booking_status"] == "held" and row["payment_status"] != "paid"
+            and row["issuance_status"] == "not_issued" and bool(row["pnr"]) and card_allowed(row.get("provider_id")) and expires is not None
+            and (expires - now).total_seconds() > FLIGHT_CHECKOUT_SECONDS + settings.ticketing_deadline_margin_seconds)
+
+
+def flight_paid_status(row: dict) -> str:
+    """Paid, not yet issued. 'processing': the gateway issues it (card, ticketing on) or is finishing it, so the guest sees
+    "payment received, issuance in progress". 'confirmed': issuance is pending with Travelian's team (ticketing off or a
+    supplier issued outside Travelian), "payment received, issuance pending"."""
+    from app.services import issuance
+
+    expires = row.get("hold_expires_at")
+    if row["booking_status"] == "paid_not_ticketed" or (expires is not None and expires <= _now() and row["issuance_status"] != "unknown"):
+        return "paid_not_ticketed"  # "Payment received. Our team will contact you shortly about your booking."
+    if row["issuance_status"] in ("processing", "unknown"):
+        return "processing"
+    return "processing" if row["pnr"] and issuance.ticketing_on(row.get("provider_id")) else "confirmed"
 
 
 async def _other_view(row: dict) -> PublicBookingView:
-    """The guest's view of a non-group booking (website flight requests): no PNR or tickets until issued."""
+    """The guest's view of a non-group booking (website flights): no PNR or tickets until issued."""
     now = _now()
     status = lookup_status(row, now)
     view_status = {"requested": "requested", "issued": "issued", "expired": "expired", "cancelled": "released",
-                   "paid": "confirmed"}.get(status, "held")
+                   "paid": flight_paid_status(row)}.get(status, "held")
     people = await run_in_threadpool(booking_people.read, row["reference"])
     legs = []
     for leg in row["itinerary"] or []:
@@ -430,7 +559,7 @@ async def _other_view(row: dict) -> PublicBookingView:
     issued = view_status == "issued"
     return PublicBookingView(
         reference=row["reference"], status=view_status, payment_status=row["payment_status"],  # type: ignore[arg-type]
-        live=row["booking_status"] != "requested", can_pay=False,
+        live=row["booking_status"] != "requested", can_pay=view_status == "held" and flight_can_pay(row, now),
         total=PublicMoney(amount_minor=row["total_minor"], currency=row["currency"]),
         paid=PublicMoney(amount_minor=row["paid_minor"], currency=row["currency"]),
         hold_expires_at=row["hold_expires_at"] if view_status == "held" else None,
@@ -455,7 +584,7 @@ async def booking_view(reference: str) -> PublicBookingView:
     first = booking.itinerary[0] if booking.itinerary and isinstance(booking.itinerary[0], dict) else {}
     travelers = [f"{t.title} {t.first_name} {t.last_name}".strip() for t in (people.travelers if people else [])]
     tickets = [t.ticket_number for t in (people.travelers if people else []) if t.ticket_number] if status == "issued" else []
-    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.configured()
+    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.production()
                and not booking.price_change.get("accepted") is False and booking.booking_status == "held")
     return PublicBookingView(
         reference=booking.reference, status=status, payment_status=booking.payment_status,  # type: ignore[arg-type]
@@ -482,6 +611,7 @@ NEXT_STEPS = {
     "requested": "Travelian's team will contact you to confirm the fare and arrange payment. Nothing is held or charged yet.",
     "held": "Your seats are held. Pay before the hold time ends, or the booking expires and you'll need to search again.",
     "paid": "Payment received. Travelian is issuing your tickets; you'll receive them once they're ready.",
+    "paid_not_ticketed": "Payment received. Our team will contact you shortly about your booking.",
     "issued": "Your tickets are issued. Carry your passport or CNIC and arrive at the airport in good time.",
     "expired": "The hold ended before payment, so the seats were released. Please search again to book.",
     "cancelled": "This booking was cancelled.",
@@ -542,7 +672,7 @@ async def lookup(reference: str, contact: str) -> LookupView:
         travelers=[" ".join(filter(None, (t["title"], t["first_name"], t["last_name"]))) for t in row["travelers"]],
         airline_pnr=(row["final_pnr"] or row["pnr"]) if issued else None,
         tickets=[t["ticket_number"] for t in row["travelers"] if t["ticket_number"]] if issued else [],
-        next_steps=NEXT_STEPS[status],
+        next_steps=NEXT_STEPS["paid_not_ticketed" if row["booking_status"] == "paid_not_ticketed" else status],
     )
 
 
@@ -556,7 +686,7 @@ class CheckoutView(BaseModel):
 
 async def start_payment(reference: str, token: str) -> CheckoutView:
     view = await open_booking(reference, token)
-    if not payfast.configured():
+    if not payfast.production():  # UAT PayFast never takes a customer's payment (test money only)
         raise PublicError(503, "Online payment isn't available right now.", "payments_off")
     if not view.can_pay:
         raise PublicError(409, "This booking can't be paid online now." if view.live else
@@ -600,4 +730,11 @@ async def payfast_result(params: dict[str, str], source: str) -> public_bookings
         transaction_id=result.transaction_id, amount_minor=result.amount_minor, message=result.message, source=source, now=_now(),
     )
     logger.info("PayFast result applied", extra={"source": source, "outcome": outcome.status, "reference": outcome.reference})
+    if outcome.status == "paid" and outcome.payment_status == "paid":
+        # D48: the only way into automatic flight issuance. Reached only here: a result verified with the secured key, for
+        # the amount asked, recorded once (a repeat is 'already_paid'), that made the booking fully paid.
+        from app.services import flight_payments
+
+        if outcome.product == "flight":
+            flight_payments.start_after_verified_card_payment(outcome.reference)
     return outcome

@@ -136,8 +136,9 @@ def reactivate(account_id: str) -> Account:
 
 
 def update_details(account_id: str, *, bank_name: str | None, account_title: str | None, account_number: str | None,
-                   qr_asset_key: str | None, iban: str | None = None) -> Account:
-    """Bank name, title, full number, IBAN and QR image key. A field left out (None) keeps its value."""
+                   qr_asset_key: str | None, iban: str | None = None, remove_qr: bool = False) -> Account:
+    """Bank name, title, full number, IBAN and QR image key. A field left out (None) keeps its value; remove_qr clears the
+    QR image (a new qr_asset_key wins over it)."""
     number = clean_number(account_number) if account_number else None
     values = {"bank": _clean(bank_name, "bank name"), "title": _clean(account_title, "account title"),
               "masked": mask_number(number) if number else None, "qr": qr_asset_key or None, "number": number,
@@ -145,9 +146,10 @@ def update_details(account_id: str, *, bank_name: str | None, account_title: str
     with agencies.application_engine().begin() as connection:
         row = connection.execute(text(
             "UPDATE payment_accounts SET bank_name = COALESCE(:bank, bank_name), account_title = COALESCE(:title, account_title),"
-            " account_number_masked = COALESCE(:masked, account_number_masked), qr_asset_key = COALESCE(:qr, qr_asset_key),"
+            " account_number_masked = COALESCE(:masked, account_number_masked),"
+            " qr_asset_key = CASE WHEN CAST(:qr AS text) IS NOT NULL THEN CAST(:qr AS text) WHEN CAST(:remove_qr AS boolean) THEN NULL ELSE qr_asset_key END,"
             " account_number = COALESCE(:number, account_number), iban = COALESCE(:iban, iban)"
-            f" WHERE id = :id RETURNING {_COLUMNS}"), {**values, "id": account_id}).mappings().one_or_none()
+            f" WHERE id = :id RETURNING {_COLUMNS}"), {**values, "id": account_id, "remove_qr": remove_qr}).mappings().one_or_none()
     if not row:
         raise AccountError("No account with that id.", 404)
     return Account(**row)
