@@ -79,8 +79,21 @@ def _money(amount: int | None, currency: str | None) -> BookingMoney:
     return BookingMoney(amount_minor=amount or 0, currency=(currency or "PKR").upper())
 
 
+PAID_PENDING = "paid_issuance_pending"
+PAID_NEEDS_STAFF = (PAID_PENDING, "paid_not_ticketed")
+
+
+def booking_status(booking: BookingRow) -> str:
+    """The booking status staff see. A flight with an open hold, fully paid and not ticketed is "Paid, issuance pending"
+    (derived, never stored: the stored status stays 'held', so issuing works as before)."""
+    if (booking.product == "flight" and booking.status in OPEN_HOLD and payment_status(booking) == "paid"
+            and issuance_status(booking) in ("not_issued", "requested", "unknown")):
+        return PAID_PENDING
+    return booking.status
+
+
 def _statuses(booking: BookingRow) -> BookingStatuses:
-    return BookingStatuses(booking=booking.status, payment=payment_status(booking), issuance=issuance_status(booking))
+    return BookingStatuses(booking=booking_status(booking), payment=payment_status(booking), issuance=issuance_status(booking))
 
 
 def _in_dates(booking: BookingRow, query: BookingListQuery, now: datetime) -> bool:
@@ -118,7 +131,7 @@ def _filtered(bookings: list[BookingRow], query: BookingListQuery, now: datetime
         b for b in bookings
         if _in_dates(b, query, now)
         and (query.q is None or _matches_text(b, query.q, visibility))
-        and (query.booking_status is None or b.status == query.booking_status)
+        and (query.booking_status is None or booking_status(b) == query.booking_status)
         and (query.payment_status is None or payment_status(b) == query.payment_status)
         and (query.issuance_status is None or issuance_status(b) == query.issuance_status)
         and (query.provider is None or (b.provider or "").lower() == query.provider)
@@ -146,10 +159,11 @@ def card_rules(now: datetime, window_hours: int):
         "awaiting_issuance": lambda b: attention_kind(b, now, window) == "pending_issuance",
         "hold_deadlines": lambda b: _open_hold(b, now),
         "payment_pending": lambda b: attention_kind(b, now, window) == "payment_pending",
+        "paid_not_issued": lambda b: booking_status(b) in PAID_NEEDS_STAFF,
     }
 
 
-FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines", "payment_pending"}
+FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines", "payment_pending", "paid_not_issued"}
 
 
 def build_cards(rows: list[BookingRow], product: str | None, now: datetime, window_hours: int) -> BookingListCards:
@@ -166,6 +180,7 @@ def build_cards(rows: list[BookingRow], product: str | None, now: datetime, wind
         # The dashboard's issuance and payment rules cover flights only; a group tab would show a false 0.
         cards.awaiting_issuance = count("awaiting_issuance")
         cards.payment_pending = count("payment_pending")
+        cards.paid_not_issued = count("paid_not_issued")
     return cards
 
 

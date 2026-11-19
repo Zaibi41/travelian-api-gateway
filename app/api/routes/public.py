@@ -146,8 +146,7 @@ class FlightPaymentQuery(BaseModel):
 @router.post("/flights/payment-options", response_model=service.FlightPaymentOptions,
              responses={404: {"description": "The search expired."}, 429: {"description": "Too many requests."}})
 async def flight_payment_options(body: FlightPaymentQuery, request: Request):
-    """Which payment methods checkout offers for the chosen fares. Card is never offered for a fare whose tickets can't be
-    issued from Travelian (SooperFare today), and the booking route refuses it too."""
+    """Which payment methods checkout offers for the chosen fares (the booking route applies the same rules)."""
     try:
         service.check_rate(service.CALENDAR_LIMIT, _ip(request))
         return await service.flight_payment_options(body.search_id, body.fare_ids)

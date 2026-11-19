@@ -279,7 +279,17 @@ def _time_limit(value: object) -> datetime | None:
     return None
 
 
-async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> HoldView:
+def save(into: str | None, **values) -> str:
+    """A new held booking, or (into) a new supplier hold for an existing paid booking whose hold was lost (re-hold)."""
+    if into is None:
+        return supplier_bookings.save_hold(**values)
+    return supplier_bookings.replace_hold(into, provider=values["provider"], pnr=values["pnr"], supplier_ref=values["supplier_ref"],
+                                          hold_expires_at=values["hold_expires_at"], supplier_total_minor=values["supplier_total_minor"],
+                                          selling_total_minor=values["selling_total_minor"], supplier_response=values["supplier_response"])
+
+
+async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None, into: str | None = None) -> HoldView:
+    """into: re-hold the same fare for this existing (paid) booking instead of creating a new one (app.services.flight_payments)."""
     if not (settings.southair_booking_enabled or settings.sooperfare_booking_enabled):
         raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
     if viewer.role not in BACK_OFFICE_ROLES and viewer.role != WEBSITE_ROLE:
@@ -322,7 +332,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
 
     if quote.provider == live_flights.SOOPERFARE:
         return await sooperfare_holds.hold(request, viewer, quote, card=card, owner=owner, links=links, warnings=warnings,
-                                           factory=sooperfare_factory)
+                                           factory=sooperfare_factory, into=into)
 
     client = (client_factory or configured_client)()
     # 1. Fresh reprice: the supplier total must still match what the user confirmed.
@@ -400,11 +410,12 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     # 4. Save as UAT test data with an audit entry.
     time_limit = _time_limit(booking.get("time_limit"))
     try:
-        reference = supplier_bookings.save_hold(
-            provider=NAME, pnr=pnr, supplier_ref=ticket_ref, hold_expires_at=time_limit, currency=currency,
+        reference = save(
+            into, provider=NAME, pnr=pnr, supplier_ref=ticket_ref, hold_expires_at=time_limit, currency=currency,
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
-                               "pnr_info": pnr_summary, "repriced_supplier_total_minor": supplier_total},
+                               "pnr_info": pnr_summary, "repriced_supplier_total_minor": supplier_total,
+                               "search": quote.request.model_dump(mode="json")},
             actor_user_id=actor(viewer), customer=_customer(request),
             travelers=[replace(t, selling_minor=confirmed_selling.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
                        for t in _travelers(request, links)],
@@ -416,11 +427,12 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
-    saved_outcomes = await run_in_threadpool(_save_people, request, reference, actor(viewer), owner, links,
-                                             customer_card_document(card, request.passengers))
-    await notifications.booking_event(
-        "hold_created", reference=reference, passenger=_lead_name(request), route=_route(fresh), fare_minor=selling_total,
-        currency=currency, pnr=pnr, hold_expires_at=time_limit)
+    saved_outcomes = [] if into else await run_in_threadpool(_save_people, request, reference, actor(viewer), owner, links,
+                                                             customer_card_document(card, request.passengers))
+    if not into:
+        await notifications.booking_event(
+            "hold_created", reference=reference, passenger=_lead_name(request), route=_route(fresh), fare_minor=selling_total,
+            currency=currency, pnr=pnr, hold_expires_at=time_limit)
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:

@@ -1,4 +1,4 @@
-"""Staff notifications (holds, booking requests, restricted-airline requests). Back-office roles only."""
+"""Staff notifications (holds, booking requests, restricted-airline requests, red alerts). Back-office roles only."""
 
 from datetime import datetime
 from typing import Annotated, Any
@@ -21,6 +21,7 @@ class NotificationView(BaseModel):
     details: dict[str, Any]
     emailed: bool
     created_at: datetime
+    urgent: bool = Field(False, description="A red alert: a customer paid by card and has no ticket. Shown first, in red.")
 
 
 class NotificationList(BaseModel):
@@ -34,4 +35,10 @@ async def list_notifications(viewer: Annotated[BackOfficeUser, Depends(require_b
                              limit: Annotated[int, Query(ge=1, le=200)] = 50) -> NotificationList:
     """Newest first."""
     rows = await run_in_threadpool(notifications.recent, limit)
-    return NotificationList(items=[NotificationView(**row) for row in rows], email_enabled=notifications.email_configured())
+    items = []
+    for row in rows:
+        details = dict(row["details"] or {})
+        if not viewer.visibility.supplier_names:
+            details.pop("supplier", None)  # supplier names only for viewers allowed to see them
+        items.append(NotificationView(**{**row, "details": details}, urgent=row["kind"] in notifications.URGENT_KINDS))
+    return NotificationList(items=items, email_enabled=notifications.email_configured())

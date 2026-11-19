@@ -22,7 +22,8 @@ Product = Literal["flight", "group", "hotel", "umrah"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 #: A payment as shown: also PayFast (online, recorded only by the gateway from a verified PayFast result).
 RecordedPaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast"]
-Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending"]
+Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending",
+               "paid_not_issued"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
 
@@ -43,6 +44,8 @@ class BookingListCards(BaseModel):
     expiring_soon: int
     expiring_window_hours: int
     awaiting_issuance: int | None = Field(None, description="Flights tab only.")
+    paid_not_issued: int | None = Field(None, description="Flights tab only: paid and no ticket, needing staff (Paid, issuance pending "
+                                                          "or Paid, not ticketed).")
     hold_deadlines: int | None = Field(None, description="Flights and Group Ticketing tabs: open holds not yet expired.")
     payment_pending: int | None = Field(
         None, description="Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
@@ -188,6 +191,7 @@ class UpdateReceivingAccountRequest(BaseModel):
     account_number: str | None = Field(None, max_length=60, description="The full account number, stored and shown in full (D40).")
     iban: str | None = Field(None, max_length=60, description="IBAN; spaces are removed.")
     qr_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose payment_qr).")
+    remove_qr: bool = Field(False, description="Remove the QR image (customers stop seeing it at checkout). Ignored with qr_asset_key.")
 
 
 class ReceivingAccountList(BaseModel):

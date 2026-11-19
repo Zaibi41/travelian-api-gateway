@@ -142,13 +142,22 @@ def _target(provider="southair", paid=2207000, product="flight"):
 
 
 def _after(target, ticketing=True, issue=None):
+    """after_verified_card_payment with the fallback (hold check, re-hold, red alert) mocked: alerts lists
+    ("auto_issued", note) and ("needs_staff", reason)."""
+    from app.services import flight_fallback
+
     alerts = []
 
     async def alert(kind, target, note, pnr):
-        alerts.append((kind, note, pnr))
+        alerts.append((kind, note))
+
+    async def needs_staff(reference, reason, **kwargs):
+        alerts.append(("needs_staff", reason))
+        return "needs_staff"
 
     issue = issue or AsyncMock(return_value=issuance.Outcome("issued", "issued", "Ticket issued.", {0: "2147483647001"}))
     with patch.object(flight_payments.store, "load", lambda reference: target), patch.object(flight_payments, "_alert", alert), \
+         patch.object(flight_fallback, "needs_staff", needs_staff), \
          patch.object(settings, "southair_ticketing_enabled", ticketing), patch.object(settings, "sooperfare_ticketing_enabled", ticketing), \
          patch.object(issuance, "issue", issue):
         result = asyncio.run(flight_payments.after_verified_card_payment("TRV-F-1"))
@@ -164,19 +173,28 @@ def test_ticketing_on_issues_at_once_with_the_gateway_as_issuer():
     assert [kind for kind, *_ in alerts] == ["auto_issued"]
 
 
-def test_ticketing_off_never_calls_the_supplier_and_tells_staff_issuance_is_pending():
+def test_ticketing_off_never_calls_the_supplier_and_goes_to_staff():
     result, issue, alerts = _after(_target(), ticketing=False)
-    assert result == "pending"
+    assert result == "needs_staff"
     issue.assert_not_awaited()
-    assert [kind for kind, *_ in alerts] == ["paid_issuance_pending"] and "switched off" in alerts[0][1]
+    assert [kind for kind, _ in alerts] == ["needs_staff"] and "switched off" in alerts[0][1]
 
 
 def test_sooperfare_is_never_issued_from_travelian_even_with_its_flag_on():
-    """SooperFare ticket issuing (/v1/booking/confirm) is on hold (docs/roadmap.md): paid, issuance pending, staff alerted."""
+    """SooperFare ticket issuing isn't built (its confirm call has no documented answer): paid, staff red alert."""
     result, issue, alerts = _after(_target(provider="sooperfare"), ticketing=True)
-    assert result == "pending"
+    assert result == "needs_staff"
     issue.assert_not_awaited()
-    assert [kind for kind, *_ in alerts] == ["paid_issuance_pending"] and "portal" in alerts[0][1]
+    assert [kind for kind, _ in alerts] == ["needs_staff"] and "supplier's portal" in alerts[0][1]
+
+
+def test_payment_after_the_hold_ended_is_never_sent_for_ticketing():
+    target = _target()
+    late = issuance_store.Target(**{**target.__dict__, "hold_expires_at": datetime.now(timezone.utc) - timedelta(minutes=1)})
+    result, issue, alerts = _after(late)
+    assert result == "needs_staff"
+    issue.assert_not_awaited()
+    assert "after the airline hold ended" in alerts[0][1]
 
 
 def test_not_fully_paid_or_not_a_flight_never_issues():
@@ -192,10 +210,10 @@ def test_not_fully_paid_or_not_a_flight_never_issues():
     AsyncMock(return_value=issuance.Outcome("not_issued", "not_issued", "The supplier didn't issue the ticket.")),
     AsyncMock(return_value=issuance.Outcome("unknown", "unknown", "The ticket's status is unknown.")),
 ])
-def test_a_failed_issuance_is_never_shown_as_issued_and_staff_are_alerted(issue):
+def test_a_failed_issuance_is_never_shown_as_issued_and_goes_to_staff(issue):
     result, _, alerts = _after(_target(), issue=issue)
-    assert result == "failed"
-    assert [kind for kind, *_ in alerts] == ["auto_issue_failed"]
+    assert result == "needs_staff"
+    assert [kind for kind, _ in alerts] == ["needs_staff"]
 
 
 def test_the_background_runner_keeps_the_task_until_it_finishes():
@@ -313,24 +331,25 @@ def test_restricted_airline_stays_a_request_with_the_flag_on():
     create.assert_awaited_once()
 
 
-def test_card_on_a_sooperfare_fare_is_refused_by_the_gateway_before_anything_is_held():
-    """Decision 19 Nov 2026: no card for SooperFare fares (bank transfer or Book Only). Enforced server-side."""
+def test_card_on_a_sooperfare_fare_holds_the_fare():
+    """Decision 19 Nov 2026 (reversed): card and 1Link are offered for SooperFare fares too."""
     response, hold, create, _ = _book("card")  # the mocked search returns SooperFare fares
+    assert response.status_code == 201, response.text
+    hold.assert_awaited_once()
+    create.assert_not_awaited()
+
+
+def test_card_is_payable_for_every_supplier_while_payfast_is_set_up(payfast_on):
+    assert public_booking.card_allowed("southair") and public_booking.card_allowed("sooperfare")
+    assert public_booking.flight_can_pay(_row(provider_id="sooperfare"), datetime.now(timezone.utc))
+    with patch.object(settings, "payfast_merchant_id", None):
+        assert not public_booking.card_allowed("sooperfare")
+    response, hold, *_ = _book("card", card_ok=lambda provider: False)  # PayFast not set up: refused before any hold
     assert response.status_code == 409 and response.json()["code"] == "method_unavailable"
     hold.assert_not_awaited()
-    create.assert_not_awaited()
-    ok, *_ = _book("bank_transfer")
-    assert ok.status_code == 201
 
 
-def test_card_is_never_payable_or_offered_for_sooperfare(payfast_on):
-    assert public_booking.card_allowed("southair") and not public_booking.card_allowed("sooperfare")
-    assert not public_booking.flight_can_pay(_row(provider_id="sooperfare"), datetime.now(timezone.utc))
-    with patch.object(settings, "payfast_merchant_id", None):
-        assert not public_booking.card_allowed("southair")
-
-
-def test_payment_options_hide_card_for_sooperfare_fares():
+def test_payment_options_offer_card_for_sooperfare_fares():
     from tests.sooperfare.test_flows import fake_sf, southair_down
     from app.services import live_flights
 
@@ -352,7 +371,7 @@ def test_payment_options_hide_card_for_sooperfare_fares():
         with patch.object(settings, "public_flight_booking_enabled", False):
             off = client.post("/v1/public/flights/payment-options", json={"search_id": results["search_id"], "fare_ids": [fare_id]})
         expired = client.post("/v1/public/flights/payment-options", json={"search_id": "no-such-search", "fare_ids": [fare_id]})
-    assert options.json() == {"held": True, "card": False, "bank_transfer": True, "jazzcash": False}
+    assert options.json() == {"held": True, "card": True, "bank_transfer": True, "jazzcash": False}
     assert off.json() == {"held": False, "card": False, "bank_transfer": False, "jazzcash": False}
     assert expired.status_code == 404
     assert "sooperfare" not in options.text.lower()

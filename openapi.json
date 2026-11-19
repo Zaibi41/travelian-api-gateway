@@ -1257,6 +1257,18 @@
             "title": "On Hold",
             "type": "integer"
           },
+          "paid_not_issued": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only: paid and no ticket, needing staff (Paid, issuance pending or Paid, not ticketed).",
+            "title": "Paid Not Issued"
+          },
           "payment_pending": {
             "anyOf": [
               {
@@ -1947,7 +1959,8 @@
               "expired",
               "hold_unrecorded",
               "requested",
-              "paid_not_ticketed"
+              "paid_not_ticketed",
+              "paid_issuance_pending"
             ],
             "title": "Booking",
             "type": "string"
@@ -6880,6 +6893,12 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "urgent": {
+            "default": false,
+            "description": "A red alert: a customer paid by card and has no ticket. Shown first, in red.",
+            "title": "Urgent",
+            "type": "boolean"
           }
         },
         "required": [
@@ -7303,6 +7322,7 @@
             "title": "Route"
           },
           "status": {
+            "description": "paid_not_ticketed: paid, and Travelian's team will contact the customer.",
             "enum": [
               "requested",
               "held",
@@ -7312,7 +7332,8 @@
               "released",
               "processing",
               "unknown",
-              "not_recorded"
+              "not_recorded",
+              "paid_not_ticketed"
             ],
             "title": "Status",
             "type": "string"
@@ -7377,7 +7398,7 @@
           },
           "payment_method": {
             "default": "card",
-            "description": "Used when the fare is held (see above). card: PayFast online (not for fares whose tickets can't be issued from Travelian). bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.",
+            "description": "Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.",
             "enum": [
               "card",
               "bank_transfer",
@@ -9383,6 +9404,12 @@
             ],
             "description": "From POST /v1/admin/uploads (purpose payment_qr).",
             "title": "Qr Asset Key"
+          },
+          "remove_qr": {
+            "default": false,
+            "description": "Remove the QR image (customers stop seeing it at checkout). Ignored with qr_asset_key.",
+            "title": "Remove Qr",
+            "type": "boolean"
           }
         },
         "title": "UpdateReceivingAccountRequest",
@@ -10934,7 +10961,8 @@
                     "expired",
                     "hold_unrecorded",
                     "requested",
-                    "paid_not_ticketed"
+                    "paid_not_ticketed",
+                    "paid_issuance_pending"
                   ],
                   "type": "string"
                 },
@@ -11041,7 +11069,8 @@
                     "expiring_soon",
                     "awaiting_issuance",
                     "hold_deadlines",
-                    "payment_pending"
+                    "payment_pending",
+                    "paid_not_issued"
                   ],
                   "type": "string"
                 },
@@ -12674,7 +12703,7 @@
     },
     "/v1/admin/finance/payment-accounts/{account_id}": {
       "patch": {
-        "description": "Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value.",
+        "description": "Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value; remove_qr clears\nthe QR image.",
         "operationId": "update_payment_account_v1_admin_finance_payment_accounts__account_id__patch",
         "parameters": [
           {
@@ -18718,7 +18747,7 @@
     },
     "/v1/public/flights/payment-options": {
       "post": {
-        "description": "Which payment methods checkout offers for the chosen fares. Card is never offered for a fare whose tickets can't be\nissued from Travelian (SooperFare today), and the booking route refuses it too.",
+        "description": "Which payment methods checkout offers for the chosen fares (the booking route applies the same rules).",
         "operationId": "flight_payment_options_v1_public_flights_payment_options_post",
         "requestBody": {
           "content": {

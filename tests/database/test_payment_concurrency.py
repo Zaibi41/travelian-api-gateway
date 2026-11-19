@@ -157,13 +157,20 @@ def test_two_issuance_attempts_at_once_send_one_ticketing_call(pooled):
         barrier.wait()
         results.append(asyncio.run(flight_payments.after_verified_card_payment(reference, client_factory=lambda: fake)))
 
-    with patch.object(flight_payments, "_alert", lambda *args, **kwargs: asyncio.sleep(0)):
+    from app.services import flight_fallback
+
+    async def refused(reference, reason, **kwargs):  # the loser goes to staff; it must not touch the supplier
+        return "refused: " + reason
+
+    with patch.object(flight_payments, "_alert", lambda *args, **kwargs: asyncio.sleep(0)), \
+         patch.object(flight_fallback, "needs_staff", refused):
         threads = [threading.Thread(target=attempt) for _ in range(2)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(30)
-    assert sorted(results) == ["failed", "issued"]  # the second was refused: "Issuing is already in progress"
+    assert results.count("issued") == 1
+    assert any("already in progress" in result for result in results)  # the second was refused at the claim
     assert sum(1 for call in fake.calls if call[0] == "ticketing") == 1
     assert scalar(pooled, "SELECT issuance_status FROM bookings WHERE reference = :r", r=reference) == "issued"
 

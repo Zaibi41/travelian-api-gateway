@@ -93,7 +93,8 @@ def _expiry(value) -> datetime | None:
         return None
 
 
-async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights.Quote, *, card, owner, links, warnings, factory=None) -> HoldView:
+async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights.Quote, *, card, owner, links, warnings, factory=None,
+               into: str | None = None) -> HoldView:
     HoldError = flight_holds.HoldError
     context = quote.supplier_context or {}
     # 1. Fresh price check (the same rules as Southair: the confirmed selling price stays while it covers the new cost).
@@ -177,13 +178,14 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     costs_each = {kind: cost for kind, _, cost, _ in selling_each}
     selling_by_kind = {kind: selling for kind, _, _, selling in selling_each}
     try:
-        reference = await run_in_threadpool(lambda: supplier_bookings.save_hold(
-            provider=sooperfare.NAME, pnr=pnr, supplier_ref=booking_id, hold_expires_at=expires_at, currency=currency,
+        reference = await run_in_threadpool(lambda: flight_holds.save(
+            into, provider=sooperfare.NAME, pnr=pnr, supplier_ref=booking_id, hold_expires_at=expires_at, currency=currency,
             selling_total_minor=selling_total, supplier_total_minor=record_total,
             supplier_response={"reservation": {"uuid": booking_id, "order_ref_id": data.get("order_ref_id"), "pnr": pnr,
                                                "airline": new_context.get("provider_id"), "expiry_at": data.get("expiry_at"),
                                                "billable_price": data.get("billable_price"), "platform_fee": data.get("platform_fee")},
-                               "booking_list": {"status": record_status, "total_minor": record_total}},
+                               "booking_list": {"status": record_status, "total_minor": record_total},
+                               "search": quote.request.model_dump(mode="json")},
             actor_user_id=flight_holds.actor(viewer), customer=flight_holds._customer(request),
             travelers=[replace(t, selling_minor=selling_by_kind.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
                        for t in flight_holds._travelers(request, links)],
@@ -194,11 +196,13 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     except Exception:
         logger.error("SooperFare hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
-    saved_outcomes = await run_in_threadpool(flight_holds._save_people, request, reference, flight_holds.actor(viewer), owner, links,
-                                             flight_holds.customer_card_document(card, request.passengers))
-    await notifications.booking_event(
-        "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),
-        fare_minor=selling_total, currency=currency, pnr=pnr, hold_expires_at=expires_at)
+    saved_outcomes = [] if into else await run_in_threadpool(
+        flight_holds._save_people, request, reference, flight_holds.actor(viewer), owner, links,
+        flight_holds.customer_card_document(card, request.passengers))
+    if not into:
+        await notifications.booking_event(
+            "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),
+            fare_minor=selling_total, currency=currency, pnr=pnr, hold_expires_at=expires_at)
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at, label=None,  # a live SooperFare hold, not UAT data
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:

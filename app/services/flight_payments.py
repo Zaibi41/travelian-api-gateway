@@ -6,16 +6,12 @@ secured key, for the amount the gateway asked for, and that payment made the boo
 browser redirect, a staff-recorded bank transfer or JazzCash payment, a forged or unverified PayFast result) reaches it.
 
 - Ticketing on for the booking's provider (app.services.issuance.ticketing_on): the gateway issues at once with the
-  same safe issuance staff use (one ticketing call, never retried, PNR checked before and after). The real airline
-  PNR and ticket numbers come only from the supplier. Anything short of issued (refused, not issued, unknown) leaves
-  the booking paid and not issued, and staff are alerted to finish it; the customer sees "payment received, issuance
-  in progress". Nothing is ever marked issued without the supplier's ticket numbers.
-- Ticketing off, or a provider the gateway can't issue for (SooperFare today): nothing is sent to the supplier. The
-  booking stays paid and not issued, the customer sees "payment received, issuance pending", and staff are alerted.
-
-- The hold has expired (or is inside the ticketing margin) when the money arrives: nothing is sent to the supplier; the
-  booking becomes 'paid_not_ticketed' (refund or rebook by hand) and staff are alerted. The same happens when issuing
-  fails for good (the supplier won't ticket the PNR, or the airline's price is now above the selling price).
+  same safe issuance staff use (one ticketing call, never retried, PNR checked before and after). The real airline PNR
+  and ticket numbers come only from the supplier; nothing is ever marked issued without them.
+- Anything else (ticketing off, a supplier Travelian can't issue for yet, the hold already over, issuing refused or
+  unclear) goes to app.services.flight_fallback.needs_staff: the hold is checked with the supplier, re-held once if it
+  was lost, and admins get a red alert. The booking shows "Paid, issuance pending", or 'paid_not_ticketed' when the hold
+  is lost for good.
 
 Recovery (`recover`, every RECOVERY_INTERVAL_SECONDS from the app lifespan): a card-paid flight left not issued, or
 stuck 'processing' (the gateway restarted mid-issue), for FLIGHT_ISSUANCE_STUCK_MINUTES since its last change gets ONE
@@ -46,8 +42,6 @@ logger = logging.getLogger(__name__)
 AUTO_ISSUER = BackOfficeUser(user_id=None, role="system", visibility=NONE, actions=frozenset({ISSUE_TICKETS}))  # type: ignore[arg-type]
 
 _running: set[asyncio.Task] = set()
-#: Issuance refusals that won't change by trying again: the booking can't be ticketed as it is.
-PERMANENT_REFUSALS = ("not_ticketable", "below_cost")
 RECOVERY_INTERVAL_SECONDS = 60
 
 
@@ -58,14 +52,6 @@ def _now() -> datetime:
 def hold_over(target: store.Target, now: datetime) -> bool:
     """No time left to ticket: expired, or inside the ticketing margin (the same rule issuing itself applies)."""
     return target.hold_expires_at is None or (target.hold_expires_at - now).total_seconds() <= settings.ticketing_deadline_margin_seconds
-
-
-async def _not_ticketed(target: store.Target, reason: str, note: str) -> str:
-    if await run_in_threadpool(flight_recovery.mark_paid_not_ticketed, target.reference, reason, _now()):
-        await _alert("paid_not_ticketed", target, f"{note} The customer paid and has no ticket: refund them or rebook a new fare. "
-                     "Nothing was refunded automatically.", target.pnr)
-        return "paid_not_ticketed"
-    return "failed"
 
 
 def _route(itinerary) -> str | None:
@@ -96,48 +82,45 @@ def _itinerary(reference: str):
         return connection.scalar(text("SELECT itinerary FROM bookings WHERE reference = :r"), {"r": reference})
 
 
-async def after_verified_card_payment(reference: str, client_factory=None, now: datetime | None = None) -> str:
-    """Returns what happened: not_flight, pending (no issuance attempted), issued, paid_not_ticketed, or failed (staff
-    alerted)."""
+async def after_verified_card_payment(reference: str, client_factory=None, now: datetime | None = None, sooperfare_factory=None) -> str:
+    """Returns: not_flight, pending (not fully paid: nothing done), issued, needs_staff (red alert; the admin shows "Paid,
+    issuance pending") or paid_not_ticketed (hold lost and re-holding failed; red alert)."""
+    from app.services import flight_fallback
+
+    now = now or _now()
     target = await run_in_threadpool(store.load, reference)
     if target.product != "flight":
         return "not_flight"
     if target.paid_minor < target.total_minor:
         return "pending"  # defensive: only a fully paid booking is ever issued (store.blockers checks it again)
-    if hold_over(target, now or _now()):
-        # Paid after the airline hold ended (or too close to it to ticket): never sent to the supplier.
-        return await _not_ticketed(target, "paid_after_hold_expired",
-                                   "A verified card payment arrived after the airline hold expired, so nothing was sent to the supplier.")
+
+    async def staff(reason: str) -> str:
+        return await flight_fallback.needs_staff(reference, reason, now=now, client_factory=client_factory, sooperfare_factory=sooperfare_factory)
+
+    if hold_over(target, now):
+        # Paid after the airline hold ended (or too close to it to ticket): never sent to the supplier for ticketing.
+        return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
     if not issuance.ticketing_on(target.provider):
-        reason = ("This fare's supplier isn't issued from Travelian yet: issue it in the supplier's portal, then record the ticket numbers."
-                  if (target.provider or "southair") not in issuance.ISSUING_PROVIDERS else
-                  "Automatic issuance is switched off (ticketing flag off), so nothing was sent to the supplier.")
-        await _alert("paid_issuance_pending", target, f"Card payment verified by PayFast. {reason} The customer sees "
-                     "'Payment received, issuance pending'. Issue before the hold expires.", target.pnr)
-        return "pending"
+        if (target.provider or "southair") not in issuance.ISSUING_PROVIDERS:
+            return await staff("tickets for this supplier aren't issued from Travelian yet: issue in the supplier's portal and record the ticket numbers")
+        return await staff("automatic issuance is switched off (ticketing flag off), so nothing was sent to the supplier")
     try:
         outcome = await issuance.issue(reference, AUTO_ISSUER, client_factory=client_factory)
     except store.IssuanceRefused as error:
-        if error.code in PERMANENT_REFUSALS or hold_over(await run_in_threadpool(store.load, reference), _now()):
-            return await _not_ticketed(target, error.code or "hold_expired", f"Automatic issuance after the card payment failed for good: {error.message}")
-        await _alert("auto_issue_failed", target, f"Card payment verified by PayFast, but automatic issuance didn't go ahead: {error.message} "
-                     "The customer sees 'Payment received, issuance in progress'. Check the booking and issue it by hand.", target.pnr)
-        return "failed"
+        return await staff(f"automatic issuing didn't go ahead: {error.message}")
     except Exception as error:  # noqa: BLE001 - the payment is recorded; staff must finish the issuance
         logger.error("Automatic issuance failed unexpectedly", extra={"reference": reference, "error_type": type(error).__name__})
-        await _alert("auto_issue_failed", target, "Card payment verified by PayFast, but automatic issuance failed unexpectedly. "
-                     "Check the booking's issuance status with the supplier before issuing by hand.", target.pnr)
-        return "failed"
+        return await staff("automatic issuing failed unexpectedly: check the issuance status with the supplier first")
     if outcome.result == "issued":
         await _alert("auto_issued", target, f"Card payment verified by PayFast; tickets issued automatically ({len(outcome.tickets)}).", target.pnr)
         return "issued"
-    await _alert("auto_issue_failed", target, f"Card payment verified by PayFast, but the ticket wasn't issued automatically: {outcome.message} "
-                 "The customer sees 'Payment received, issuance in progress'.", target.pnr)
-    return "failed"
+    return await staff(f"automatic issuing didn't issue the ticket: {outcome.message}")
 
 
-async def recover(now: datetime | None = None, client_factory=None) -> dict[str, str]:
-    """One recovery pass. Returns {reference: outcome} for logs and tests."""
+async def recover(now: datetime | None = None, client_factory=None, sooperfare_factory=None) -> dict[str, str]:
+    """One recovery pass. Returns {reference: outcome} for logs and tests. Also sends the 30-minute red alerts."""
+    from app.services import flight_fallback
+
     now = now or _now()
     minutes = settings.flight_issuance_stuck_minutes
     before = now - timedelta(minutes=minutes)
@@ -150,10 +133,16 @@ async def recover(now: datetime | None = None, client_factory=None) -> dict[str,
             continue  # another worker has it, it changed, or it was already retried once
         if claimed == "processing":
             outcomes[reference] = await _settle_stuck(reference, client_factory)
+            if outcomes[reference] == "unknown":
+                outcomes[reference] = await flight_fallback.needs_staff(
+                    reference, "issuing was interrupted (gateway restart) and the supplier's answer is unclear: the issuance is 'unknown', "
+                    "verify it with the supplier before issuing", now=now, client_factory=client_factory, sooperfare_factory=sooperfare_factory)
             if outcomes[reference] != "not_issued":
                 continue
-        outcomes[reference] = await after_verified_card_payment(reference, client_factory, now)
+        outcomes[reference] = await after_verified_card_payment(reference, client_factory, now, sooperfare_factory)
         logger.info("Stuck flight issuance recovered", extra={"reference": reference, "outcome": outcomes[reference]})
+    for reference in await flight_fallback.thirty_minute_alerts(now):
+        outcomes.setdefault(reference, "red_alert_30m")
     return outcomes
 
 
@@ -173,8 +162,6 @@ async def _settle_stuck(reference: str, client_factory) -> str:
         return "issued"
     if outcome is not None and outcome.result == "not_issued":
         return "not_issued"
-    await _alert("auto_issue_failed", target, "Issuing was interrupted (gateway restart) and the supplier's answer is unclear. The "
-                 "issuance is 'unknown': verify it with the supplier before issuing by hand.", target.pnr)
     return "unknown"
 
 

@@ -69,3 +69,49 @@ def mark_paid_not_ticketed(reference: str, reason: str, now: datetime, details: 
             {"a": json.dumps(action, default=str), "b": row.id})
         _event(connection, row.id, None, "paid_not_ticketed", {**action, "amount_minor": int(row.paid)})
     return True
+
+
+def mark_once(reference: str, action: str, details: dict[str, Any] | None = None) -> bool:
+    """Write `action` on the booking once, ever: True for the first caller, False if it is already there. The booking row is
+    locked while checking, so two workers can't both get True (red alerts and the one re-hold attempt use this)."""
+    with agencies.application_engine().begin() as connection:
+        booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r FOR UPDATE"), {"r": reference})
+        if booking_id is None:
+            return False
+        if connection.scalar(text("SELECT 1 FROM booking_events WHERE booking_id = :b AND action = :a LIMIT 1"), {"b": booking_id, "a": action}):
+            return False
+        _event(connection, booking_id, None, action, details or {})
+    return True
+
+
+def facts(reference: str) -> dict[str, Any] | None:
+    """What a red alert reports: amount received, PayFast transaction id, supplier, PNR, hold expiry, passengers, route, date."""
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(text(
+            "SELECT b.id, b.reference, b.provider_id, b.pnr, b.hold_expires_at, b.booking_status, b.issuance_status, b.currency,"
+            " b.total_minor, b.itinerary, b.supplier_response ->> 'previous_pnr' AS previous_pnr,"
+            " (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) AS paid_minor,"
+            " (SELECT a.transaction_id FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid'"
+            "  ORDER BY a.updated_at DESC LIMIT 1) AS payfast_transaction_id"
+            " FROM bookings b WHERE b.reference = :r"), {"r": reference}).mappings().one_or_none()
+        if row is None:
+            return None
+        names = connection.execute(text("SELECT title, first_name, last_name FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                   {"b": row["id"]}).all()
+    return {**dict(row), "passengers": [" ".join(filter(None, name)) for name in names]}
+
+
+# Card-paid, fully paid, still open and not issued, with the hold ending between :now and :until, never given the 30-minute alert.
+_EXPIRING = (
+    "SELECT b.reference FROM bookings b WHERE b.product = 'flight' AND b.booking_status IN ('held', 'pending_payment', 'payment_received')"
+    " AND b.issuance_status IN ('not_issued', 'requested', 'unknown') AND b.hold_expires_at > :now AND b.hold_expires_at <= :until"
+    " AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) >= b.total_minor"
+    " AND EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid')"
+    " AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id = b.id AND e.action = 'red_alert_30m')"
+    " ORDER BY b.hold_expires_at"
+)
+
+
+def expiring_unissued(now: datetime, until: datetime) -> list[str]:
+    with agencies.application_engine().begin() as connection:
+        return list(connection.scalars(text(_EXPIRING), {"now": now, "until": until}).all())

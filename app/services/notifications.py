@@ -24,7 +24,10 @@ from app.db import agencies
 logger = logging.getLogger(__name__)
 
 KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold", "paid_issuance_pending", "auto_issued",
-         "auto_issue_failed", "paid_not_ticketed"}
+         "auto_issue_failed", "paid_not_ticketed", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost")}
+
+#: Red alerts: a customer paid by card and has no ticket. Shown as urgent in the admin (Notifications > Booking alerts).
+URGENT_KINDS = frozenset({"paid_not_issued", "paid_not_issued_30m", "paid_hold_lost"})
 
 
 def _money(amount_minor: int | None, currency: str | None) -> str:
@@ -108,6 +111,44 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
             await run_in_threadpool(_mark_emailed, notification_id)
         except Exception:  # noqa: BLE001
             pass
+
+
+def _send_email_reporting(subject: str, body: str) -> tuple[bool, str]:
+    """Send through SES; (sent, why not). Every skip or refusal is logged in words, so a missing SES setup is visible."""
+    if not settings.notify_email_enabled:
+        return False, "skipped: NOTIFY_EMAIL_ENABLED is off"
+    if not recipients():
+        return False, "skipped: no NOTIFY_EMAILS recipients"
+    try:
+        import boto3
+
+        boto3.client("ses", region_name=settings.ses_region).send_email(
+            Source=settings.notify_email_from, Destination={"ToAddresses": recipients()},
+            Message={"Subject": {"Data": subject[:200]}, "Body": {"Text": {"Data": body}}})
+        return True, "sent"
+    except Exception as error:  # noqa: BLE001 - email never blocks or changes a booking
+        code = getattr(error, "response", {}).get("Error", {}).get("Code") if hasattr(error, "response") else None
+        if code == "MessageRejected":
+            return False, "refused by SES (MessageRejected: the sender address or domain isn't verified yet)"
+        return False, f"failed ({code or type(error).__name__})"
+
+
+async def red_alert(kind: str, *, reference: str, subject: str, lines: list[str], details: dict[str, Any]) -> None:
+    """An urgent alert: recorded in the admin first (always works), then emailed when SES is set up. Never raises."""
+    try:
+        notification_id = await run_in_threadpool(_record, kind, reference, subject, {**details, "urgent": True})
+    except Exception as error:  # noqa: BLE001
+        logger.error("Red alert not recorded", extra={"reference": reference, "error_type": type(error).__name__})
+        return
+    sent, why = await run_in_threadpool(_send_email_reporting, subject, "\n".join(lines))
+    if sent:
+        try:
+            await run_in_threadpool(_mark_emailed, notification_id)
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        logger.warning(f"Red alert email not sent ({why}); the alert is in the admin under Notifications > Booking alerts",
+                       extra={"reference": reference, "kind": kind})
 
 
 def recent(limit: int = 50) -> list[dict[str, Any]]:

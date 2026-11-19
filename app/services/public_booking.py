@@ -270,7 +270,8 @@ class PublicLeg(BaseModel):
 
 class PublicBookingView(BaseModel):
     reference: str
-    status: Literal["requested", "held", "confirmed", "issued", "expired", "released", "processing", "unknown", "not_recorded"]
+    status: Literal["requested", "held", "confirmed", "issued", "expired", "released", "processing", "unknown", "not_recorded",
+                    "paid_not_ticketed"] = Field(description="paid_not_ticketed: paid, and Travelian's team will contact the customer.")
     payment_status: Literal["unpaid", "part_paid", "paid"]
     live: bool = Field(description="True when seats are held at the airline's supplier; false for a request staff will follow up.")
     can_pay: bool = Field(description="Online payment can be started now.")
@@ -387,8 +388,7 @@ class PublicFlightRequest(BaseModel):
     contact: HoldContact = Field(description="Name, phone (code and number) and email: all required.")
     passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
     payment_method: Literal["card", "bank_transfer", "jazzcash", "book_only"] = Field(
-        "card", description="Used when the fare is held (see above). card: PayFast online (not for fares whose tickets can't be issued "
-                            "from Travelian). bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid "
+        "card", description="Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid "
                             "later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.")
 
     @model_validator(mode="after")
@@ -412,11 +412,9 @@ def _flight_hold_allowed(quote) -> bool:
 
 
 def card_allowed(provider: str | None) -> bool:
-    """D45 (decided 19 Nov 2026): card is offered only where its issuance is wired. SooperFare tickets can't be issued from
-    Travelian yet, so SooperFare fares take bank transfer (or Book Only) and never card, here or at payment time."""
-    from app.services import live_flights
-
-    return payfast.configured() and (provider or "southair") != live_flights.SOOPERFARE
+    """Card (and 1Link, both PayFast) for every flight supplier (decision of 19 Nov 2026, reversed the same day). Where the
+    gateway can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
+    return payfast.configured()
 
 
 class FlightPaymentOptions(BaseModel):
@@ -480,7 +478,7 @@ async def _hold_flight(hold_request: HoldRequest, request: PublicFlightRequest, 
 
     method = request.payment_method
     if method == "card" and not card_allowed(quote.provider):
-        raise PublicError(409, "Card payment isn't available for this fare. Choose bank transfer.", "method_unavailable")
+        raise PublicError(409, "Card payment isn't available right now. Choose another payment method.", "method_unavailable")
     if method == "jazzcash" and not jazzcash.enabled():
         raise PublicError(409, "JazzCash isn't available yet. Choose card or bank transfer.", "method_unavailable")
     if method == "bank_transfer" and not (await payment_methods()).bank_transfer:
@@ -528,8 +526,9 @@ def flight_paid_status(row: dict) -> str:
     supplier issued outside Travelian), "payment received, issuance pending"."""
     from app.services import issuance
 
-    if row["booking_status"] == "paid_not_ticketed":
-        return "confirmed"  # Travelian's team contacts the customer (refund or rebook)
+    expires = row.get("hold_expires_at")
+    if row["booking_status"] == "paid_not_ticketed" or (expires is not None and expires <= _now() and row["issuance_status"] != "unknown"):
+        return "paid_not_ticketed"  # "Payment received. Our team will contact you shortly about your booking."
     if row["issuance_status"] in ("processing", "unknown"):
         return "processing"
     return "processing" if row["pnr"] and issuance.ticketing_on(row.get("provider_id")) else "confirmed"
@@ -605,6 +604,7 @@ NEXT_STEPS = {
     "requested": "Travelian's team will contact you to confirm the fare and arrange payment. Nothing is held or charged yet.",
     "held": "Your seats are held. Pay before the hold time ends, or the booking expires and you'll need to search again.",
     "paid": "Payment received. Travelian is issuing your tickets; you'll receive them once they're ready.",
+    "paid_not_ticketed": "Payment received. Our team will contact you shortly about your booking.",
     "issued": "Your tickets are issued. Carry your passport or CNIC and arrive at the airport in good time.",
     "expired": "The hold ended before payment, so the seats were released. Please search again to book.",
     "cancelled": "This booking was cancelled.",
@@ -665,7 +665,7 @@ async def lookup(reference: str, contact: str) -> LookupView:
         travelers=[" ".join(filter(None, (t["title"], t["first_name"], t["last_name"]))) for t in row["travelers"]],
         airline_pnr=(row["final_pnr"] or row["pnr"]) if issued else None,
         tickets=[t["ticket_number"] for t in row["travelers"] if t["ticket_number"]] if issued else [],
-        next_steps=NEXT_STEPS[status],
+        next_steps=NEXT_STEPS["paid_not_ticketed" if row["booking_status"] == "paid_not_ticketed" else status],
     )
 
 

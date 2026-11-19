@@ -85,3 +85,44 @@ def test_email_alerts_report_whether_they_are_set_up():
         assert notifications.email_configured() is False
     with patch.object(settings, "notify_email_enabled", True), patch.object(settings, "notify_emails", "ops@example.invalid"):
         assert notifications.email_configured() is True
+
+
+# ---------- QR / logo uploads: how S3 is signed (the cause of the failing QR upload, 19 Nov 2026) ----------
+
+@pytest.mark.parametrize("content_type, extension", [("image/png", "png"), ("image/jpeg", "jpg"), ("image/webp", "webp")])
+def test_uploads_are_signed_with_signature_v4_on_the_regional_endpoint(monkeypatch, content_type, extension):
+    """boto3's default presigned POST is Signature Version 2 on the global endpoint, which S3 refuses for buckets created
+    after June 2020. Signed offline here with dummy credentials (no AWS call)."""
+    for name, value in {"AWS_ACCESS_KEY_ID": "AKIAEXAMPLEEXAMPLE", "AWS_SECRET_ACCESS_KEY": "dummy", "AWS_CONFIG_FILE": "/dev/null",
+                        "AWS_SHARED_CREDENTIALS_FILE": "/dev/null"}.items():
+        monkeypatch.setenv(name, value)
+    with patch.object(settings, "assets_bucket", "travelian-assets-test"), patch.object(settings, "assets_region", "ap-southeast-1"), \
+         patch.object(settings, "assets_public_base_url", "https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com"):
+        signed = assets.sign_upload("payment_qr", content_type)
+    assert signed.url == "https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com/"
+    assert {"x-amz-algorithm", "x-amz-credential", "x-amz-signature", "policy", "key"} <= set(signed.fields)
+    assert signed.fields["x-amz-algorithm"] == "AWS4-HMAC-SHA256" and "AWSAccessKeyId" not in signed.fields
+    assert signed.fields["Content-Type"] == content_type and signed.asset_key.startswith("payment-qr/") and signed.asset_key.endswith(extension)
+    assert signed.public_url == f"https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com/{signed.asset_key}"
+    import base64
+    import json
+
+    policy = json.loads(base64.b64decode(signed.fields["policy"]))
+    assert ["content-length-range", 1, 2 * 1024 * 1024] in policy["conditions"]  # S3 itself refuses a file over 2 MB
+
+
+def test_wrong_type_or_s3_down_is_a_clear_error_and_nothing_is_signed():
+    with patch.object(settings, "assets_bucket", "b"), patch.object(settings, "assets_public_base_url", "https://b.example"):
+        for bad in ("image/gif", "image/svg+xml", "application/pdf"):
+            with pytest.raises(assets.AssetsError) as error:
+                assets.sign_upload("payment_qr", bad)
+            assert error.value.status == 422 and "PNG, JPEG or WebP" in error.value.message
+        broken = MagicMock()
+        broken.generate_presigned_post.side_effect = RuntimeError("no credentials")
+        with pytest.raises(assets.AssetsError) as error:
+            assets.sign_upload("payment_qr", "image/png", client=broken)
+        assert error.value.status == 503
+    with patch.object(settings, "assets_bucket", None):
+        with pytest.raises(assets.AssetsError) as error:
+            assets.sign_upload("payment_qr", "image/png")
+    assert error.value.status == 503 and "S3 bucket" in error.value.message
