@@ -61,7 +61,8 @@ if settings.cors_allowed_origins:
         allow_origins=settings.cors_allowed_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        # X-Booking-Token: the website guest's booking token (GET /v1/public/bookings/{ref}, PayFast checkout).
+        allow_headers=["Authorization", "Content-Type", "X-Booking-Token"],
         max_age=600,
     )
 app.include_router(operations_router)
