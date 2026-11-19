@@ -53,7 +53,7 @@ def _now() -> datetime:
 def auto_issuing() -> bool:
     """Automatic issuing after a card payment: only with production PayFast (a UAT payment is test money) and Southair
     ticketing on. SooperFare is never issued automatically (its confirm call isn't built)."""
-    return payfast.production() and settings.southair_ticketing_enabled
+    return payfast.payments_allowed() and settings.southair_ticketing_enabled
 
 
 def startup_summary() -> str:
@@ -111,7 +111,7 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
     if hold_over(target, now):
         # Paid after the airline hold ended (or too close to it to ticket): never sent to the supplier for ticketing.
         return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
-    if not payfast.production():
+    if not payfast.payments_allowed():
         return await staff(f"automatic issuing is off: PayFast is in {payfast.mode()} mode, so nothing was sent to the supplier")
     if not issuance.ticketing_on(target.provider):
         if (target.provider or "southair") not in issuance.ISSUING_PROVIDERS:
