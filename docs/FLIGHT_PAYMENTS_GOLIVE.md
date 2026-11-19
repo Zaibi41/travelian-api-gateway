@@ -3,6 +3,38 @@
 Covers travelian (website + admin) and travelian-api-gateway, branch `feat/flight-payments` in both. The same file is in
 both repos' `docs/`. Nothing here was run against AWS or the server; every command is for you to run.
 
+## 0. Now: testing on production with UAT credentials (19 Nov 2026)
+
+The live server runs every feature on **UAT credentials** (PayFast `ipguat.apps.net.pk`, Southair `sa.uat.ejmiral.com`):
+`PAYFAST_ALLOW_UAT=true`, `SOUTHAIR_BOOKING_ENABLED=true`, `SOUTHAIR_TICKETING_ENABLED=true`,
+`SOOPERFARE_BOOKING_ENABLED=true`, `SOOPERFARE_TICKETING_ENABLED=true`, `PUBLIC_FLIGHT_BOOKING_ENABLED=true`,
+`BANK_TRANSFER_ENABLED=true`, `JAZZCASH_ENABLED=true`. Card and 1Link are offered and auto-issuing is on; startup log:
+`PayFast mode: UAT (allowed for testing), auto-issuing: on`. Southair UAT has a zero balance, so auto-issuing is refused
+and each card booking ends as a red alert. Website Southair holds are UAT holds (not real seats). **SooperFare is
+production**: a hold on a SooperFare fare is a real airline reservation.
+
+### When production credentials arrive
+
+- [ ] Replace the PayFast and Southair values in `/opt/travelian-api/shared/.env` (back it up first), set
+      `PAYFAST_ALLOW_UAT=false`, restart (`sudo systemctl restart travelian-api.service`). The startup log must then say
+      `PayFast mode: production, auto-issuing: on`.
+
+Env names that need production values (nothing else changes):
+
+| Env name | Today (UAT) | Production |
+|---|---|---|
+| `PAYFAST_BASE_URL` | `https://ipguat.apps.net.pk` | the production host PayFast gives you |
+| `PAYFAST_MERCHANT_ID` | UAT merchant | production merchant ID |
+| `PAYFAST_SECURED_KEY` | UAT key | production secured key |
+| `PAYFAST_ALLOW_UAT` | `true` | `false` |
+| `SOUTHAIR_BASE_URL` | `https://sa.uat.ejmiral.com:7777` | the production Southair URL |
+| `SOUTHAIR_USERNAME` | UAT user | production user (funded account) |
+| `SOUTHAIR_PASSWORD` | UAT password | production password |
+
+`PAYFAST_MERCHANT_NAME` stays `Travelian`. Production PayFast must allow
+`CHECKOUT_URL=https://api.travelian.pk/v1/public/payments/payfast/notify`. With production Southair, auto-issuing spends
+real supplier balance.
+
 ## 1. Before deploying
 
 - [ ] **PayFast production credentials.** The gateway is on UAT (`PAYFAST_BASE_URL=https://ipguat.apps.net.pk`). Put the
@@ -17,9 +49,8 @@ both repos' `docs/`. Nothing here was run against AWS or the server; every comma
       Ask SooperFare for the confirm response format and what `txn_ref_id` must be.
 - [ ] **Supplier cancel not built (Southair, SooperFare):** abandoned holds are never cancelled by Travelian; they lapse at
       the supplier's time limit. (SooperFare /v1/booking/cancel and void are not built; Southair has no cancel call.)
-- [ ] **Southair is UAT on the live server** (`SOUTHAIR_BASE_URL` = sa.uat.ejmiral.com): keep `SOUTHAIR_BOOKING_ENABLED=false`
-      there (set 19 Nov 2026) so website Southair fares stay plain requests (no test holds for real customers). Staff can't
-      place Southair holds in the admin either while it is off. Turn it on only with production Southair credentials.
+- [ ] **Southair is UAT on the live server** (`SOUTHAIR_BASE_URL` = sa.uat.ejmiral.com). `SOUTHAIR_BOOKING_ENABLED=true`
+      again since 19 Nov 2026 (testing on UAT, section 0): website Southair holds are UAT holds until production credentials.
 - [ ] **SooperFare is production** (`api.sooperfare.com`): website holds on SooperFare fares are real airline reservations.
 - [ ] **Database backup:** `pg_dump -h 127.0.0.1 -U travelian_app travelian > ~/travelian-$(date +%F-%H%M).sql`
 
@@ -56,7 +87,8 @@ exist; decide then whether they move to Parameter Store (the only PayFast creden
 | `SOUTHAIR_TICKETING_ENABLED` | `true` only with a funded production account | Off: every card payment goes to staff (red alert). |
 | `SOOPERFARE_TICKETING_ENABLED` | leave `false` | Not used yet (issuing not built). |
 | `BANK_TRANSFER_ENABLED` | `true` | And at least one active bank account with title + number/IBAN/QR in Accounts & Ledgers. |
-| `JAZZCASH_ENABLED` | `false` | JazzCash is a scaffold; leave off until its flow is confirmed. |
+| `JAZZCASH_ENABLED` | `true` | Offered with an active JazzCash account that has the full number (QR image optional), Accounts & Ledgers. |
+| `PAYFAST_ALLOW_UAT` | `true` while testing on UAT, `false` with production PayFast | On: card / 1Link and auto-issuing also with PayFast UAT. |
 | `FLIGHT_ISSUANCE_STUCK_MINUTES` | `10` (default) | Stuck-issuance recovery: one retry after 10 minutes. |
 | `NOTIFY_EMAIL_ENABLED` | `true` once SES works (section 5) | Off: alerts only in the admin. |
 | `NOTIFY_EMAILS` | staff addresses, comma-separated | Until SES production access is granted, only **verified** addresses receive mail (today: `travelian.pk@gmail.com`). |
@@ -69,9 +101,10 @@ exist; decide then whether they move to Parameter Store (the only PayFast creden
 | `SSM_PARAMETER_PREFIX` | not set | See above. |
 | `PUBLIC_SITE_URL` / `PUBLIC_API_URL` | `https://travelian.pk` / `https://api.travelian.pk` | PayFast return and notification URLs. |
 
-**Guards (19 Nov 2026):** card and 1Link are offered, and tickets are issued automatically, **only when PayFast is on
-production** (`PAYFAST_BASE_URL` not `ipguat.apps.net.pk`). On UAT every paid booking goes to staff (red alert). The gateway
-logs `PayFast mode: production/UAT, auto-issuing: on/off` at startup. Bank transfer and JazzCash are offered only with an
+**Guards (19 Nov 2026):** card and 1Link are offered, and tickets are issued automatically, only when PayFast is on
+production (`PAYFAST_BASE_URL` not `ipguat.apps.net.pk`) **or `PAYFAST_ALLOW_UAT=true`** (testing on UAT). Otherwise every
+paid booking goes to staff (red alert). The gateway logs `PayFast mode: production / UAT / UAT (allowed for testing),
+auto-issuing: on/off` at startup. Bank transfer and JazzCash are offered only with an
 active receiving account that has the **full account number** (Accounts & Ledgers); JazzCash also needs `JAZZCASH_ENABLED`.
 `SOOPERFARE_TICKETING_ENABLED=true` is harmless: no SooperFare issue call exists, so paid SooperFare bookings get a red alert.
 
