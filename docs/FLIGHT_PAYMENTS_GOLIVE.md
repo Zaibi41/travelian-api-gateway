@@ -15,6 +15,12 @@ both repos' `docs/`. Nothing here was run against AWS or the server; every comma
 - [ ] **SooperFare issuing is not built.** `/v1/booking/confirm` has no documented answer (no example response;
       `txn_ref_id` only "TEST"). Card works for SooperFare fares, but staff issue in SooperFare's portal after the red alert.
       Ask SooperFare for the confirm response format and what `txn_ref_id` must be.
+- [ ] **Supplier cancel not built (Southair, SooperFare):** abandoned holds are never cancelled by Travelian; they lapse at
+      the supplier's time limit. (SooperFare /v1/booking/cancel and void are not built; Southair has no cancel call.)
+- [ ] **Southair is UAT on the live server** (`SOUTHAIR_BASE_URL` = sa.uat.ejmiral.com): keep `SOUTHAIR_BOOKING_ENABLED=false`
+      there (set 19 Nov 2026) so website Southair fares stay plain requests (no test holds for real customers). Staff can't
+      place Southair holds in the admin either while it is off. Turn it on only with production Southair credentials.
+- [ ] **SooperFare is production** (`api.sooperfare.com`): website holds on SooperFare fares are real airline reservations.
 - [ ] **Database backup:** `pg_dump -h 127.0.0.1 -U travelian_app travelian > ~/travelian-$(date +%F-%H%M).sql`
 
 ## 2. Deploy order
