@@ -32,6 +32,7 @@ def fresh_limits():
     public_booking.SEARCH_LIMIT._hits.clear()
     public_booking.BOOK_LIMIT._hits.clear()
     public_booking.PAY_LIMIT._hits.clear()
+    public_booking.CALENDAR_LIMIT._hits.clear()
     public_booking._cache = None
     yield
     public_booking._cache = None
@@ -312,3 +313,23 @@ def test_every_group_booking_path_saves_its_people():
     assert "_save_people" in request_branch
     tail = source[source.index("hold_created"):]
     assert tail.index("_save_people") < tail.index("if website:")  # saved before the website returns
+
+
+def test_calendar_reads_have_their_own_limit_and_take_a_start_date():
+    """B24 / D46: a page asking the calendar again while dates fill in never uses up the live-search allowance, and the
+    results page's date strip asks from its first date."""
+    from datetime import date, timedelta
+
+    seen = []
+
+    async def calendar(origin, destination, adults, cabin, start=None):
+        seen.append(start)
+        return public_booking.FlightCalendar(origin=origin, destination=destination, days=[], pending=False)
+
+    start = (date.today() + timedelta(days=10)).isoformat()
+    with patch.object(public_booking, "flight_calendar", calendar):
+        answers = [client.post("/v1/public/flights/calendar", json={"origin": "LHE", "destination": "KHI", "start": start}).status_code
+                   for _ in range(40)]
+    assert set(answers) == {200}  # 40 reads in a minute: over the 30-search limit, within the calendar's own
+    assert not public_booking.SEARCH_LIMIT._hits.get("testclient")  # no live-search allowance used
+    assert seen[0] == date.fromisoformat(start)

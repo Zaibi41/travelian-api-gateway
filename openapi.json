@@ -2879,6 +2879,19 @@
             "minLength": 3,
             "title": "Origin",
             "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First day (default today). The gateway checks unknown days from here.",
+            "title": "Start"
           }
         },
         "required": [
@@ -18589,7 +18602,7 @@
     },
     "/v1/public/flights/calendar": {
       "post": {
-        "description": "Lowest real fare per date (one-way, adults). Unknown dates have no price; a few are checked in the background.",
+        "description": "Lowest real fare per date (one-way, adults). Unknown dates have no price; a few are checked in the background.\nOne call per page (date picker or the results page's date strip); the page asks again while `pending`.",
         "operationId": "flight_calendar_v1_public_flights_calendar_post",
         "requestBody": {
           "content": {
