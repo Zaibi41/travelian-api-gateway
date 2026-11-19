@@ -98,8 +98,12 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
     issuance pending") or paid_not_ticketed (hold lost and re-holding failed; red alert)."""
     from app.services import flight_fallback
 
+    from app.services import customer_emails
+
     now = now or _now()
     target = await run_in_threadpool(store.load, reference)
+    if target.paid_minor >= target.total_minor:
+        await customer_emails.send(reference, "payment_received", method="card")
     if target.product != "flight":
         return "not_flight"
     if target.paid_minor < target.total_minor:
@@ -125,6 +129,7 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
         logger.error("Automatic issuance failed unexpectedly", extra={"reference": reference, "error_type": type(error).__name__})
         return await staff("automatic issuing failed unexpectedly: check the issuance status with the supplier first")
     if outcome.result == "issued":
+        await customer_emails.send(reference, "ticket_issued")
         await _alert("auto_issued", target, f"Card payment verified by PayFast; tickets issued automatically ({len(outcome.tickets)}).", target.pnr)
         return "issued"
     return await staff(f"automatic issuing didn't issue the ticket: {outcome.message}")

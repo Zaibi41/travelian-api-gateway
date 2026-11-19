@@ -241,6 +241,14 @@ class RecordPaymentResponse(BaseModel):
     payment_status: PaymentStatus
 
 
+class CustomerEmailProblem(BaseModel):
+    """A customer email whose last attempt wasn't delivered to SES (e.g. the SES sandbox refuses unverified addresses)."""
+
+    email: str = Field(description="Which email: booking_held, bank_transfer, payment_received, ticket_issued, ...")
+    at: datetime
+    reason: str | None = None
+
+
 class SupplierBookingView(BaseModel):
     """The supplier's own booking (supplier-names permission only): its ids and, after a cancel request, what it says."""
 
@@ -364,5 +372,6 @@ class BookingDetail(BaseModel):
         None, description="Group bookings after full payment: Paid – awaiting final PNR, Final PNR received, Ticketed.")
     can_edit_group_tickets: bool = Field(False, description="Group bookings: this viewer may record the final PNR and ticket numbers on the Tickets tab "
                                                             "(issue tickets permission, paid in full; the endpoint still checks).")
+    customer_email_problems: list[CustomerEmailProblem] | None = Field(None, description="Customer emails not sent: staff contact the customer.")
     supplier_booking: SupplierBookingView | None = Field(None, description="SooperFare bookings, supplier-names permission only.")
     itinerary_available: bool = Field(True, description="The itinerary PDF / PNG can be downloaded. Group bookings: only once Ticketed.")

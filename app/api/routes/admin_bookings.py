@@ -258,6 +258,11 @@ async def record_payment(viewer: Viewer, request: RecordPaymentRequest, booking_
         )
     except booking_payments.PaymentRefused as error:
         raise HTTPException(error.status, error.message) from None
+    if status == "paid":
+        from app.services import customer_emails
+
+        method = {"bank_transfer": "bank transfer", "jazzcash": "JazzCash", "1link": "1Link"}.get(payment.method, payment.method)
+        await customer_emails.send(booking_id, "payment_received", method=method)
     return RecordPaymentResponse(payment=BookingPayment(
         id=payment.id, amount=service._money(payment.amount_minor, payment.currency), method=payment.method,
         received_into=payment.received_into, reference=payment.reference, received_at=payment.received_at,
@@ -336,20 +341,29 @@ async def request_issuance(viewer: Viewer, request: IssuanceRequest, booking_id:
     return await _run(issuance_service.request(booking_id, viewer, (request.note or "").strip() or None))
 
 
+async def _ticket_email(result, booking_id: str):
+    """The customer's e-ticket email once a booking is issued (sent once per booking)."""
+    if isinstance(result, IssuanceResult) and result.issuance_status == "issued":
+        from app.services import customer_emails
+
+        await customer_emails.send(booking_id, "ticket_issued")
+    return result
+
+
 @router.post("/{booking_id}/issuance/issue", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
 async def issue_ticket(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)], request: IssueTicketRequest | None = None):
     """Issue the ticket once (never retried). The result is decided from the supplier's PNR: issued, not_issued or unknown.
     If the airline's price changed, the answer is 409 supplier_cost_changed (or below_cost); send accepted_supplier_cost
     from it to issue at the new cost (the selling price stays)."""
     accepted = request.accepted_supplier_cost.amount_minor if request and request.accepted_supplier_cost else None
-    return await _run(issuance_service.issue(booking_id, viewer, accepted_cost_minor=accepted))
+    return await _ticket_email(await _run(issuance_service.issue(booking_id, viewer, accepted_cost_minor=accepted)), booking_id)
 
 
 @router.post("/{booking_id}/issuance/verify", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
 async def verify_issuance(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
     """Check with supplier (read-only) after an unknown or failed issuance: tickets found -> recorded; no ticket and
     nothing paid -> safe to issue again; unclear -> unknown. Never sends a ticketing request."""
-    return await _run(issuance_service.verify(booking_id, viewer))
+    return await _ticket_email(await _run(issuance_service.verify(booking_id, viewer)), booking_id)
 
 
 @router.post("/{booking_id}/issuance/resolve", response_model=IssuanceResult, responses={**ISSUANCE_RESPONSES, 422: {"description": "Missing ticket numbers or reason."}})
@@ -358,4 +372,4 @@ async def resolve_issuance(viewer: Viewer, request: IssuanceResolveRequest, book
     tickets = {t.position: t.ticket_number.upper() for t in request.ticket_numbers}
     if len(tickets) != len(request.ticket_numbers):
         raise HTTPException(422, "Give one ticket number per traveler.")
-    return await _run(issuance_service.resolve(booking_id, viewer, request.outcome, request.reason.strip(), tickets))
+    return await _ticket_email(await _run(issuance_service.resolve(booking_id, viewer, request.outcome, request.reason.strip(), tickets)), booking_id)

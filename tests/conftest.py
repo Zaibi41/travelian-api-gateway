@@ -42,14 +42,20 @@ def no_real_application_database(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_notifications(request, monkeypatch):
-    """Unit tests never write notifications to a real database or send email; tests marked `real_notifications` opt out."""
+    """Unit tests never write notifications to a real database or send email; tests marked `real_notifications` opt out
+    (staff notifications only: customer emails are always recorded here instead; tests/test_customer_emails.py calls the real one)."""
+    from app.services import customer_emails
+
+    customer = []
+    monkeypatch.setattr(customer_emails, "deliver", lambda reference, kind, method="card": customer.append((reference, kind, method)) or (False, "stubbed"))
+    request.node.customer_emails = customer
     if request.node.get_closest_marker("real_notifications"):
         return
     from app.services import notifications
 
     recorded = []
     monkeypatch.setattr(notifications, "_record", lambda kind, reference, title, details: recorded.append((kind, reference, details)) or "n1")
-    monkeypatch.setattr(notifications, "_send_email", lambda subject, body: False)
+    monkeypatch.setattr(notifications, "_send_email", lambda subject, body, html=None: False)
     request.node.notifications = recorded
 
 

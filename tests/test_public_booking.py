@@ -274,7 +274,8 @@ def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a
 
 
 @pytest.mark.parametrize("method", ["bank_transfer", "jazzcash"])
-def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method):
+def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method, request):
+    node = request.node
     """D43: neither method confirms anything itself. The booking stays held, staff are alerted to check the money,
     record it and only then issue. (JazzCash is off today; this is the rule once it is on.)"""
     from app.vendors.payments import jazzcash
@@ -298,6 +299,7 @@ def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method):
              reference="TRV-GRP-1", status="held", payment_status="unpaid", live=True, can_pay=False,
              total=public_booking.PublicMoney(amount_minor=9_000_000, currency="PKR"), paid=public_booking.PublicMoney(amount_minor=0, currency="PKR")))):
         created = __import__("asyncio").run(public_booking.book_group(request))
+    assert node.customer_emails == [("TRV-GRP-1", method, "card")]   # the customer gets the account details (and QR) by email
     assert created.booking.status == "held" and created.booking.payment_status == "unpaid"
     event.assert_awaited_once()
     assert event.await_args.args[0] == "bank_transfer_hold" and "Nothing is issued automatically" in event.await_args.kwargs["note"]

@@ -23,6 +23,7 @@ from app.services import group_terms
 from app.services.group_ticketing_status import ticketing_status
 from app.services.pricing import cost_unknown
 from app.schemas.admin_bookings import (
+    CustomerEmailProblem,
     BookingAuditEntry, BookingCustomer, BookingDetail, BookingPayment, BookingFare, BookingList, BookingListCards, BookingListFilterOptions,
     BookingListItem, BookingMoney, BookingPassenger, BookingSegment, BookingStatuses, FarePerPassenger, FilterOption, SupplierPayment,
 )
@@ -310,6 +311,11 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         detail.fare_terms = fare_terms_view(group_terms.acknowledgement(people.events))
         detail.audit = [BookingAuditEntry(action=e.action, actor_user_id=e.actor_user_id, actor_role=e.actor_role, at=e.created_at, details=e.details)
                         for e in people.events]
+        from app.services.customer_emails import email_problems  # late: it imports the email templates
+
+        problems = email_problems(people.events)
+        if problems:
+            detail.customer_email_problems = [CustomerEmailProblem(**problem) for problem in problems]
     unknown_cost = cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor)
     if people and people.travelers and all(t.selling_minor is not None for t in people.travelers):
         per_type: dict[str, list] = {}

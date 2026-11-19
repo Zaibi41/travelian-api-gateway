@@ -169,8 +169,9 @@ def _digits(value: str) -> str:
     return "".join(ch for ch in value if ch.isdigit())
 
 
-def lookup(reference: str, contact: str) -> dict | None:
-    """The booking when `contact` is the email or phone it was booked with (any booking, any channel), else None."""
+def lookup(reference: str, contact: str, *, trusted: bool = False) -> dict | None:
+    """The booking when `contact` is the email or phone it was booked with (any booking, any channel), else None.
+    trusted: the caller already proved access another way (a valid signed email link), so the contact isn't checked."""
     contact = contact.strip()
     with agencies.application_engine().begin() as connection:
         row = connection.execute(
@@ -186,7 +187,7 @@ def lookup(reference: str, contact: str) -> dict | None:
         by_email = "@" in contact and contact.lower() == (row["email"] or "").strip().lower()
         given, stored = _digits(contact), _digits(f"{row['phone_code']}{row['phone']}")
         by_phone = len(given) >= 7 and (stored.endswith(given[-10:]) or _digits(row["phone"]).endswith(given[-10:]))
-        if not (by_email or by_phone):
+        if not (trusted or by_email or by_phone):
             return None
         travelers = connection.execute(
             text("SELECT title, first_name, last_name, ticket_number FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
