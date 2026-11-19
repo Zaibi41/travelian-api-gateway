@@ -39,6 +39,24 @@ def mark_website(booking_id: str, guest_hash: str) -> None:
                            {"h": guest_hash, "id": booking_id})
 
 
+def mark_website_reference(reference: str, guest_hash: str) -> None:
+    """mark_website for any product (flight requests), by reference."""
+    with agencies.application_engine().begin() as connection:
+        connection.execute(text("UPDATE bookings SET channel = 'website', guest_token_hash = :h WHERE reference = :r"),
+                           {"h": guest_hash, "r": reference})
+
+
+def summary(reference: str) -> dict | None:
+    """A website booking of any product, for the guest's view: statuses, totals, paid amount and itinerary."""
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(text(
+            "SELECT b.id, b.reference, b.product, b.pnr, b.booking_status, b.payment_status, b.issuance_status, b.hold_expires_at,"
+            " b.currency, b.total_minor, b.itinerary, b.supplier_response ->> 'final_pnr' AS final_pnr,"
+            " COALESCE((SELECT SUM(p.amount_minor) FROM booking_payments p WHERE p.booking_id = b.id), 0) AS paid_minor"
+            " FROM bookings b WHERE b.reference = :r"), {"r": reference}).mappings().one_or_none()
+    return dict(row) if row else None
+
+
 def guest_can_open(reference: str, token: str) -> bool:
     if not token or len(token) > 200:
         return False

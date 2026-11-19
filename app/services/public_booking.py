@@ -405,12 +405,43 @@ async def request_flight(request: PublicFlightRequest) -> PublicBookingCreated:
     except flight_holds.HoldError as error:
         raise PublicError(error.status, error.message, error.code) from None
     token, token_hash = public_bookings.new_token()
-    booking = await run_in_threadpool(store.load, view.booking_id)
-    await run_in_threadpool(public_bookings.mark_website, booking.id, token_hash)
+    await run_in_threadpool(public_bookings.mark_website_reference, view.booking_id, token_hash)
     return PublicBookingCreated(reference=view.booking_id, access_token=token, booking=await booking_view(view.booking_id))
 
 
+async def _other_view(row: dict) -> PublicBookingView:
+    """The guest's view of a non-group booking (website flight requests): no PNR or tickets until issued."""
+    now = _now()
+    status = lookup_status(row, now)
+    view_status = {"requested": "requested", "issued": "issued", "expired": "expired", "cancelled": "released",
+                   "paid": "confirmed"}.get(status, "held")
+    people = await run_in_threadpool(booking_people.read, row["reference"])
+    legs = []
+    for leg in row["itinerary"] or []:
+        if not isinstance(leg, dict):
+            continue
+        departs, arrives = str(leg.get("departure_local") or ""), str(leg.get("arrival_local") or "")
+        legs.append(PublicLeg(flight_number=leg.get("flight_number"), origin=leg.get("origin"), destination=leg.get("destination"),
+                              departure_date=departs[:10] or None, departure_time=departs[11:16] or None, arrival_time=arrives[11:16] or None))
+    first = (row["itinerary"] or [{}])[0] if isinstance((row["itinerary"] or [{}])[0], dict) else {}
+    issued = view_status == "issued"
+    return PublicBookingView(
+        reference=row["reference"], status=view_status, payment_status=row["payment_status"],  # type: ignore[arg-type]
+        live=row["booking_status"] != "requested", can_pay=False,
+        total=PublicMoney(amount_minor=row["total_minor"], currency=row["currency"]),
+        paid=PublicMoney(amount_minor=row["paid_minor"], currency=row["currency"]),
+        hold_expires_at=row["hold_expires_at"] if view_status == "held" else None,
+        airline=first.get("airline_name"), route=f"{first.get('origin')}-{first.get('destination')}" if first.get("origin") else None,
+        legs=legs, travelers=[f"{t.title} {t.first_name} {t.last_name}".strip() for t in (people.travelers if people else [])],
+        final_pnr=(row["final_pnr"] or row["pnr"]) if issued else None,
+        tickets=[t.ticket_number for t in (people.travelers if people else []) if t.ticket_number] if issued else [],
+    )
+
+
 async def booking_view(reference: str) -> PublicBookingView:
+    row = await run_in_threadpool(public_bookings.summary, reference)
+    if row is not None and row["product"] != "group":
+        return await _other_view(row)
     now = _now()
     booking = await run_in_threadpool(store.expire_if_over, reference, now, frozenset(group_holds.NO_RELEASE_SOURCES))
     people = await run_in_threadpool(booking_people.read, reference)

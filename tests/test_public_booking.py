@@ -250,8 +250,7 @@ def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a
          patch.object(settings, "flight_markup_percent", __import__("decimal").Decimal("0")), \
          patch.object(supplier_bookings, "save_request", save_request), patch.object(flight_holds, "resolve_saved", lambda request, viewer: (request, {})), \
          patch.object(flight_holds, "_save_people", save_people), \
-         patch.object(public_booking.store, "load", lambda reference: SimpleNamespace(id="b-web", **vars(view))), \
-         patch.object(public_booking.public_bookings, "mark_website", lambda booking_id, token_hash: None), \
+         patch.object(public_booking.public_bookings, "mark_website_reference", lambda reference, token_hash: None), \
          patch.object(public_booking, "booking_view", AsyncMock(return_value=created)):
         results = client.post("/v1/public/flights/search", json={"origin": "KHI", "destination": "LHE", "departure_date": "2026-12-10"}).json()
         fare_id = results["journeys"][0]["flights"][0]["fares"][0]["id"]

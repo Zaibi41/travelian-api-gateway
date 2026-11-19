@@ -129,3 +129,26 @@ def test_lookup_needs_the_reference_and_the_contact_used_to_book(database):
     view = asyncio.run(public_booking.lookup(reference.lower(), "03001234567"))
     assert view.status == "held" and view.travelers == ["MR Ali Khan"] and view.tickets == [] and view.airline_pnr is None
     assert "Pay before the hold time ends" in view.next_steps
+
+
+def test_a_website_flight_request_is_marked_and_shown_to_the_guest_without_the_group_loader(database):
+    """The 500 of 19 Nov: a website flight request was saved, then its reply used the group-only loader. The real save,
+    mark and guest view now work for a flight request, with no PNR, nothing payable and the travelers' names."""
+    import asyncio
+    from app.db import public_bookings as pb, supplier_bookings
+    from app.services import public_booking as service
+    from tests.database.test_booking_people import CUSTOMER, TRAVELERS
+
+    connection, metadata, _ = database
+    reference = supplier_bookings.save_request(
+        provider="sooperfare", currency="PKR", selling_total_minor=2207000, supplier_total_minor=2207000, actor_user_id=None,
+        customer=CUSTOMER, travelers=TRAVELERS, channel="website",
+        itinerary=[{"origin": "LHE", "destination": "KHI", "flight_number": "PA401", "airline_name": "Airblue",
+                    "departure_local": "2026-11-27T11:15", "arrival_local": "2026-11-27T13:00"}], details={"restricted_airline": False})
+    token, token_hash = pb.new_token()
+    pb.mark_website_reference(reference, token_hash)
+    assert pb.guest_can_open(reference, token)
+    view = asyncio.run(service.booking_view(reference))
+    assert view.status == "requested" and view.live is False and view.can_pay is False and view.final_pnr is None
+    assert view.total.amount_minor == 2207000 and view.legs[0].flight_number == "PA401" and view.legs[0].departure_time == "11:15"
+    assert view.travelers and all(name for name in view.travelers)
