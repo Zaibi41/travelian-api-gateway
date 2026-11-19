@@ -2,7 +2,10 @@
 #
 #   https://api.travelian.pk/v1/*   -> travelian-api-gateway (127.0.0.1:8000)
 #   https://api.travelian.pk/*      -> legacy API Gateway + Lambda (/content/*, /flights/*,
-#                                      /hotels/search, /payments/*, /health) until it is retired
+#                                      /hotels/search, /health) until it is retired
+#   Retired (B14, 19 Nov 2026): the Lambda's PayFast routes (/payments/payfast/*: its callback marked bookings
+#   paid without verification) and its group-ticketing feed (/group-ticketing/*: it exposed supplier codes).
+#   Payments and group fares go through the gateway (/v1/public/...). Answer 410 Gone; nothing reaches the Lambda.
 #
 # LEGACY_API_TARGET is the "API Gateway domain name" of the api.travelian.pk custom
 # domain (d-xxxxxxxxxx.execute-api.us-east-1.amazonaws.com). It is set in
@@ -22,6 +25,12 @@
 
 	handle /v1/* {
 		reverse_proxy 127.0.0.1:8000
+	}
+
+	@retired path /payments/payfast/* /group-ticketing /group-ticketing/*
+	handle @retired {
+		header Content-Type application/json
+		respond `{"error":"GONE","message":"This endpoint was retired. Use https://api.travelian.pk/v1/public."}` 410
 	}
 
 	handle {
