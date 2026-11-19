@@ -486,6 +486,19 @@ def test_bank_transfer_and_jazzcash_are_offered_only_with_a_full_account_number(
         assert methods.jazzcash_accounts[0].account_number == "03001234567"
 
 
+def test_jazzcash_checkout_shows_its_qr_image():
+    from app.db import payment_accounts
+
+    rows = [SimpleNamespace(method="jazzcash", label="Travelian Wallet", account_title="Travelian", account_number="03001234567",
+                            iban=None, qr_asset_key="payment-qr/abc.png", bank_name=None)]
+    with patch.object(payment_accounts, "list_accounts", lambda include_inactive=False: rows), \
+         patch.object(settings, "jazzcash_enabled", True), patch.object(settings, "assets_public_base_url", "https://assets.example"), \
+         patch("app.api.routes.admin_uploads.site_assets", lambda: {}):
+        methods = asyncio.run(public_booking.payment_methods())
+    wallet = methods.jazzcash_accounts[0]
+    assert (wallet.account_number, wallet.qr_url) == ("03001234567", "https://assets.example/payment-qr/abc.png")
+
+
 def test_book_only_alert_has_its_own_title(request):
     from app.services import notifications
 

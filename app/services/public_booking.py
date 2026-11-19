@@ -330,10 +330,12 @@ def bank_accounts() -> list[BankAccountView]:
 
 
 def jazzcash_accounts() -> list[BankAccountView]:
-    """Active JazzCash receiving accounts with the full account (wallet) number customers pay into."""
+    """Active JazzCash receiving accounts with the full account (wallet) number customers pay into, and its QR image if any."""
     from app.db import payment_accounts
+    from app.services import assets
 
-    return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number)
+    return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number,
+                            qr_url=assets.public_url(a.qr_asset_key))
             for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
 
 
