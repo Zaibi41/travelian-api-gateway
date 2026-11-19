@@ -184,7 +184,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
                                                "airline": new_context.get("provider_id"), "expiry_at": data.get("expiry_at"),
                                                "billable_price": data.get("billable_price"), "platform_fee": data.get("platform_fee")},
                                "booking_list": {"status": record_status, "total_minor": record_total}},
-            actor_user_id=viewer.user_id, customer=flight_holds._customer(request),
+            actor_user_id=flight_holds.actor(viewer), customer=flight_holds._customer(request),
             travelers=[replace(t, selling_minor=selling_by_kind.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
                        for t in flight_holds._travelers(request, links)],
             itinerary=[ref.segment for ref in fresh if ref.segment], source=None,
@@ -194,7 +194,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     except Exception:
         logger.error("SooperFare hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
-    saved_outcomes = await run_in_threadpool(flight_holds._save_people, request, reference, viewer.user_id, owner, links,
+    saved_outcomes = await run_in_threadpool(flight_holds._save_people, request, reference, flight_holds.actor(viewer), owner, links,
                                              flight_holds.customer_card_document(card, request.passengers))
     await notifications.booking_event(
         "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),

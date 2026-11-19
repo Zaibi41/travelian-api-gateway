@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     cors_allowed_origins: list[str] = []
     # Public website booking (guests, no login). Off until turned on per product.
     public_group_booking_enabled: bool = False
+    # Website flights: off -> a request for staff (no supplier call, no payment). On -> the fare is held at the supplier
+    # (SOUTHAIR_/SOOPERFARE_BOOKING_ENABLED per provider) and paid by card (PayFast, auto-issued when ticketing is on,
+    # D48), bank transfer or JazzCash (staff verify and issue, D49). Restricted airlines always stay requests (D32).
+    public_flight_booking_enabled: bool = False
     # D39: Umrah is hidden on the website (nav, search tab, links, URLs) until this is turned on. Nothing is deleted.
     umrah_enabled: bool = False
     # Where PayFast sends the customer back (the public website) and its server notification (this gateway).

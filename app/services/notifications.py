@@ -1,4 +1,5 @@
-"""Staff notifications (B1): a hold, a booking request or a restricted-airline request.
+"""Staff notifications (B1): a hold, a booking request, a restricted-airline request, or a card payment on a website
+flight (paid and pending issuance, issued automatically, or automatic issuance failed).
 
 Every notification is written to admin_notifications (shown in the admin) in its own transaction, after the booking is
 saved. Email goes through Amazon SES when NOTIFY_EMAIL_ENABLED is on and the server has AWS credentials; an email
@@ -22,7 +23,8 @@ from app.db import agencies
 
 logger = logging.getLogger(__name__)
 
-KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold"}
+KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold", "paid_issuance_pending", "auto_issued",
+         "auto_issue_failed"}
 
 
 def _money(amount_minor: int | None, currency: str | None) -> str:
@@ -83,6 +85,9 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
         "booking_requested": "New booking request",
         "restricted_request": "Request to book (restricted airline): no supplier hold",
         "bank_transfer_hold": "Held for bank transfer: payment pending",
+        "paid_issuance_pending": "Paid by card: issuance pending",
+        "auto_issued": "Paid by card: ticket issued automatically",
+        "auto_issue_failed": "Paid by card: automatic issuance failed, issue by hand",
     }
     title = f"{titles.get(kind, 'Booking')}: {reference}"
     details = {"reference": reference, "passenger": passenger, "route": route, "fare": _money(fare_minor, currency),

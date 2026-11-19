@@ -33,6 +33,15 @@ logger = logging.getLogger(__name__)
 REMARKS = "Travelian UAT test booking"
 
 
+#: The public website's identity (app.services.public_booking): it may hold a fare for a guest, never act as staff.
+WEBSITE_ROLE = "website"
+
+
+def actor(viewer: BackOfficeUser) -> str | None:
+    """The user recorded on the booking and its audit entries: none for a guest on the website."""
+    return None if viewer.role == WEBSITE_ROLE else viewer.user_id
+
+
 class HoldError(Exception):
     """code: stable reason for clients; extra: facts the page needs (pnr, booking_id) when a hold
     exists at the supplier although the call failed. message: the sentence to show."""
@@ -273,7 +282,7 @@ def _time_limit(value: object) -> datetime | None:
 async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> HoldView:
     if not (settings.southair_booking_enabled or settings.sooperfare_booking_enabled):
         raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
-    if viewer.role not in BACK_OFFICE_ROLES:
+    if viewer.role not in BACK_OFFICE_ROLES and viewer.role != WEBSITE_ROLE:
         raise HoldError(403, "Only back-office users can place holds.", code="not_allowed")
     quote = get_quote(request.quote_id, viewer.user_id)
     if quote is None:
@@ -396,7 +405,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
             selling_total_minor=selling_total, supplier_total_minor=stored_cost,
             supplier_response={"booking": {k: booking.get(k) for k in ("booking_status", "pnrn", "time_limit", "pax_count")},
                                "pnr_info": pnr_summary, "repriced_supplier_total_minor": supplier_total},
-            actor_user_id=viewer.user_id, customer=_customer(request),
+            actor_user_id=actor(viewer), customer=_customer(request),
             travelers=[replace(t, selling_minor=confirmed_selling.get(t.passenger_type), cost_minor=costs_each.get(t.passenger_type))
                        for t in _travelers(request, links)],
             itinerary=[ref.segment for ref in fresh if ref.segment],
@@ -407,7 +416,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     except Exception:
         logger.error("Southair hold created but not saved", extra={"pnr": pnr})
         raise HoldError(500, f"The hold was created at the supplier (PNR {pnr}) but couldn't be saved. Record this PNR.", code="not_saved", pnr=pnr) from None
-    saved_outcomes = await run_in_threadpool(_save_people, request, reference, viewer.user_id, owner, links,
+    saved_outcomes = await run_in_threadpool(_save_people, request, reference, actor(viewer), owner, links,
                                              customer_card_document(card, request.passengers))
     await notifications.booking_event(
         "hold_created", reference=reference, passenger=_lead_name(request), route=_route(fresh), fare_minor=selling_total,

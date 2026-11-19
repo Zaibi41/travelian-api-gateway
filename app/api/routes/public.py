@@ -124,10 +124,13 @@ async def book_group(body: service.PublicGroupBookingRequest, request: Request):
 
 @router.post("/flights/requests", response_model=service.PublicBookingCreated, status_code=201,
              responses={404: {"description": "The search expired."}, 409: {"description": "The fare is gone or changed."},
-                        422: {"description": "Check the details."}, 429: {"description": "Too many bookings."}})
+                        422: {"description": "Check the details."}, 429: {"description": "Too many bookings."},
+                        502: {"description": "The fare couldn't be held; nothing was charged."}})
 async def request_flight(body: service.PublicFlightRequest, request: Request):
-    """A guest's flight booking, saved as a request for Travelian's team (D43): repriced by the gateway, never held,
-    ticketed or charged here, and no PNR is given. Staff are notified and confirm the fare and payment with the customer."""
+    """A guest's flight booking, repriced by the gateway. PUBLIC_FLIGHT_BOOKING_ENABLED off (or a restricted airline, or
+    booking off for the fare's provider): saved as a request for Travelian's team, never held, ticketed or charged, no PNR.
+    On: held at the supplier, then paid by `payment_method`: card through PayFast (issued automatically only after
+    PayFast's verified payment, when ticketing is on, D48), or bank transfer / JazzCash (staff verify and issue, D49)."""
     try:
         service.check_rate(service.BOOK_LIMIT, _ip(request))
         return await service.request_flight(body)
@@ -219,9 +222,15 @@ async def _params(request: Request) -> dict[str, str]:
                 body = await request.json()
                 if isinstance(body, dict):
                     params.update({str(k): str(v) for k, v in body.items() if v is not None})
-            else:
+            elif "multipart" in content_type:
                 form = await request.form()
                 params.update({str(k): str(v) for k, v in form.items()})
+            else:
+                # PayFast posts application/x-www-form-urlencoded. Parsed here: request.form() needs python-multipart,
+                # which isn't installed, so a posted notification used to be read as empty and ignored.
+                from urllib.parse import parse_qsl
+
+                params.update(dict(parse_qsl((await request.body()).decode("utf-8", "replace"), keep_blank_values=True)))
         except Exception:  # noqa: BLE001 - an unreadable body is treated as no parameters
             pass
     return params

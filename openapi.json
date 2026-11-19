@@ -7023,6 +7023,12 @@
             "title": "Card",
             "type": "boolean"
           },
+          "flights": {
+            "default": false,
+            "description": "Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). False: a flight booking is a request and Travelian arranges payment.",
+            "title": "Flights",
+            "type": "boolean"
+          },
           "jazzcash": {
             "title": "Jazzcash",
             "type": "boolean"
@@ -7289,7 +7295,7 @@
         "type": "object"
       },
       "PublicFlightRequest": {
-        "description": "A website flight booking (B19, D43). It is saved as a request: nothing is held or ticketed, no PNR is given and no\npayment is taken here. The gateway reprices the fare itself (the price is never taken from the page); staff confirm\nthe fare and payment with the customer, then book and issue from the admin.",
+        "description": "A website flight booking (B19, D43). The gateway reprices the fare itself (the price is never taken from the page).\nWith PUBLIC_FLIGHT_BOOKING_ENABLED off, or for a restricted airline (D32), or when booking is off for the fare's\nprovider, it is saved as a request: nothing is held or ticketed, no PNR is given and no payment is taken; staff\nconfirm the fare and payment with the customer. Otherwise the fare is held at the supplier and paid by\n`payment_method` (card: PayFast, then issued automatically when ticketing is on, D48; bank transfer and JazzCash:\nheld until staff verify the money and issue by hand, D49).",
         "properties": {
           "contact": {
             "$ref": "#/components/schemas/HoldContact",
@@ -7313,6 +7319,17 @@
             "minItems": 1,
             "title": "Passengers",
             "type": "array"
+          },
+          "payment_method": {
+            "default": "card",
+            "description": "Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue; nothing is confirmed automatically.",
+            "enum": [
+              "card",
+              "bank_transfer",
+              "jazzcash"
+            ],
+            "title": "Payment Method",
+            "type": "string"
           },
           "search_id": {
             "description": "From POST /v1/public/flights/search.",
@@ -18644,7 +18661,7 @@
     },
     "/v1/public/flights/requests": {
       "post": {
-        "description": "A guest's flight booking, saved as a request for Travelian's team (D43): repriced by the gateway, never held,\nticketed or charged here, and no PNR is given. Staff are notified and confirm the fare and payment with the customer.",
+        "description": "A guest's flight booking, repriced by the gateway. PUBLIC_FLIGHT_BOOKING_ENABLED off (or a restricted airline, or\nbooking off for the fare's provider): saved as a request for Travelian's team, never held, ticketed or charged, no PNR.\nOn: held at the supplier, then paid by `payment_method`: card through PayFast (issued automatically only after\nPayFast's verified payment, when ticketing is on, D48), or bank transfer / JazzCash (staff verify and issue, D49).",
         "operationId": "request_flight_v1_public_flights_requests_post",
         "requestBody": {
           "content": {
@@ -18678,6 +18695,9 @@
           },
           "429": {
             "description": "Too many bookings."
+          },
+          "502": {
+            "description": "The fare couldn't be held; nothing was charged."
           }
         },
         "summary": "Request Flight",
