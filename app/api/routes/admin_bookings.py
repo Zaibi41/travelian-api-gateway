@@ -309,9 +309,10 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
     checklist = IssuanceChecklist(
         issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor >= target.total_minor,
         amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor, 0)),
-        hold_expires_at=target.hold_expires_at, ticketing_enabled=issuance_service.ticketing_on(target.provider),
+        hold_expires_at=target.hold_expires_at, ticketing_enabled=issuance_service.ticketing_on(target.provider, target.product),
+        ticketing_note=issuance_service.ticketing_reason(target.provider, target.product),
         can_request=issuable and status == "not_issued",
-        can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider),
+        can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider, target.product),
     )
     try:
         attempt = await issuance_service.last_attempt(target)

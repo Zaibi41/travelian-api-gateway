@@ -67,9 +67,27 @@ ISSUING_PROVIDERS = ("southair",)
 NOT_ISSUABLE_HERE = "SooperFare tickets can't be issued from Travelian yet. Issue this ticket in SooperFare's portal. Nothing was issued."
 
 
-def ticketing_on(provider: str | None) -> bool:
+def ticketing_reason(provider: str | None, product: str = "flight") -> str | None:
+    """Why tickets can't be issued from Travelian for this booking, naming the supplier and the switch (None: they can)."""
+    if product == "group":
+        return "Group tickets come from the group supplier: record the final PNR and ticket numbers on the Tickets tab."
+    name = provider or "southair"
+    if name == "southair":
+        return None if settings.southair_ticketing_enabled else (
+            "Southair ticketing is switched off on the server (SOUTHAIR_TICKETING_ENABLED). Payments and issuance requests still work.")
+    if name == "sooperfare":
+        if not settings.sooperfare_ticketing_enabled:
+            return "SooperFare ticketing is switched off on the server (SOOPERFARE_TICKETING_ENABLED). Issue in SooperFare's portal, then record the ticket numbers."
+        if not settings.sooperfare_confirm_enabled:
+            return ("SooperFare ticketing from Travelian isn't switched on yet (SOOPERFARE_CONFIRM_ENABLED: waiting for the owner to approve "
+                    "the first confirm). Issue in SooperFare's portal, then record the ticket numbers.")
+        return None
+    return f"Tickets for this supplier ({name}) can't be issued from Travelian: issue in the supplier's portal, then record the ticket numbers."
+
+
+def ticketing_on(provider: str | None, product: str = "flight") -> bool:
     """Issuing is possible for this booking's provider (and switched on)."""
-    return (provider or "southair") in ISSUING_PROVIDERS and settings.southair_ticketing_enabled
+    return ticketing_reason(provider, product) is None
 
 
 def _issuable_provider(target) -> None:
@@ -87,10 +105,15 @@ async def request(reference: str, viewer: BackOfficeUser, note: str | None = Non
     return Outcome("requested", "requested", "Issuance requested. An approver can now issue the ticket.")
 
 
-async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, accepted_cost_minor: int | None = None) -> Outcome:
+async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, accepted_cost_minor: int | None = None,
+                sooperfare_factory=None) -> Outcome:
     _require(viewer)
-    if not settings.southair_ticketing_enabled:
-        raise IssuanceRefused(409, "Ticketing is turned off. Nothing was issued.")
+    loaded = await run_in_threadpool(store.load, reference)
+    reason = ticketing_reason(loaded.provider, loaded.product)
+    if reason:
+        raise IssuanceRefused(409, f"{reason} Nothing was issued.", "ticketing_off")
+    if loaded.provider == "sooperfare":
+        return await _issue_sooperfare(reference, viewer, sooperfare_factory)
     target = await run_in_threadpool(store.claim, reference, viewer.user_id, _now(), settings.ticketing_deadline_margin_seconds)
     previous = target.issuance_status
 
@@ -189,6 +212,9 @@ REASONS = {
     "unclear_after_ticketing": "The ticketing request was sent, but the supplier's PNR check afterwards didn't show a ticket number "
                                "for every passenger, so the result couldn't be confirmed.",
     "pnr_unclear_on_check": "A check with the supplier showed the PNR in an unclear state (not clearly issued or unpaid).",
+    "sooperfare_confirmed": "SooperFare issued the booking, but its answer has no ticket numbers: record them from SooperFare's portal.",
+    "sooperfare_confirm_unclear": "The confirm was sent to SooperFare, but its record doesn't show the booking as issued.",
+    "ticketing_off": "Ticketing is switched off for this supplier.",
 }
 ANSWERS = {"ok": "accepted the request", "not_ok": "did not accept the request", "timeout": "did not answer in time",
            "unexpected": "gave an unreadable answer"}
@@ -240,6 +266,41 @@ def describe(status: str, last: tuple[str, dict, datetime] | None) -> Attempt | 
 
 async def last_attempt(target: store.Target) -> Attempt | None:
     return describe(target.issuance_status, await run_in_threadpool(store.last_attempt, target.id))
+
+
+async def _issue_sooperfare(reference: str, viewer: BackOfficeUser, factory=None) -> Outcome:
+    """SooperFare: one POST /v1/booking/confirm (never retried), then SooperFare's own record decides. Only with
+    SOOPERFARE_CONFIRM_ENABLED (the owner approves the first real call: it issues and charges Travelian's balance).
+    SooperFare's answer carries no ticket numbers we know of, so a confirmed booking stays 'unknown' until staff record
+    the numbers from SooperFare's portal (Mark as issued)."""
+    from app.services import sooperfare_bookings
+    from app.vendors.flights.sooperfare import client as sooperfare
+
+    request = await run_in_threadpool(sooperfare_bookings.confirm_request, reference)
+    target = await run_in_threadpool(store.claim, reference, viewer.user_id, _now(), settings.ticketing_deadline_margin_seconds)
+    previous = target.issuance_status
+    body = request["body"]
+    client = (factory or sooperfare.SooperfareClient)()
+    try:
+        answer = await client.confirm(body["booking_ref_id"], body["txn_ref_id"], body["amount"], body["currency"], body["remarks"])
+    except sooperfare.SooperfareError as error:
+        if error.status is not None and 400 <= error.status < 500:
+            await run_in_threadpool(store.release, target, viewer.user_id, previous, "issuance_failed",
+                                    {"supplier": "sooperfare", "supplier_error": error.public_message, "http_status": error.status})
+            return Outcome("not_issued", previous, f"SooperFare refused to issue: {error.public_message} Nothing was issued.")
+        await run_in_threadpool(store.release, target, viewer.user_id, "unknown", "issuance_unknown",
+                                {"reason_code": "sooperfare_confirm_unclear", "supplier_answer": error.error_code})
+        return Outcome("unknown", "unknown", "SooperFare didn't answer clearly. Don't issue again: check the booking in SooperFare's portal.")
+    record = await run_in_threadpool(sooperfare_bookings._load, reference)
+    state = await sooperfare_bookings._read_state(client, record)
+    issued = bool(state and state.get("is_issued"))
+    await run_in_threadpool(store.release, target, viewer.user_id, "unknown", "issuance_unknown",
+                            {"reason_code": "sooperfare_confirmed" if issued else "sooperfare_confirm_unclear", "supplier_answer": "ok",
+                             "pnr_status": (state or {}).get("reservation_status"), "message": str(answer.get("message") or "")[:200]},
+                            {"confirm": {"message": answer.get("message")}})
+    if issued:
+        return Outcome("unknown", "unknown", "SooperFare issued the booking. Record the ticket numbers from SooperFare's portal (Mark as issued).")
+    return Outcome("unknown", "unknown", "SooperFare accepted the confirm but doesn't show the booking as issued yet. Don't issue again: check SooperFare's portal.")
 
 
 async def verify(reference: str, viewer: BackOfficeUser, client_factory=None) -> Outcome:

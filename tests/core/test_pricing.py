@@ -256,7 +256,7 @@ def ticketing(new_total, accepted=None, viewer=None):
     client.pnr_info = AsyncMock(return_value=pnr_info(total=new_total, tickets=(None,)))
     client.profile = AsyncMock(return_value={"limit": {"cap": "100000.00"}})
     client.ticketing = AsyncMock(return_value={"booking_status": "OK"})
-    with patch.object(settings, "southair_ticketing_enabled", True), patch.object(issuance_store, "claim", return_value=target), \
+    with patch.object(settings, "southair_ticketing_enabled", True), patch.object(issuance_store, "claim", return_value=target), patch.object(issuance_store, "load", return_value=target), \
          patch.object(issuance_store, "release") as release, patch.object(issuance_store, "update_cost", return_value=target) as update, \
          patch.object(issuance_store, "mark_issued"), patch.object(issuance, "match_tickets", return_value=None):
         try:

@@ -117,10 +117,9 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
         return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
     if not payfast.payments_allowed():
         return await staff(f"automatic issuing is off: PayFast is in {payfast.mode()} mode, so nothing was sent to the supplier")
-    if not issuance.ticketing_on(target.provider):
-        if (target.provider or "southair") not in issuance.ISSUING_PROVIDERS:
-            return await staff("tickets for this supplier aren't issued from Travelian yet: issue in the supplier's portal and record the ticket numbers")
-        return await staff("automatic issuance is switched off (ticketing flag off), so nothing was sent to the supplier")
+    reason = issuance.ticketing_reason(target.provider, target.product)
+    if reason:
+        return await staff(f"automatic issuing didn't run. {reason}")
     try:
         outcome = await issuance.issue(reference, AUTO_ISSUER, client_factory=client_factory)
     except store.IssuanceRefused as error:

@@ -282,6 +282,7 @@ class IssuanceChecklist(BaseModel):
     amount_due: BookingMoney
     hold_expires_at: datetime | None = None
     ticketing_enabled: bool
+    ticketing_note: str | None = Field(None, description="Why tickets can't be issued from Travelian for this booking: the supplier and the switch.")
     can_request: bool
     can_issue: bool = Field(description="This viewer may issue now: permission, ticketing on, no blockers.")
     supplier_amount: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")

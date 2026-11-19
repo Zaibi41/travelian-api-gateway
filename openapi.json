@@ -6603,6 +6603,18 @@
           "ticketing_enabled": {
             "title": "Ticketing Enabled",
             "type": "boolean"
+          },
+          "ticketing_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why tickets can't be issued from Travelian for this booking: the supplier and the switch.",
+            "title": "Ticketing Note"
           }
         },
         "required": [
