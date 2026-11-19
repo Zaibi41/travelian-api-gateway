@@ -179,6 +179,37 @@ def mark_issued(target: Target, actor: str, tickets: dict[int, str], action: str
         _event(connection, target.id, actor, action, {**details, "tickets": len(tickets)})
 
 
+#: Audit actions that end an issuing attempt or a check (newest one = what the admin shows as the last attempt).
+ATTEMPT_ACTIONS = ("issuance_aborted", "issuance_failed", "issuance_unknown", "issuance_issued", "issuance_found_issued",
+                   "issuance_verified", "issuance_resolved", "issuance_checked")
+
+
+def last_attempt(booking_id: str) -> tuple[str, dict[str, Any], datetime] | None:
+    """The newest issuing attempt or check for this booking: (action, details, when)."""
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(
+            text("SELECT action, details, created_at FROM booking_events WHERE booking_id = :b AND action = ANY(:a)"
+                 " ORDER BY created_at DESC, id DESC LIMIT 1"), {"b": booking_id, "a": list(ATTEMPT_ACTIONS)},
+        ).one_or_none()
+    return (row.action, row.details if isinstance(row.details, dict) else json.loads(row.details or "{}"), row.created_at) if row else None
+
+
+def log_check(target: Target, actor: str, details: dict[str, Any]) -> None:
+    """A read-only check with the supplier that changed nothing (audit only)."""
+    with agencies.application_engine().begin() as connection:
+        _event(connection, target.id, actor, "issuance_checked", details)
+
+
+def mark_unknown(target: Target, actor: str, details: dict[str, Any], expected: tuple[str, ...]) -> None:
+    """A check found the supplier's PNR unclear after a failed attempt: block issuing until it is verified or resolved."""
+    with agencies.application_engine().begin() as connection:
+        current = connection.scalar(text("SELECT issuance_status FROM bookings WHERE id = :b FOR UPDATE"), {"b": target.id})
+        if current not in expected:
+            raise IssuanceRefused(409, "The issuance changed meanwhile.")
+        _set(connection, target.id, "unknown")
+        _event(connection, target.id, actor, "issuance_unknown", details)
+
+
 def resolve_not_issued(target: Target, actor: str, action: str, details: dict[str, Any], expected: tuple[str, ...] = ("unknown",)) -> None:
     with agencies.application_engine().begin() as connection:
         current = connection.scalar(text("SELECT issuance_status FROM bookings WHERE id = :b FOR UPDATE"), {"b": target.id})

@@ -6382,6 +6382,63 @@
         "title": "IntegrationRegistration",
         "type": "object"
       },
+      "IssuanceAttempt": {
+        "description": "The last issuing attempt or supplier check, with its real reason in plain words.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "issued",
+              "not_issued",
+              "unknown",
+              "aborted",
+              "checked"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pnr_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The PNR status code the supplier showed afterwards (e.g. OK, BK).",
+            "title": "Pnr Status"
+          },
+          "reason": {
+            "description": "What happened, in plain words (no supplier names).",
+            "title": "Reason",
+            "type": "string"
+          },
+          "supplier_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the supplier answered to the ticketing request, in plain words.",
+            "title": "Supplier Answer"
+          }
+        },
+        "required": [
+          "at",
+          "outcome",
+          "reason"
+        ],
+        "title": "IssuanceAttempt",
+        "type": "object"
+      },
       "IssuanceChecklist": {
         "description": "What stands between this booking and a ticket. Supplier fields only with the cost and margin permission.",
         "properties": {
@@ -6398,6 +6455,12 @@
             },
             "title": "Blockers",
             "type": "array"
+          },
+          "can_check": {
+            "default": false,
+            "description": "Check with supplier is available (unknown or failed issuance; read-only).",
+            "title": "Can Check",
+            "type": "boolean"
           },
           "can_issue": {
             "description": "This viewer may issue now: permission, ticketing on, no blockers.",
@@ -6434,6 +6497,17 @@
             ],
             "title": "Issuance Status",
             "type": "string"
+          },
+          "last_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IssuanceAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last issuing attempt or supplier check, with its reason."
           },
           "margin": {
             "anyOf": [
@@ -7095,7 +7169,7 @@
             "type": "boolean"
           },
           "card": {
-            "description": "Card / 1Link through PayFast: only when PayFast is on production (never UAT test payments).",
+            "description": "Card / 1Link through PayFast: on production PayFast, or UAT with PAYFAST_ALLOW_UAT (testing).",
             "title": "Card",
             "type": "boolean"
           },
@@ -11501,7 +11575,7 @@
     },
     "/v1/admin/bookings/{booking_id}/issuance/verify": {
       "post": {
-        "description": "For an unknown issuance: check the PNR with the supplier again (read-only) and settle it if clear.",
+        "description": "Check with supplier (read-only) after an unknown or failed issuance: tickets found -> recorded; no ticket and\nnothing paid -> safe to issue again; unclear -> unknown. Never sends a ticketing request.",
         "operationId": "verify_issuance_v1_admin_bookings__booking_id__issuance_verify_post",
         "parameters": [
           {

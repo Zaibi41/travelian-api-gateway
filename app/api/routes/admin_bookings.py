@@ -31,7 +31,7 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceChecklist, IssuanceRequest,
+    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
@@ -258,6 +258,15 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         can_request=issuable and status == "not_issued",
         can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider),
     )
+    try:
+        attempt = await issuance_service.last_attempt(target)
+    except Exception:  # noqa: BLE001 - the last attempt is information only; the checks above still show
+        logger.warning("Last issuance attempt couldn't be read", exc_info=True)
+        attempt = None
+    if attempt is not None:
+        checklist.last_attempt = IssuanceAttempt(at=attempt.at, outcome=attempt.outcome, reason=attempt.reason,
+                                                 supplier_answer=attempt.supplier_answer, pnr_status=attempt.pnr_status)
+        checklist.can_check = attempt.can_check and viewer.can(ISSUE_TICKETS) and target.provider in (None, *issuance_service.ISSUING_PROVIDERS)
     if viewer.visibility.cost_and_margin and target.supplier_cost_minor is not None:
         checklist.supplier_amount = money(target.supplier_cost_minor)
         checklist.margin = money(target.total_minor - target.supplier_cost_minor)
@@ -288,7 +297,8 @@ async def issue_ticket(viewer: Viewer, booking_id: Annotated[str, Path(max_lengt
 
 @router.post("/{booking_id}/issuance/verify", response_model=IssuanceResult, responses=ISSUANCE_RESPONSES)
 async def verify_issuance(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
-    """For an unknown issuance: check the PNR with the supplier again (read-only) and settle it if clear."""
+    """Check with supplier (read-only) after an unknown or failed issuance: tickets found -> recorded; no ticket and
+    nothing paid -> safe to issue again; unclear -> unknown. Never sends a ticketing request."""
     return await _run(issuance_service.verify(booking_id, viewer))
 
 

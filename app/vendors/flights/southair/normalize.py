@@ -310,9 +310,20 @@ def _empty(value: Any) -> bool:
     return value is None or (isinstance(value, str) and value.strip() in ("", "-"))
 
 
+def _ticket_number(name: dict[str, Any]) -> str | None:
+    """A passenger's ticket number. Southair UAT (19 Nov 2026) leaves names[].tkt_no empty after ticketing and puts the
+    number in names[].sale.tkt_no (sale: an object, sometimes a list of them), so both are read."""
+    sale = name.get("sale")
+    sales = sale if isinstance(sale, list) else [sale]
+    for value in [name.get("tkt_no"), *[s.get("tkt_no") for s in sales if isinstance(s, dict)]]:
+        if not _empty(value):
+            return str(value).strip()[:32]
+    return None
+
+
 def pnr_state(data: dict[str, Any] | None, pnr: str | None = None) -> PnrState:
     """Decide from pnr_info (UAT shape, 9 Nov 2026: res.status, res.total_amount, totalAmountPaid,
-    can_ticketing, names[].name_type / tkt_no).
+    can_ticketing, names[].name_type / tkt_no or sale.tkt_no).
 
     issued:     every passenger has a ticket number.
     not_issued: status BK (booked), no ticket number, nothing paid.
@@ -322,7 +333,7 @@ def pnr_state(data: dict[str, Any] | None, pnr: str | None = None) -> PnrState:
         return PnrState("unclear", None, [], None, False, None)
     res = data.get("res") if isinstance(data.get("res"), dict) else {}
     names = [n for n in data.get("names") or [] if isinstance(n, dict)]
-    tickets = [(str(n.get("name_type") or ""), None if _empty(n.get("tkt_no")) else str(n.get("tkt_no")).strip()[:32]) for n in names]
+    tickets = [(str(n.get("name_type") or ""), _ticket_number(n)) for n in names]
     status = _text(res.get("status"), 8)
     total = parse_amount(res.get("total_amount"))
     paid = parse_amount(data.get("totalAmountPaid"))

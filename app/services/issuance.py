@@ -174,24 +174,106 @@ async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, acc
     return Outcome("unknown", "unknown", "The ticket's status is unknown. Don't issue again: verify it with the supplier or resolve it.")
 
 
+#: What went wrong, in plain words, per reason code of the audit trail (the admin shows it on the booking).
+REASONS = {
+    "insufficient_balance": "Not enough balance in the supplier account to pay for the ticket. Nothing was sent to the airline.",
+    "balance_check_failed": "The supplier account balance couldn't be checked. Nothing was sent to the airline.",
+    "pnr_check_failed": "The supplier couldn't be reached to check the PNR before issuing (timeout or error). Nothing was sent.",
+    "not_configured": "Ticketing isn't set up on the server (supplier connection settings). Nothing was sent.",
+    "not_ticketable": "The supplier said this PNR can't be ticketed now. Nothing was sent.",
+    "total_mismatch": "The supplier's total for this PNR couldn't be matched to the booking. Nothing was sent.",
+    "below_cost": "The airline's price is now above the selling price. Nothing was sent.",
+    "supplier_cost_changed": "The airline's price changed; the new cost has to be confirmed before issuing. Nothing was sent.",
+    "provider_not_supported": "This supplier's tickets can't be issued from Travelian yet: issue it in the supplier's portal.",
+    "pnr_unclear_before_ticketing": "Before issuing, the supplier showed the PNR in an unclear state, so nothing was sent.",
+    "unclear_after_ticketing": "The ticketing request was sent, but the supplier's PNR check afterwards didn't show a ticket number "
+                               "for every passenger, so the result couldn't be confirmed.",
+    "pnr_unclear_on_check": "A check with the supplier showed the PNR in an unclear state (not clearly issued or unpaid).",
+}
+ANSWERS = {"ok": "accepted the request", "not_ok": "did not accept the request", "timeout": "did not answer in time",
+           "unexpected": "gave an unreadable answer"}
+
+
+@dataclass
+class Attempt:
+    at: datetime
+    outcome: str  # issued, not_issued, unknown, aborted, checked
+    reason: str
+    supplier_answer: str | None = None
+    pnr_status: str | None = None
+    can_check: bool = False
+
+
+def describe(status: str, last: tuple[str, dict, datetime] | None) -> Attempt | None:
+    """The last issuing attempt or check, with its real reason in plain words (never just "unknown")."""
+    if last is None:
+        return None
+    action, details, at = last
+    answer = details.get("supplier_answer") or details.get("supplier_error")
+    said = ANSWERS.get(str(answer), f"answered with error '{answer}'") if answer else None
+    pnr = details.get("pnr_status")
+    code = details.get("reason_code")
+    if action == "issuance_aborted":
+        outcome, reason = "aborted", REASONS.get(code, f"Issuing stopped before anything was sent ({code}).")
+    elif action == "issuance_failed":
+        outcome, reason = "not_issued", (f"The supplier {said or 'refused the request'} and its PNR shows no ticket and nothing paid. "
+                                         "It's safe to issue again.")
+    elif action == "issuance_unknown":
+        outcome = "unknown"
+        reason = REASONS.get(code, "The result couldn't be confirmed with the supplier.")
+        if said:
+            reason += f" The supplier {said}."  # the PNR status is its own field (shown beside the reason)
+    elif action == "issuance_checked":
+        outcome, reason = "checked", "Checked with the supplier: no ticket and nothing paid. It's safe to issue again."
+    elif action == "issuance_resolved":
+        outcome = "issued" if details.get("outcome") == "issued" else "not_issued"
+        reason = f"Resolved by staff: {details.get('reason') or 'no reason given'}."
+    elif action == "issuance_verified":
+        outcome = "issued" if details.get("outcome") == "issued" else "not_issued"
+        reason = "Checked with the supplier: " + ("the ticket is issued; ticket numbers are recorded." if outcome == "issued"
+                                                   else "no ticket and nothing paid. It's safe to issue again.")
+    else:  # issuance_issued / issuance_found_issued
+        outcome, reason = "issued", "Ticket issued; ticket numbers are recorded."
+    can_check = status == "unknown" or (status in store.ISSUABLE and action in ("issuance_failed", "issuance_aborted"))
+    return Attempt(at, outcome, reason, said, pnr, can_check)
+
+
+async def last_attempt(target: store.Target) -> Attempt | None:
+    return describe(target.issuance_status, await run_in_threadpool(store.last_attempt, target.id))
+
+
 async def verify(reference: str, viewer: BackOfficeUser, client_factory=None) -> Outcome:
-    """For an unknown issuance: ask pnr_info again (read-only) and settle it when the answer is clear."""
+    """Check with the supplier (read-only: pnr_info only, never ticketing) after an unknown or failed issuance.
+    Ticket numbers found -> recorded as issued. Booked, no ticket, nothing paid -> safe to issue again. Unclear -> unknown
+    (issuing stays blocked until verified or resolved). Never re-issues."""
     _require(viewer)
     target = await run_in_threadpool(store.load, reference)
     _issuable_provider(target)
-    if target.issuance_status != "unknown":
-        raise IssuanceRefused(409, "Only an unknown issuance can be verified.")
+    previous = target.issuance_status
+    if previous != "unknown":
+        last = await run_in_threadpool(store.last_attempt, target.id)
+        if not (previous in store.ISSUABLE and last and last[0] in ("issuance_failed", "issuance_aborted")):
+            raise IssuanceRefused(409, "Checking with the supplier is for an unknown or failed issuance only.")
     try:
         state = normalize.pnr_state(await (client_factory or configured_client)().pnr_info(target.pnr), target.pnr)
     except SouthairError:
-        raise IssuanceRefused(502, "The PNR couldn't be checked with the supplier. The issuance stays unknown.") from None
+        raise IssuanceRefused(502, "The PNR couldn't be checked with the supplier. Nothing was changed.") from None
     if state.kind == "issued" and (tickets := match_tickets(target, state)):
-        await run_in_threadpool(store.mark_issued, target, viewer.user_id, tickets, "issuance_verified", {"outcome": "issued"}, None, ("unknown",))
+        await run_in_threadpool(store.mark_issued, target, viewer.user_id, tickets, "issuance_verified",
+                                {"outcome": "issued", "pnr_status": state.status}, None, (previous,))
         return Outcome("issued", "issued", "The supplier shows the ticket as issued. Ticket numbers are recorded.", tickets)
     if state.kind == "not_issued":
-        await run_in_threadpool(store.resolve_not_issued, target, viewer.user_id, "issuance_verified", {"outcome": "not_issued"})
-        return Outcome("not_issued", "not_issued", "The supplier shows no ticket and nothing paid. You can issue again.")
-    return Outcome("unknown", "unknown", "The supplier's answer is still unclear. Resolve it with a reason once confirmed.")
+        if previous == "unknown":
+            await run_in_threadpool(store.resolve_not_issued, target, viewer.user_id, "issuance_verified",
+                                    {"outcome": "not_issued", "pnr_status": state.status})
+            return Outcome("not_issued", "not_issued", "The supplier shows no ticket and nothing paid. It's safe to issue again.")
+        await run_in_threadpool(store.log_check, target, viewer.user_id, {"outcome": "not_issued", "pnr_status": state.status})
+        return Outcome("not_issued", previous, "The supplier shows no ticket and nothing paid. It's safe to issue again.")
+    if previous != "unknown":
+        await run_in_threadpool(store.mark_unknown, target, viewer.user_id,
+                                {"reason_code": "pnr_unclear_on_check", "pnr_status": state.status}, (previous,))
+    return Outcome("unknown", "unknown", "The supplier's answer is unclear (PNR status "
+                   f"{state.status or 'not given'}). Don't issue again: confirm with the supplier and resolve it with a reason.")
 
 
 async def resolve(reference: str, viewer: BackOfficeUser, outcome: str, reason: str, tickets: dict[int, str]) -> Outcome:
