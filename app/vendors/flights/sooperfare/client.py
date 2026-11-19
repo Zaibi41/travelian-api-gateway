@@ -165,6 +165,13 @@ class SooperfareClient:
     async def booking_list(self, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._send("POST", "/v1/booking/list", filters or {})
 
+    async def cancel(self, booking_ref_id: str, txn_ref_id: str, amount: float, currency: str, remarks: str) -> dict[str, Any]:
+        """Ask SooperFare to cancel a booking (SooperFare's collection: booking_ref_id, txn_ref_id, amount, currency, remarks).
+        Live on 19 Nov 2026 it answers "Operation Successfull" with a "Cancel For Airline Booking" transaction, while the
+        booking itself can stay active: only booking/list (additional.is_cancelled) says whether it is cancelled. Never retried."""
+        return await self._send("POST", "/v1/booking/cancel", {"booking_ref_id": booking_ref_id, "txn_ref_id": txn_ref_id, "amount": amount,
+                                                               "currency": currency, "remarks": remarks}, retry_login=False)
+
     async def confirm(self, booking_ref_id: str, txn_ref_id: str, amount: int, currency: str, remarks: str) -> dict[str, Any]:
         return await self._send("POST", "/v1/booking/confirm", {"booking_ref_id": booking_ref_id, "txn_ref_id": txn_ref_id,
                                                                 "amount": amount, "currency": currency, "remarks": remarks}, retry_login=False)

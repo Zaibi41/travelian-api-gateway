@@ -241,6 +241,19 @@ class RecordPaymentResponse(BaseModel):
     payment_status: PaymentStatus
 
 
+class SupplierBookingView(BaseModel):
+    """The supplier's own booking (supplier-names permission only): its ids and, after a cancel request, what it says."""
+
+    supplier: str
+    booking_id: str = Field(description="The supplier's booking id (SooperFare: booking uuid).")
+    order_ref: str | None = Field(None, description="The supplier's order reference (SooperFare: order_ref_id, e.g. spa-0rj).")
+    cancel_state: Literal["none", "requested", "confirmed", "failed"] = "none"
+    cancel_message: str | None = None
+    cancel_at: datetime | None = None
+    status_at_supplier: str | None = Field(None, description="The reservation status the supplier last showed.")
+    can_cancel: bool = False
+
+
 class IssuanceAttempt(BaseModel):
     """The last issuing attempt or supplier check, with its real reason in plain words."""
 
@@ -351,4 +364,5 @@ class BookingDetail(BaseModel):
         None, description="Group bookings after full payment: Paid – awaiting final PNR, Final PNR received, Ticketed.")
     can_edit_group_tickets: bool = Field(False, description="Group bookings: this viewer may record the final PNR and ticket numbers on the Tickets tab "
                                                             "(issue tickets permission, paid in full; the endpoint still checks).")
+    supplier_booking: SupplierBookingView | None = Field(None, description="SooperFare bookings, supplier-names permission only.")
     itinerary_available: bool = Field(True, description="The itinerary PDF / PNG can be downloaded. Group bookings: only once Ticketed.")

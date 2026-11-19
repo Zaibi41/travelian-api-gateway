@@ -170,8 +170,14 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     if total_check != "matches":
         logger.warning("SooperFare hold total not verified; booking not saved",
                        extra={"pnr": pnr, "total_check": total_check, "record_total": record_total, "expected": supplier_total})
-        raise HoldError(502, f"The supplier created a hold (PNR {pnr}) but its total couldn't be verified, so it wasn't saved. "
-                             "Don't take payment for it; it lapses at SooperFare's time limit. Search and hold again.",
+        from app.services import sooperfare_bookings  # late: it imports the SooperFare client too
+
+        outcome = await sooperfare_bookings.cancel_orphan(booking_id, record_total or supplier_total, currency, pnr, client)
+        what = ("SooperFare's booking list didn't show it" if total_check == "no_total"
+                else f"SooperFare's total ({live_flights.money_text(record_total, currency)}) differs from the price checked "
+                     f"({live_flights.money_text(supplier_total, currency)})")
+        raise HoldError(502, f"SooperFare created a hold (PNR {pnr}) but it couldn't be verified: {what}. It wasn't saved, and {outcome}. "
+                             "Don't take payment for it. Search and hold again.",
                         code="total_unverified", pnr=pnr)
 
     # 4. Save.

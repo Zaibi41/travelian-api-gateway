@@ -31,13 +31,14 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest,
+    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
 from app.services import itinerary_pdf as itinerary_pdf_service
+from app.services import sooperfare_bookings
 
 router = APIRouter(
     prefix="/admin/bookings",
@@ -97,8 +98,57 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
     except (SQLAlchemyError, HTTPException):
         logger.warning("Booking people read failed")
         people = None  # the tabs stay "not available" rather than failing the whole page
-    return service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
-                                can_issue_tickets=viewer.can(ISSUE_TICKETS))
+    detail = service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
+                                  can_issue_tickets=viewer.can(ISSUE_TICKETS))
+    try:
+        supplier = await run_in_threadpool(sooperfare_bookings.view, booking.booking_id, viewer.visibility.supplier_names)
+    except Exception:  # noqa: BLE001 - the SooperFare block is information only; the booking still shows
+        logger.warning("SooperFare booking block not read")
+        supplier = None
+    if supplier:
+        supplier["can_cancel"] = supplier["can_cancel"] and viewer.can(ISSUE_TICKETS)
+        detail.supplier_booking = SupplierBookingView(**supplier)
+    return detail
+
+
+@router.post("/{booking_id}/supplier-cancel", response_model=SupplierBookingView,
+             responses={403: {"description": "Needs the issue tickets permission."}, 409: {"description": "Not a held SooperFare booking."},
+                        502: {"description": "SooperFare refused or didn't answer; nothing changed."}})
+async def cancel_at_supplier(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """Cancel a held SooperFare booking at SooperFare (staff confirm first in the admin). The booking is marked Cancelled
+    only when SooperFare's own record says so; otherwise it shows "Cancel requested". Logged in the audit trail."""
+    return await _supplier_action(viewer, booking_id, sooperfare_bookings.cancel)
+
+
+@router.post("/{booking_id}/supplier-check", response_model=SupplierBookingView,
+             responses={404: {"description": "No SooperFare reservation."}, 502: {"description": "SooperFare couldn't be read."}})
+async def check_at_supplier(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """Read-only: what SooperFare shows for this booking now; marks it Cancelled once SooperFare confirms a requested cancel."""
+    return await _supplier_action(viewer, booking_id, sooperfare_bookings.check)
+
+
+@router.get("/{booking_id}/supplier-confirm-preview", responses={404: {"description": "No SooperFare reservation."}})
+async def supplier_confirm_preview(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """The exact request Travelian would send to SooperFare to issue this booking. Read-only: nothing is sent."""
+    if not viewer.can(ISSUE_TICKETS) or not viewer.visibility.supplier_names or not viewer.visibility.cost_and_margin:
+        raise HTTPException(403, "Needs the issue tickets, supplier names and cost permissions.")
+    try:
+        return await run_in_threadpool(sooperfare_bookings.confirm_request, booking_id)
+    except sooperfare_bookings.SupplierCancelError as error:
+        raise HTTPException(error.status, error.message) from None
+
+
+async def _supplier_action(viewer, booking_id: str, action) -> SupplierBookingView:
+    if not viewer.can(ISSUE_TICKETS) or not viewer.visibility.supplier_names:
+        raise HTTPException(403, "Cancelling at the supplier needs the issue tickets and supplier names permissions.")
+    try:
+        await action(booking_id, viewer.user_id)
+    except sooperfare_bookings.SupplierCancelError as error:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"detail": error.message, "code": error.code}, status_code=error.status)  # type: ignore[return-value]
+    view = await run_in_threadpool(sooperfare_bookings.view, booking_id, True)
+    return SupplierBookingView(**{**view, "can_cancel": view["can_cancel"] and viewer.can(ISSUE_TICKETS)})  # type: ignore[arg-type]
 
 
 @router.get(
