@@ -1946,7 +1946,8 @@
               "cancelled",
               "expired",
               "hold_unrecorded",
-              "requested"
+              "requested",
+              "paid_not_ticketed"
             ],
             "title": "Booking",
             "type": "string"
@@ -2918,6 +2919,60 @@
           "currency"
         ],
         "title": "FlightMoney",
+        "type": "object"
+      },
+      "FlightPaymentOptions": {
+        "properties": {
+          "bank_transfer": {
+            "title": "Bank Transfer",
+            "type": "boolean"
+          },
+          "card": {
+            "title": "Card",
+            "type": "boolean"
+          },
+          "held": {
+            "description": "The fare will be held at the airline and paid here. False: it is sent as a request (no payment).",
+            "title": "Held",
+            "type": "boolean"
+          },
+          "jazzcash": {
+            "title": "Jazzcash",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "held",
+          "card",
+          "bank_transfer",
+          "jazzcash"
+        ],
+        "title": "FlightPaymentOptions",
+        "type": "object"
+      },
+      "FlightPaymentQuery": {
+        "properties": {
+          "fare_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Fare Ids",
+            "type": "array"
+          },
+          "search_id": {
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "fare_ids"
+        ],
+        "title": "FlightPaymentQuery",
         "type": "object"
       },
       "FlightSearchRequest": {
@@ -7322,11 +7377,12 @@
           },
           "payment_method": {
             "default": "card",
-            "description": "Used when the fare is held (see above). card: PayFast online. bank_transfer / jazzcash: staff verify the payment and issue; nothing is confirmed automatically.",
+            "description": "Used when the fare is held (see above). card: PayFast online (not for fares whose tickets can't be issued from Travelian). bank_transfer / jazzcash: staff verify the payment and issue. book_only: held now, paid later by arrangement with Travelian's team. Nothing but a verified card payment is ever issued automatically.",
             "enum": [
               "card",
               "bank_transfer",
-              "jazzcash"
+              "jazzcash",
+              "book_only"
             ],
             "title": "Payment Method",
             "type": "string"
@@ -10877,7 +10933,8 @@
                     "cancelled",
                     "expired",
                     "hold_unrecorded",
-                    "requested"
+                    "requested",
+                    "paid_not_ticketed"
                   ],
                   "type": "string"
                 },
@@ -18654,6 +18711,54 @@
           }
         },
         "summary": "Flight Calendar",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/flights/payment-options": {
+      "post": {
+        "description": "Which payment methods checkout offers for the chosen fares. Card is never offered for a fare whose tickets can't be\nissued from Travelian (SooperFare today), and the booking route refuses it too.",
+        "operationId": "flight_payment_options_v1_public_flights_payment_options_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightPaymentQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightPaymentOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The search expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests."
+          }
+        },
+        "summary": "Flight Payment Options",
         "tags": [
           "public website"
         ]

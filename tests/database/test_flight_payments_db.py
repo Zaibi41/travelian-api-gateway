@@ -186,3 +186,155 @@ def test_bank_transfer_and_jazzcash_need_staff_to_record_and_issue(website_hold,
         assert asyncio.run(issuance.issue(reference, APPROVER, client_factory=lambda: fake)).result == "issued"  # the staff click
     assert admin_statuses(reference) == ("ticket_issued", "paid", "issued")
     assert guest(reference).final_pnr == "63B55C"
+
+
+# ---------- payment after the hold ended; failures for good (paid, not ticketed) ----------
+
+@pytest.mark.parametrize("left", [timedelta(minutes=-5), timedelta(seconds=30)])  # expired, or inside the ticketing margin
+def test_verified_payment_after_the_hold_ended_never_issues_and_needs_action(database, left):
+    connection, metadata, _ = database
+    reference = save(connection, metadata, hold_expires_at=datetime.now(timezone.utc) + left, actor_user_id=None)
+    public_bookings.mark_website_reference(reference, public_bookings.token_hash("guest-token-123"))
+    fake = FakeSouthair([pnr_info(), ISSUED])
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(settings, "southair_ticketing_enabled", True):
+        public_bookings.create_attempt(reference, "TRV-F-LATE", TOTAL, "PKR")
+        assert pay(reference, "TRV-F-LATE", signed("TRV-F-LATE", transaction_amount="467.00"), []).status == "paid"
+        assert asyncio.run(flight_payments.after_verified_card_payment(reference, client_factory=lambda: fake)) == "paid_not_ticketed"
+        view = guest(reference)
+    assert fake.calls == []  # nothing sent to the supplier
+    assert admin_statuses(reference) == ("paid_not_ticketed", "paid", "not_issued")
+    action = connection.scalar(sa.text("SELECT supplier_response -> 'action_needed' FROM bookings WHERE reference = :r"), {"r": reference})
+    assert action["reason"] == "paid_after_hold_expired"
+    assert notifications(connection, reference)[-1] == "paid_not_ticketed"
+    assert (view.status, view.final_pnr, view.can_pay) == ("confirmed", None, False)
+
+
+def test_supplier_refusing_for_good_is_paid_not_ticketed(website_hold):
+    connection, reference = website_hold
+    public_bookings.create_attempt(reference, "TRV-F-GONE", TOTAL, "PKR")
+    fake = FakeSouthair([pnr_info(can_ticketing=False)])  # the supplier won't ticket this PNR any more
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        pay(reference, "TRV-F-GONE", signed("TRV-F-GONE", transaction_amount="467.00"), [])
+        assert asyncio.run(flight_payments.after_verified_card_payment(reference, client_factory=lambda: fake)) == "paid_not_ticketed"
+    assert not any(call[0] == "ticketing" for call in fake.calls)
+    assert admin_statuses(reference) == ("paid_not_ticketed", "paid", "not_issued")
+    assert notifications(connection, reference)[-1] == "paid_not_ticketed"
+    # Closed: no further payment can be recorded, and nothing can be issued from it.
+    with pytest.raises(issuance_store.IssuanceRefused):
+        asyncio.run(issuance.issue(reference, APPROVER, client_factory=lambda: FakeSouthair([pnr_info(), ISSUED])))
+
+
+# ---------- stuck issuance recovery ----------
+
+LATER = timedelta(minutes=11)  # past FLIGHT_ISSUANCE_STUCK_MINUTES (10)
+
+
+def _paid_by_card(reference, basket):
+    public_bookings.create_attempt(reference, basket, TOTAL, "PKR")
+    assert pay(reference, basket, signed(basket, transaction_amount="467.00"), []).status == "paid"
+
+
+def recover(fake, at=None):
+    return asyncio.run(flight_payments.recover(now=at or datetime.now(timezone.utc) + LATER, client_factory=lambda: fake))
+
+
+def test_restart_mid_issue_is_checked_with_the_supplier_then_issued_once(website_hold):
+    """The gateway died while 'processing'. Recovery never re-sends blind: pnr_info first (no ticket), then one issue."""
+    connection, reference = website_hold
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        _paid_by_card(reference, "TRV-F-STUCK")
+        connection.execute(sa.text("UPDATE bookings SET issuance_status = 'processing' WHERE reference = :r"), {"r": reference})
+        assert recover(FakeSouthair([]), at=datetime.now(timezone.utc) + timedelta(minutes=5)) == {}  # not stuck long enough yet
+        fake = FakeSouthair([pnr_info(), pnr_info(), ISSUED])  # verify: not issued; issue: before, after
+        assert recover(fake) == {reference: "issued"}
+        assert recover(FakeSouthair([])) == {}  # once only
+    assert fake.calls[0] == "pnr_info" and sum(1 for call in fake.calls if call[0] == "ticketing") == 1
+    assert admin_statuses(reference) == ("ticket_issued", "paid", "issued")
+
+
+def test_restart_after_the_supplier_ticketed_records_the_ticket_without_sending_again(website_hold):
+    connection, reference = website_hold
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        _paid_by_card(reference, "TRV-F-DONE")
+        connection.execute(sa.text("UPDATE bookings SET issuance_status = 'processing' WHERE reference = :r"), {"r": reference})
+        fake = FakeSouthair([ISSUED])
+        assert recover(fake) == {reference: "issued"}
+    assert fake.calls == ["pnr_info"]  # no ticketing call
+    assert admin_statuses(reference) == ("ticket_issued", "paid", "issued")
+
+
+def test_lost_background_task_is_retried_once_then_left_to_staff(website_hold):
+    """Paid, not issued, nothing in progress (the task never ran, or failed for a passing reason): one retry, never two."""
+    connection, reference = website_hold
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        _paid_by_card(reference, "TRV-F-LOST")
+        failing = FakeSouthair([pnr_info(), pnr_info()], ticketing=SouthairError("ticketing_failed", "x"))
+        assert recover(failing) == {reference: "failed"}
+        assert recover(FakeSouthair([pnr_info(), ISSUED])) == {}  # the one retry is used
+    assert sum(1 for call in failing.calls if call[0] == "ticketing") == 1
+    assert admin_statuses(reference) == ("held", "paid", "not_issued")
+    assert notifications(connection, reference)[-1] == "auto_issue_failed"
+    actions = connection.scalars(sa.text("SELECT e.action FROM booking_events e JOIN bookings b ON b.id = e.booking_id"
+                                         " WHERE b.reference = :r AND e.action = 'auto_issue_recovery'"), {"r": reference}).all()
+    assert actions == ["auto_issue_recovery"]
+
+
+def test_recovery_after_the_hold_ended_alerts_staff_and_never_issues(website_hold):
+    connection, reference = website_hold
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        _paid_by_card(reference, "TRV-F-LAPSED")
+        fake = FakeSouthair([])
+        assert recover(fake, at=datetime.now(timezone.utc) + timedelta(hours=4)) == {reference: "paid_not_ticketed"}
+    assert fake.calls == []
+    assert admin_statuses(reference) == ("paid_not_ticketed", "paid", "not_issued")
+    assert notifications(connection, reference)[-1] == "paid_not_ticketed"
+
+
+@pytest.mark.parametrize("method", ["bank_transfer", "jazzcash"])
+def test_recovery_never_issues_bank_transfer_or_jazzcash(website_hold, method):
+    connection, reference = website_hold
+    account = payment_accounts.add(method, "Travelian receiving account")
+    booking_payments.record(reference, amount_minor=TOTAL, currency="PKR", method=method, account_id=account.id, payer_reference="TXN-1",
+                            received_at=datetime.now(timezone.utc), actor_user_id=None)
+    fake = FakeSouthair([])
+    with patch.object(settings, "southair_ticketing_enabled", True):
+        assert recover(fake) == {}
+    assert fake.calls == [] and admin_statuses(reference) == ("held", "paid", "not_issued")
+
+
+def test_recovery_leaves_ticketing_off_bookings_to_staff(website_hold):
+    connection, reference = website_hold
+    with patch.object(settings, "southair_ticketing_enabled", False):
+        _paid_by_card(reference, "TRV-F-OFF2")
+        assert recover(FakeSouthair([])) == {}
+    assert connection.scalar(sa.text("SELECT count(*) FROM booking_events WHERE action = 'auto_issue_recovery'")) == 0
+
+
+# ---------- group fares: one payment however many PayFast copies arrive ----------
+
+def test_group_payment_by_notification_form_post_and_return_is_recorded_once(database):
+    """The form-post notification fix makes PayFast's posted notification count. With the customer's return as well, the
+    group payment is still recorded once."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from tests.database.test_public_booking_db import _booking, _payments
+
+    connection, _, _ = database
+    booking_id, reference = _booking(connection)  # a held website group booking, Rs 13,997
+    public_bookings.create_attempt(reference, "TRV-G-BOTH", 1399700, "PKR")
+    params = signed("TRV-G-BOTH", transaction_id="T77", transaction_amount="13997.00")
+    client = TestClient(app)
+    public_booking.PAY_LIMIT._hits.clear()
+    started = []
+    with patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), patch.object(settings, "payfast_secured_key", SecretStr(KEY)), \
+         patch.object(flight_payments, "start_after_verified_card_payment", started.append):
+        notify = client.post("/v1/public/payments/payfast/notify", data=params)  # form post, as PayFast sends it
+        back = client.post("/v1/public/payments/payfast/return", json=params)
+        again = client.post("/v1/public/payments/payfast/notify", data=params)
+    assert notify.json() == {"status": "ok"} and back.json() == {"reference": reference, "result": "already_paid"}
+    assert again.json() == {"status": "ok"}
+    assert _payments(connection, booking_id) == [("payfast", 1399700, "PayFast", "T77")]
+    assert connection.scalar(sa.text("SELECT payment_status FROM bookings WHERE id = :b"), {"b": booking_id}) == "paid"
+    assert started == []  # group fares are issued by staff

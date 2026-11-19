@@ -19,7 +19,7 @@ from app.db.supplier_bookings import _event
 
 METHODS = ("bank_transfer", "jazzcash", "1link")
 #: Bookings that can't take a payment.
-CLOSED_STATUSES = ("cancelled", "expired", "hold_pending", "hold_failed", "hold_unrecorded")
+CLOSED_STATUSES = ("cancelled", "expired", "hold_pending", "hold_failed", "hold_unrecorded", "paid_not_ticketed")
 
 
 @dataclass(frozen=True)

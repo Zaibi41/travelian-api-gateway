@@ -143,6 +143,9 @@ class Settings(BaseSettings):
     # (SOUTHAIR_/SOOPERFARE_BOOKING_ENABLED per provider) and paid by card (PayFast, auto-issued when ticketing is on,
     # D48), bank transfer or JazzCash (staff verify and issue, D49). Restricted airlines always stay requests (D32).
     public_flight_booking_enabled: bool = False
+    # A card-paid website flight still not issued (or stuck mid-issue, e.g. after a restart) this long after its last change
+    # gets one automatic retry, or staff are alerted (app.services.flight_payments.recover).
+    flight_issuance_stuck_minutes: int = Field(10, ge=2, le=240)
     # D39: Umrah is hidden on the website (nav, search tab, links, URLs) until this is turned on. Nothing is deleted.
     umrah_enabled: bool = False
     # Where PayFast sends the customer back (the public website) and its server notification (this gateway).

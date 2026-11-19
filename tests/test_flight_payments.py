@@ -246,7 +246,7 @@ def test_card_payment_is_offered_only_on_a_live_hold_with_time_left(payfast_on):
 
 # ---------- booking: hold, then the chosen method ----------
 
-def _book(method="card", live=True, restricted=False, hold=None, methods=None):
+def _book(method="card", live=True, restricted=False, hold=None, methods=None, card_ok=None):
     """A website flight booking through the real route, with a SooperFare fare from the mocked search."""
     from tests.sooperfare.test_flows import ADULT, fake_sf, southair_down
     from app.services import flight_holds, flight_requests, live_flights, restricted_airlines
@@ -285,7 +285,8 @@ def _book(method="card", live=True, restricted=False, hold=None, methods=None):
          patch.object(public_booking.public_bookings, "record_result", MagicMock()) as record, \
          patch.object(issuance, "issue", AsyncMock()) as issue, \
          patch.object(flight_payments, "start_after_verified_card_payment", MagicMock()) as start, \
-         patch.object(public_booking, "booking_view", AsyncMock(return_value=view)):
+         patch.object(public_booking, "booking_view", AsyncMock(return_value=view)), \
+         patch.object(public_booking, "card_allowed", card_ok or public_booking.card_allowed):
         results = client.post("/v1/public/flights/search", json={"origin": "KHI", "destination": "LHE", "departure_date": "2026-12-10"}).json()
         fare_id = results["journeys"][0]["flights"][0]["fares"][0]["id"]
         contact = {"first_name": "Test", "last_name": "Customer", "email": "guest@example.invalid", "phone_code": "92", "phone": "3001234567"}
@@ -312,8 +313,53 @@ def test_restricted_airline_stays_a_request_with_the_flag_on():
     create.assert_awaited_once()
 
 
+def test_card_on_a_sooperfare_fare_is_refused_by_the_gateway_before_anything_is_held():
+    """Decision 19 Nov 2026: no card for SooperFare fares (bank transfer or Book Only). Enforced server-side."""
+    response, hold, create, _ = _book("card")  # the mocked search returns SooperFare fares
+    assert response.status_code == 409 and response.json()["code"] == "method_unavailable"
+    hold.assert_not_awaited()
+    create.assert_not_awaited()
+    ok, *_ = _book("bank_transfer")
+    assert ok.status_code == 201
+
+
+def test_card_is_never_payable_or_offered_for_sooperfare(payfast_on):
+    assert public_booking.card_allowed("southair") and not public_booking.card_allowed("sooperfare")
+    assert not public_booking.flight_can_pay(_row(provider_id="sooperfare"), datetime.now(timezone.utc))
+    with patch.object(settings, "payfast_merchant_id", None):
+        assert not public_booking.card_allowed("southair")
+
+
+def test_payment_options_hide_card_for_sooperfare_fares():
+    from tests.sooperfare.test_flows import fake_sf, southair_down
+    from app.services import live_flights
+
+    public_booking._flight_cache.clear()
+    live_flights._sessions.clear()
+    sf = fake_sf()
+    real_search = live_flights.search
+
+    async def search(request, viewer):
+        return await real_search(request, viewer, client_factory=southair_down, sooperfare_factory=lambda: sf)
+
+    methods = SimpleNamespace(bank_transfer=True, jazzcash=False)
+    with patch.object(live_flights, "search", search), patch.object(settings, "public_flight_booking_enabled", True), \
+         patch.object(settings, "sooperfare_booking_enabled", True), patch.object(settings, "payfast_merchant_id", SecretStr(MERCHANT)), \
+         patch.object(settings, "payfast_secured_key", SecretStr(KEY)), patch.object(public_booking, "payment_methods", AsyncMock(return_value=methods)):
+        results = client.post("/v1/public/flights/search", json={"origin": "KHI", "destination": "LHE", "departure_date": "2026-12-10"}).json()
+        fare_id = results["journeys"][0]["flights"][0]["fares"][0]["id"]
+        options = client.post("/v1/public/flights/payment-options", json={"search_id": results["search_id"], "fare_ids": [fare_id]})
+        with patch.object(settings, "public_flight_booking_enabled", False):
+            off = client.post("/v1/public/flights/payment-options", json={"search_id": results["search_id"], "fare_ids": [fare_id]})
+        expired = client.post("/v1/public/flights/payment-options", json={"search_id": "no-such-search", "fare_ids": [fare_id]})
+    assert options.json() == {"held": True, "card": False, "bank_transfer": True, "jazzcash": False}
+    assert off.json() == {"held": False, "card": False, "bank_transfer": False, "jazzcash": False}
+    assert expired.status_code == 404
+    assert "sooperfare" not in options.text.lower()
+
+
 def test_card_holds_the_fare_for_the_guest_and_nothing_else():
-    response, hold, create, event = _book("card")
+    response, hold, create, event = _book("card", card_ok=lambda provider: True)  # as for a Southair fare
     assert response.status_code == 201, response.text
     assert response.json()["reference"] == "TRV-F-WEB1" and response.json()["booking"]["status"] == "held"
     hold.assert_awaited_once()
@@ -323,7 +369,7 @@ def test_card_holds_the_fare_for_the_guest_and_nothing_else():
     event.assert_not_awaited()  # the hold's own staff alert is sent by the hold
 
 
-@pytest.mark.parametrize("method", ["bank_transfer", "jazzcash"])
+@pytest.mark.parametrize("method", ["bank_transfer", "jazzcash", "book_only"])
 def test_bank_transfer_and_jazzcash_hold_and_alert_staff_and_never_issue(method):
     response, hold, _, event = _book(method)
     assert response.status_code == 201, response.text
@@ -345,7 +391,7 @@ def test_a_failed_hold_shows_the_guest_one_plain_sentence_and_no_supplier_detail
     failing = AsyncMock(side_effect=flight_holds.HoldError(
         502, "The supplier created a hold (PNR ZWHLZG) but its total couldn't be verified, so it wasn't saved. Don't take payment for it.",
         code="total_unverified", pnr="ZWHLZG"))
-    response, *_ = _book("card", hold=failing)
+    response, *_ = _book("bank_transfer", hold=failing)
     assert response.status_code == 502
     assert response.json() == {"detail": public_booking.HOLD_NOT_PLACED, "code": "hold_failed"}
     assert "ZWHLZG" not in response.text and "supplier" not in response.text.lower()

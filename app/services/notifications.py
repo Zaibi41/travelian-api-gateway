@@ -24,7 +24,7 @@ from app.db import agencies
 logger = logging.getLogger(__name__)
 
 KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold", "paid_issuance_pending", "auto_issued",
-         "auto_issue_failed"}
+         "auto_issue_failed", "paid_not_ticketed"}
 
 
 def _money(amount_minor: int | None, currency: str | None) -> str:
@@ -88,6 +88,7 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
         "paid_issuance_pending": "Paid by card: issuance pending",
         "auto_issued": "Paid by card: ticket issued automatically",
         "auto_issue_failed": "Paid by card: automatic issuance failed, issue by hand",
+        "paid_not_ticketed": "Paid, not ticketed: refund or rebook",
     }
     title = f"{titles.get(kind, 'Booking')}: {reference}"
     details = {"reference": reference, "passenger": passenger, "route": route, "fare": _money(fare_minor, currency),
