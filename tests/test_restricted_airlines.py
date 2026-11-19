@@ -51,7 +51,8 @@ def test_request_to_book_saves_a_request_and_calls_no_supplier(request):
     client = fake_client()
     save = MagicMock(return_value="TRV-R-ABC123")
     with patch.object(flight_requests.supplier_bookings, "save_request", save), \
-         patch.object(flight_requests.flight_holds, "resolve_saved", lambda req, owner: (req, {})):
+         patch.object(flight_requests.flight_holds, "resolve_saved", lambda req, owner: (req, {})), \
+         patch.object(flight_requests.flight_holds, "_save_people", MagicMock(return_value=[])) as people:
         view = asyncio.run(flight_requests.create(hold_request(), STAFF))
     assert view.booking_id == "TRV-R-ABC123" and view.status == "requested" and "not held or confirmed" in view.message
     assert client.search.await_count == 0 and client.booking.await_count == 0
@@ -59,6 +60,9 @@ def test_request_to_book_saves_a_request_and_calls_no_supplier(request):
     assert saved["details"]["restricted_airline"] is True and saved["selling_total_minor"] == 46_700
     [(kind, reference, details)] = request.node.notifications
     assert kind == "restricted_request" and reference == "TRV-R-ABC123" and details["pnr"] is None
+    # B23: the customer and travelers are saved to (or matched with) Customers & Travelers, by the staff user.
+    args = people.call_args.args
+    assert args[1] == "TRV-R-ABC123" and args[2] == STAFF.user_id and args[3] is None
 
 
 def test_sooperfare_restricted_fare_is_marked_for_request_and_never_reserved():

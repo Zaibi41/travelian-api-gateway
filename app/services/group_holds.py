@@ -633,10 +633,13 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                                               "The booking couldn't be saved. Nothing was held. Try again."), "not_saved") from None
 
     lead = f"{resolved.passengers[0].title or ''} {resolved.passengers[0].first_name or ''} {resolved.passengers[0].last_name or ''}".strip()
+    document = flight_holds.customer_card_document(request.contact, resolved.passengers)  # the same rule as the Flights hold
     if request_only:  # a request: staff confirm the fare and hold it from the admin
         await notifications.booking_event("booking_requested", reference=reference, passenger=lead, route=ticket.sector,
                                           fare_minor=selling_each * request.adults, currency=currency, pnr=None, hold_expires_at=None,
                                           note="Website request: nothing is held at the supplier yet.")
+        # B23: website customers are saved to (or matched with) Customers & Travelers too.
+        await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
         return await read(reference, viewer)
 
     # 2. The hold. Never retried: a failure may still have held seats, so staff check the supplier.
@@ -688,10 +691,11 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
     await notifications.booking_event("hold_created", reference=reference, passenger=lead, route=ticket.sector,
                                       fare_minor=selling.amount_minor * request.adults, currency=selling.currency, pnr=held.pnr,
                                       hold_expires_at=expires_at)
-    if website:  # guests' details stay on their booking only; they are not added to Travelian's saved people
-        return await read(reference, viewer)
-    document = flight_holds.customer_card_document(request.contact, resolved.passengers)  # the same rule as the Flights hold
+    # B23: every booking saves (or matches) its customer and travelers in Customers & Travelers, website ones included
+    # (same duplicate rules: a matching passport or CNIC links; a likely match is left for staff to choose).
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
+    if website:
+        return await read(reference, viewer)
     view = await read(reference, viewer)
     view.saved_people = outcomes
     return view
