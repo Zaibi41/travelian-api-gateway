@@ -7275,6 +7275,49 @@
         "title": "PublicBookingView",
         "type": "object"
       },
+      "PublicFlightRequest": {
+        "description": "A website flight booking (B19, D43). It is saved as a request: nothing is held or ticketed, no PNR is given and no\npayment is taken here. The gateway reprices the fare itself (the price is never taken from the page); staff confirm\nthe fare and payment with the customer, then book and issue from the admin.",
+        "properties": {
+          "contact": {
+            "$ref": "#/components/schemas/HoldContact",
+            "description": "Name, phone (code and number) and email: all required."
+          },
+          "fare_ids": {
+            "description": "The chosen fare, and its return fare for a round trip.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Fare Ids",
+            "type": "array"
+          },
+          "passengers": {
+            "items": {
+              "$ref": "#/components/schemas/HoldPassenger"
+            },
+            "maxItems": 9,
+            "minItems": 1,
+            "title": "Passengers",
+            "type": "array"
+          },
+          "search_id": {
+            "description": "From POST /v1/public/flights/search.",
+            "maxLength": 64,
+            "minLength": 8,
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "fare_ids",
+          "contact",
+          "passengers"
+        ],
+        "title": "PublicFlightRequest",
+        "type": "object"
+      },
       "PublicGroupBookingRequest": {
         "description": "What a guest sends. The price is never taken from the guest: the gateway prices the fare itself.",
         "properties": {
@@ -18581,6 +18624,50 @@
           }
         },
         "summary": "Flight Calendar",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/flights/requests": {
+      "post": {
+        "description": "A guest's flight booking, saved as a request for Travelian's team (D43): repriced by the gateway, never held,\nticketed or charged here, and no PNR is given. Staff are notified and confirm the fare and payment with the customer.",
+        "operationId": "request_flight_v1_public_flights_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicFlightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicBookingCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The search expired."
+          },
+          "409": {
+            "description": "The fare is gone or changed."
+          },
+          "422": {
+            "description": "Check the details."
+          },
+          "429": {
+            "description": "Too many bookings."
+          }
+        },
+        "summary": "Request Flight",
         "tags": [
           "public website"
         ]

@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
@@ -28,6 +28,7 @@ from app.core.field_visibility import NONE, BackOfficeUser
 from app.db import booking_people, group_holds as store, public_bookings
 from app.schemas.group_holds import GroupHoldContact, GroupHoldPassenger, GroupHoldRequest
 from app.schemas.group_ticketing import GroupInventory
+from app.schemas.live_flights import HoldContact, HoldPassenger, HoldRequest
 from app.services import group_holds, notifications
 from app.services.group_ticketing import GroupInventoryUnavailable, fetch_all_group_inventory, filter_group_inventory
 from app.services.group_ticketing_view import inventory_view
@@ -354,15 +355,59 @@ async def book_group(request: PublicGroupBookingRequest) -> PublicBookingCreated
     token, token_hash = public_bookings.new_token()
     booking = await run_in_threadpool(store.load, view.reference)
     await run_in_threadpool(public_bookings.mark_website, booking.id, token_hash)
-    if live and request.payment_method == "bank_transfer":
+    # D43: bank transfer and JazzCash never confirm anything themselves. The booking stays held and staff are told (in the
+    # admin and by email) to check the money arrived, record it, and only then issue.
+    if live and request.payment_method in ("bank_transfer", "jazzcash"):
         lead = request.passengers[0]
+        method = "bank transfer" if request.payment_method == "bank_transfer" else "JazzCash"
         await notifications.booking_event(
             "bank_transfer_hold", reference=view.reference, passenger=f"{lead.title or ''} {lead.first_name} {lead.last_name}".strip(),
             route=booking.itinerary[0].get("sector") if booking.itinerary and isinstance(booking.itinerary[0], dict) else None,
             fare_minor=booking.total_minor, currency=booking.currency, pnr=booking.pnr, hold_expires_at=booking.hold_expires_at,
-            note="Customer chose bank transfer. Record the payment in the Payments tab when it arrives, then issue. The hold "
-                 "keeps the supplier's own expiry (D29).")
+            note=f"Customer chose {method}. Check the {method} payment has arrived, record it in the Payments tab, then issue. "
+                 "Nothing is issued automatically. The hold keeps the supplier's own expiry (D29).")
     return PublicBookingCreated(reference=view.reference, access_token=token, booking=await booking_view(view.reference))
+
+
+class PublicFlightRequest(BaseModel):
+    """A website flight booking (B19, D43). It is saved as a request: nothing is held or ticketed, no PNR is given and no
+    payment is taken here. The gateway reprices the fare itself (the price is never taken from the page); staff confirm
+    the fare and payment with the customer, then book and issue from the admin."""
+
+    search_id: str = Field(min_length=8, max_length=64, description="From POST /v1/public/flights/search.")
+    fare_ids: list[str] = Field(min_length=1, max_length=2, description="The chosen fare, and its return fare for a round trip.")
+    contact: HoldContact = Field(description="Name, phone (code and number) and email: all required.")
+    passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
+
+    @model_validator(mode="after")
+    def guest_details(self):
+        if self.contact.customer_id or any(p.traveler_id or p.document_id for p in self.passengers):
+            raise ValueError("Enter the contact and traveler details.")
+        missing = [label for label, value in (("first name", self.contact.first_name), ("last name", self.contact.last_name),
+                                               ("phone code", self.contact.phone_code), ("phone", self.contact.phone),
+                                               ("email", self.contact.email)) if not value]
+        if missing:
+            raise ValueError(f"Enter the contact's {', '.join(missing)}.")
+        return self
+
+
+async def request_flight(request: PublicFlightRequest) -> PublicBookingCreated:
+    from app.services import flight_holds, flight_requests, live_flights
+
+    try:
+        priced = await live_flights.reprice(request.search_id, request.fare_ids, WEBSITE_SEARCH_VIEWER)
+    except live_flights.RepriceError as error:
+        raise PublicError(error.status if error.status < 500 else 502, error.message, error.code) from None
+    hold_request = HoldRequest(quote_id=priced.quote_id, confirmed_total=priced.selling_total, contact=request.contact,
+                               passengers=request.passengers, accept_price_change=True)
+    try:
+        view = await flight_requests.create(hold_request, WEBSITE_SEARCH_VIEWER, channel="website")
+    except flight_holds.HoldError as error:
+        raise PublicError(error.status, error.message, error.code) from None
+    token, token_hash = public_bookings.new_token()
+    booking = await run_in_threadpool(store.load, view.booking_id)
+    await run_in_threadpool(public_bookings.mark_website, booking.id, token_hash)
+    return PublicBookingCreated(reference=view.booking_id, access_token=token, booking=await booking_view(view.booking_id))
 
 
 async def booking_view(reference: str) -> PublicBookingView:

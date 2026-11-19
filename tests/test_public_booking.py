@@ -208,3 +208,88 @@ def test_public_flight_search_hides_suppliers_and_is_cached():
     text = first.text.lower()
     for hidden in ("sooperfare", "southair", "supplier", "providers", "defd968f", "value|ev"):
         assert hidden not in text, hidden
+
+
+def test_website_flight_booking_is_only_a_request_never_held_ticketed_or_given_a_pnr():
+    """B19 / D43: a guest's flight booking is repriced by the gateway and saved as a request with the full customer and
+    travelers; no reservation, no PNR, nothing paid or issued."""
+    from tests.sooperfare.test_flows import ADULT, fake_sf, southair_down
+    from app.db import supplier_bookings
+    from app.services import flight_holds, live_flights
+
+    public_booking._flight_cache.clear()
+    live_flights._airlines.clear()
+    live_flights._sessions.clear()
+    live_flights._quotes.clear()
+    sf = fake_sf()
+    real_search, real_reprice = live_flights.search, live_flights.reprice
+
+    async def search(request, viewer):
+        return await real_search(request, viewer, client_factory=southair_down, sooperfare_factory=lambda: sf)
+
+    async def reprice(search_id, fare_ids, viewer):
+        return await real_reprice(search_id, fare_ids, viewer, sooperfare_factory=lambda: sf)
+
+    saved = {}
+
+    def save_request(**kwargs):
+        saved.update(kwargs)
+        return "TRV-R-WEB1"
+
+    view = SimpleNamespace(reference="TRV-R-WEB1", status="requested", payment_status="unpaid", booking_status="requested",
+                           total_minor=0, currency="PKR")
+    created = public_booking.PublicBookingView(reference="TRV-R-WEB1", status="requested", payment_status="unpaid", live=False, can_pay=False,
+                                               total=public_booking.PublicMoney(amount_minor=2207000, currency="PKR"),
+                                               paid=public_booking.PublicMoney(amount_minor=0, currency="PKR"))
+    with patch.object(live_flights, "search", search), patch.object(live_flights, "reprice", reprice), \
+         patch.object(settings, "flight_markup_percent", __import__("decimal").Decimal("0")), \
+         patch.object(supplier_bookings, "save_request", save_request), patch.object(flight_holds, "resolve_saved", lambda request, viewer: (request, {})), \
+         patch.object(public_booking.store, "load", lambda reference: SimpleNamespace(id="b-web", **vars(view))), \
+         patch.object(public_booking.public_bookings, "mark_website", lambda booking_id, token_hash: None), \
+         patch.object(public_booking, "booking_view", AsyncMock(return_value=created)):
+        results = client.post("/v1/public/flights/search", json={"origin": "KHI", "destination": "LHE", "departure_date": "2026-12-10"}).json()
+        fare_id = results["journeys"][0]["flights"][0]["fares"][0]["id"]
+        contact = {"first_name": "Test", "last_name": "Customer", "email": "guest@example.invalid", "phone_code": "92", "phone": "3001234567"}
+        response = client.post("/v1/public/flights/requests", json={"search_id": results["search_id"], "fare_ids": [fare_id],
+                                                                    "contact": contact, "passengers": [ADULT]})
+        missing_email = client.post("/v1/public/flights/requests", json={"search_id": results["search_id"], "fare_ids": [fare_id],
+                                                                         "contact": {**contact, "email": None}, "passengers": [ADULT]})
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["reference"] == "TRV-R-WEB1" and body["booking"]["status"] == "requested" and body["access_token"]
+    assert "pnr" not in str(body).lower() or body["booking"].get("final_pnr") is None
+    sf.reservation.assert_not_awaited()  # never held at the supplier
+    assert saved["channel"] == "website" and saved["customer"].email == "guest@example.invalid" and saved["customer"].phone == "3001234567"
+    assert [(t.first_name, t.document_number) for t in saved["travelers"]] == [("Test", "3520112345671")]  # full details saved
+    assert saved["selling_total_minor"] == 2205000 + 2000  # the gateway's price, never the page's
+    assert missing_email.status_code == 422
+
+
+@pytest.mark.parametrize("method", ["bank_transfer", "jazzcash"])
+def test_bank_transfer_and_jazzcash_only_hold_and_alert_staff(method):
+    """D43: neither method confirms anything itself. The booking stays held, staff are alerted to check the money,
+    record it and only then issue. (JazzCash is off today; this is the rule once it is on.)"""
+    from app.vendors.payments import jazzcash
+
+    booking = SimpleNamespace(id="b1", reference="TRV-GRP-1", itinerary=[{"sector": "LHE-JED"}], total_minor=9_000_000,
+                              currency="PKR", pnr="ABC123", hold_expires_at=None)
+    event = AsyncMock()
+    request = public_booking.PublicGroupBookingRequest(
+        ticket_id="11111111-1111-1111-1111-111111111111", adults=1, fare_terms_acknowledged=True, payment_method=method,
+        contact={"first_name": "Test", "last_name": "Guest", "phone": "+923001234567", "email": "guest@example.invalid"},
+        passengers=[{"type": "ADT", "title": "MR", "first_name": "Test", "last_name": "Guest", "date_of_birth": "1990-01-01",
+                     "id_type": "PSPT", "document_number": "AB1234567", "document_country": "PAK", "document_expiry": "2030-01-01",
+                     "nationality": "PAK"}])
+    with patch.object(settings, "public_group_booking_enabled", True), patch.object(jazzcash, "enabled", lambda: True), \
+         patch.object(public_booking, "payment_methods", AsyncMock(return_value=SimpleNamespace(bank_transfer=True))), \
+         patch.object(public_booking.group_holds, "hold", AsyncMock(return_value=SimpleNamespace(reference="TRV-GRP-1"))), \
+         patch.object(public_booking.store, "load", lambda reference: booking), \
+         patch.object(public_booking.public_bookings, "mark_website", lambda booking_id, token_hash: None), \
+         patch.object(public_booking.notifications, "booking_event", event), \
+         patch.object(public_booking, "booking_view", AsyncMock(return_value=public_booking.PublicBookingView(
+             reference="TRV-GRP-1", status="held", payment_status="unpaid", live=True, can_pay=False,
+             total=public_booking.PublicMoney(amount_minor=9_000_000, currency="PKR"), paid=public_booking.PublicMoney(amount_minor=0, currency="PKR")))):
+        created = __import__("asyncio").run(public_booking.book_group(request))
+    assert created.booking.status == "held" and created.booking.payment_status == "unpaid"
+    event.assert_awaited_once()
+    assert event.await_args.args[0] == "bank_transfer_hold" and "Nothing is issued automatically" in event.await_args.kwargs["note"]
