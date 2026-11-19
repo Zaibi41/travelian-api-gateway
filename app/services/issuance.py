@@ -284,12 +284,19 @@ async def _issue_sooperfare(reference: str, viewer: BackOfficeUser, factory=None
     try:
         answer = await client.confirm(body["booking_ref_id"], body["txn_ref_id"], body["amount"], body["currency"], body["remarks"])
     except sooperfare.SooperfareError as error:
-        if error.status is not None and 400 <= error.status < 500:
+        # confirm charges Travelian's balance: an error answer doesn't prove nothing happened. Back to a retryable status only
+        # for a plain refusal (400/422) AND when SooperFare's own record still shows the booking active, unpaid, not issued.
+        state = None
+        if error.status in (400, 422):
+            record = await run_in_threadpool(sooperfare_bookings._load, reference)
+            state = await sooperfare_bookings._read_state(client, record) if record else None
+        untouched = bool(state) and state.get("reservation_status") == "active" and not state.get("is_paid") and not state.get("is_issued")
+        if untouched:
             await run_in_threadpool(store.release, target, viewer.user_id, previous, "issuance_failed",
                                     {"supplier": "sooperfare", "supplier_error": error.public_message, "http_status": error.status})
-            return Outcome("not_issued", previous, f"SooperFare refused to issue: {error.public_message} Nothing was issued.")
+            return Outcome("not_issued", previous, f"SooperFare refused to issue: {error.public_message} Its record shows nothing paid or issued.")
         await run_in_threadpool(store.release, target, viewer.user_id, "unknown", "issuance_unknown",
-                                {"reason_code": "sooperfare_confirm_unclear", "supplier_answer": error.error_code})
+                                {"reason_code": "sooperfare_confirm_unclear", "supplier_answer": error.error_code, "http_status": error.status})
         return Outcome("unknown", "unknown", "SooperFare didn't answer clearly. Don't issue again: check the booking in SooperFare's portal.")
     record = await run_in_threadpool(sooperfare_bookings._load, reference)
     state = await sooperfare_bookings._read_state(client, record)
