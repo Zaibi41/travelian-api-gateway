@@ -137,8 +137,8 @@ def _staff_rehold(target, listing, rehold_result=(True, "held again: new PNR NEW
     rehold = AsyncMock(side_effect=rehold_result) if isinstance(rehold_result, Exception) else AsyncMock(return_value=rehold_result)
     with patch.object(store, "load", lambda reference: target), patch.object(flight_fallback, "_now", lambda: NOW), \
          patch.object(flight_fallback, "rehold", rehold), patch.object(flight_fallback, "_audit", lambda *a: None), \
-         patch.object(supplier_bookings, "claim_rehold", lambda reference, ref: claimed), \
-         patch.object(supplier_bookings, "release_rehold", lambda reference: None):
+         patch.object(supplier_bookings, "claim_rehold", lambda reference, ref: "lock-1" if claimed else None), \
+         patch.object(supplier_bookings, "release_rehold", lambda reference, token: None):
         try:
             return asyncio.run(flight_fallback.staff_rehold("TRV-S-1", "u1", accept, sooperfare_factory=sooperfare(listing))), rehold
         except flight_fallback.Rehold as error:

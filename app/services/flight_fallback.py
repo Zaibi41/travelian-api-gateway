@@ -226,7 +226,8 @@ async def staff_rehold(reference: str, actor: str | None, accept_total_minor: in
     if status not in INACTIVE_AT_SOOPERFARE:
         raise Rehold(409, f"SooperFare shows PNR {target.pnr} as '{status or 'unknown'}', not expired or cancelled. Check with SooperFare "
                           "before holding again, so the travelers aren't booked twice. Nothing was held.", "still_active")
-    if not await run_in_threadpool(supplier_bookings.claim_rehold, reference, target.supplier_ref):
+    lock = await run_in_threadpool(supplier_bookings.claim_rehold, reference, target.supplier_ref)
+    if lock is None:
         raise Rehold(409, "A re-hold for this booking is already running, or the booking just changed. Reload the booking. Nothing was held.",
                      "rehold_running")
     token = supplier_bookings.STAFF_REHOLD.set((actor, accept_total_minor, target.supplier_ref))
@@ -241,7 +242,7 @@ async def staff_rehold(reference: str, actor: str | None, accept_total_minor: in
                      old_total={"amount_minor": change.old_total_minor, "currency": change.currency}) from None
     finally:
         supplier_bookings.STAFF_REHOLD.reset(token)
-        await run_in_threadpool(supplier_bookings.release_rehold, reference)
+        await run_in_threadpool(supplier_bookings.release_rehold, reference, lock)
     await run_in_threadpool(_audit, reference, actor, "rehold_by_staff" if held else "rehold_by_staff_failed", {"result": what})
     if not held:
         raise Rehold(502, f"Not held again: {what}. Nothing was booked.", "rehold_failed")

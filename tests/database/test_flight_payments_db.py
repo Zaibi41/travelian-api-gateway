@@ -515,11 +515,15 @@ def test_staff_rehold_of_an_expired_booking_at_an_accepted_new_price(website_hol
             supplier_bookings.replace_hold(reference, **values)
     finally:
         supplier_bookings.STAFF_REHOLD.reset(token)
-    assert supplier_bookings.claim_rehold(reference, "uuid-1") and not supplier_bookings.claim_rehold(reference, "uuid-1")
-    assert not supplier_bookings.claim_rehold(reference, "uuid-other")
-    supplier_bookings.release_rehold(reference)
-    assert supplier_bookings.claim_rehold(reference, "uuid-1")
-    supplier_bookings.release_rehold(reference)
+    first = supplier_bookings.claim_rehold(reference, "uuid-1")
+    assert first and supplier_bookings.claim_rehold(reference, "uuid-1") is None
+    assert supplier_bookings.claim_rehold(reference, "uuid-other") is None
+    supplier_bookings.release_rehold(reference, "not-our-token")  # someone else's token never releases it
+    assert supplier_bookings.claim_rehold(reference, "uuid-1") is None
+    supplier_bookings.release_rehold(reference, first)
+    second = supplier_bookings.claim_rehold(reference, "uuid-1")
+    assert second and second != first
+    supplier_bookings.release_rehold(reference, second)
     token = supplier_bookings.STAFF_REHOLD.set((None, TOTAL + 5_000, "uuid-1"))
     try:
         supplier_bookings.replace_hold(reference, **values)
