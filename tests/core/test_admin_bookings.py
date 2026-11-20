@@ -432,3 +432,25 @@ def test_southair_holds_are_not_labelled_as_test_data():
     held, imported = booking(1, import_source="southair_uat"), booking(2, import_source="legacy_test_csv")
     assert (is_sample(held), data_label(held)) == (False, None)
     assert (is_sample(imported), data_label(imported)) == (True, "Imported")
+
+
+def test_resend_email_route(monkeypatch):
+    """gateway#53: admin Resend email; back office only; refusals keep their status and message."""
+    from app.services import customer_emails
+    calls = []
+
+    def resend(reference, kind, actor):
+        calls.append((reference, kind, actor))
+        if kind == "ticket_issued":
+            raise customer_emails.ResendRefused(409, "This email was never sent for this booking, so there is nothing to resend.")
+        return False, "Email blocked: AWS hasn't approved Travelian's email account for all addresses yet."
+
+    monkeypatch.setattr(customer_emails, "resend", resend)
+    reference = ROWS[1].booking_id
+    response = client(monkeypatch).post(f"/v1/admin/bookings/{reference}/emails/booking_held/resend")
+    assert response.status_code == 200 and response.json() == {"sent": False, "message": "Email blocked: AWS hasn't approved Travelian's email account for all addresses yet."}
+    assert calls[-1] == (reference, "booking_held", SUPER_ADMIN.user_id)
+    refused = client(monkeypatch).post(f"/v1/admin/bookings/{reference}/emails/ticket_issued/resend")
+    assert refused.status_code == 409 and "never sent" in refused.json()["detail"]
+    assert client(monkeypatch).post("/v1/admin/bookings/TRV-NOPE/emails/booking_held/resend").status_code == 404
+    assert client(monkeypatch, viewer=None).post(f"/v1/admin/bookings/{reference}/emails/booking_held/resend").status_code == 403

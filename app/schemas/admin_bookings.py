@@ -261,7 +261,14 @@ class CustomerEmailProblem(BaseModel):
 
     email: str = Field(description="Which email: booking_held, bank_transfer, payment_received, ticket_issued, ...")
     at: datetime
-    reason: str | None = None
+    to: str | None = Field(None, description="The address it went to, masked (a***@gmail.com).")
+    reason: str | None = Field(None, description="Why, in plain words for staff.")
+    can_resend: bool = Field(False, description="Resend email is offered (POST .../emails/{email}/resend).")
+
+
+class ResendEmailResult(BaseModel):
+    sent: bool
+    message: str = Field(description="'Email sent to the customer.' or why not, in plain words.")
 
 
 class SupplierBookingView(BaseModel):
