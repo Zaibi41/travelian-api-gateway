@@ -67,6 +67,24 @@ def test_ses_sandbox_refusal_is_recorded_for_the_admin(wired, monkeypatch):
     assert problems == [{"email": "payment_received", "at": NOW, "reason": why}]       # a later success clears it
 
 
+def test_ses_access_denied_is_explained_without_ses_detail(wired, monkeypatch):
+    class Denied(Exception):
+        response = {"Error": {"Code": "AccessDenied", "Message": "User arn:aws:iam::123:user/x is not authorized to perform ses:SendEmail on "
+                                                                 "resource arn:aws:ses:ap-southeast-1:123:identity/ali@example.invalid"}}
+
+    class FakeSes:
+        def send_email(self, **kwargs):
+            raise Denied()
+
+    import boto3
+
+    monkeypatch.setattr(ce.settings, "notify_email_enabled", True)
+    monkeypatch.setattr(boto3, "client", lambda *a, **k: FakeSes())
+    ok, why = ce.deliver("TRV-1", "payment_received")
+    assert not ok and "sandbox mode" in why and "production access" in why
+    assert "ali@example.invalid" not in why and "arn:" not in why
+
+
 def test_no_customer_email_is_recorded_too(wired, monkeypatch):
     recorded, _ = wired
     monkeypatch.setattr(ce, "_facts", lambda reference: {**FACTS, "c_email": None})

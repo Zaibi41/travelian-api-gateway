@@ -167,6 +167,11 @@ def ses_send(to: str, email: t.Email) -> tuple[bool, str]:
             return False, "refused by SES: the customer's address isn't verified (SES sandbox: only verified addresses receive email)"
         if code == "MessageRejected":
             return False, f"refused by SES (MessageRejected: {detail[:120]})"
+        if code == "AccessDenied":
+            # SES sandbox with a sending policy limited to verified identities: only those addresses may receive email.
+            # SES's own message names the address and account, so it isn't kept.
+            return False, ("refused by SES (AccessDenied): Travelian's AWS sending permission doesn't cover this address. SES is "
+                           "still in sandbox mode, so only verified addresses receive email until AWS grants production access")
         return False, f"failed ({code or type(error).__name__})"
 
 
