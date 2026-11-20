@@ -24,7 +24,7 @@
 	encode gzip
 
 	handle /v1/* {
-		reverse_proxy 127.0.0.1:8000
+		reverse_proxy {$GATEWAY_UPSTREAM:127.0.0.1:8000}
 	}
 
 	@retired path /payments/payfast/* /group-ticketing /group-ticketing/*

@@ -62,3 +62,13 @@ def test_red_alert_has_the_urgent_banner_and_every_detail():
     assert email.subject.startswith("URGENT") and "Payment received, ticket NOT issued" in email.html
     for value in ("Rs 14,390", "PF-1", "Southair", "E8998C", "active", "MR Ali Raza", "LHE → KHI", "unclear", "Issue by hand."):
         assert value in email.text
+
+
+def test_site_links_and_logo_follow_public_site_url(monkeypatch):
+    # #86 (frontend repo): no fixed site address; links and the logo come from PUBLIC_SITE_URL.
+    monkeypatch.setattr(t.settings, "public_site_url", "https://staging.example.test")
+    email = t.booking_held(BOOKING)
+    assert 'src="https://staging.example.test/travelian-logo-wordmark.png"' in email.html
+    assert 'href="https://staging.example.test"' in email.html
+    assert "https://staging.example.test/find-booking" in email.text
+    assert "https://travelian.pk" not in email.html and "https://www.travelian.pk" not in email.html

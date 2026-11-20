@@ -13,7 +13,8 @@ CURRENT="$APP_DIR/current"
 SHARED_DIR="$APP_DIR/shared"
 
 SERVICE="travelian-api.service"
-HEALTH_URL="http://127.0.0.1:8000/health"
+# The gateway's local health check; HEALTH_URL overrides it if the service listens elsewhere.
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/health}"
 
 LOCK_FILE="$SHARED_DIR/deployment.lock"
 
