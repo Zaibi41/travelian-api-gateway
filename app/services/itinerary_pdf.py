@@ -27,6 +27,8 @@ from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from app.core.titles import title_text
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -270,7 +272,7 @@ def _travelers(doc: Itinerary, width: float) -> Table:
     count = len(head)
     rows = [[_p(h, size=7.5, bold=True, color=colors.white, align=TA_RIGHT if h == "FARE" else TA_LEFT) for h in head]]
     for index, traveler in enumerate(doc.travelers, start=1):
-        name = " ".join(part for part in ((traveler.title or "").title(), traveler.first_name, traveler.last_name) if part)
+        name = " ".join(part for part in (title_text(traveler.title), traveler.first_name, traveler.last_name) if part)
         row = [_p(str(index)), _p(name, bold=True, color=NAVY), _p(TYPE_LABEL.get(traveler.passenger_type, traveler.passenger_type)),
                _p(traveler.passport or "-")]
         if issued:

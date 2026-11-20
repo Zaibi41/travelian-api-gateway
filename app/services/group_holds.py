@@ -511,7 +511,7 @@ def _check_adults(request: GroupHoldRequest, ticket: GroupTicket, passengers: li
         if passenger.type != "ADT":
             raise GroupHoldError(422, "Group fares are for adults only.", "adults_only", [(path + ["type"], "Adults only.")])
         if passenger.title == "MASTER":
-            raise GroupHoldError(422, "Adults take the title Mr, Mrs or Miss.", "invalid_passengers", [(path + ["title"], "Mr, Mrs or Miss.")])
+            raise GroupHoldError(422, "Adults take the title Mr, Mrs, Ms or Miss.", "invalid_passengers", [(path + ["title"], "Mr, Mrs, Ms or Miss.")])
         if travel and passenger.date_of_birth and age_on(passenger.date_of_birth, travel) < 12:
             raise GroupHoldError(422, f"{passenger.first_name} is under 12 on the travel date. Group fares are for adults only.", "adults_only",
                                  [(path + ["date_of_birth"], "Must be 12 or over on the travel date.")])
