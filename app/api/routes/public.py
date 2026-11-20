@@ -334,3 +334,16 @@ async def payfast_return(request: Request):
     if outcome is None:
         return ReturnResult(result="not_verified")
     return ReturnResult(reference=outcome.reference or None, result=outcome.status)
+
+
+class CardFeeQuery(BaseModel):
+    amount_minor: int = Field(gt=0, le=10_000_000_000, description="The amount to pay (paisa), as shown by the gateway's own price.")
+    product: Literal["flight", "group", "hotel", "umrah"] = "flight"
+
+
+@router.post("/card-fee", response_model=service.CardFeeView, responses={204: {"description": "No fee applies."}})
+async def card_fee_quote(body: CardFeeQuery):
+    """The card / 1Link fee shown before payment ("Card fee (3%): Rs X · Total Rs Y"). Display only: the amount PayFast is
+    charged is worked out again by the gateway from the booking when payment starts (travelian#74)."""
+    view = await run_in_threadpool(service.card_fee_for, body.amount_minor, body.product, "PKR")
+    return view if view is not None else Response(status_code=204)

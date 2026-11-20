@@ -154,3 +154,12 @@ def test_storage_access_denied_is_not_blamed_on_the_customer():
     with pytest.raises(payment_proof.ProofError) as error:
         payment_proof.inspect("payment-proof/11111111-1111-4111-8111-111111111111.pdf", client=S3())
     assert error.value.status == 503
+
+
+def test_public_card_fee_quote_is_worked_out_by_the_gateway(monkeypatch):
+    from app.db import finance
+
+    monkeypatch.setattr(finance, "get_settings", lambda connection=None: {})
+    body = TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 4_670_000, "product": "flight"}).json()
+    assert body == {"percent": "3%", "fee": {"amount_minor": 140_100, "currency": "PKR"}, "total": {"amount_minor": 4_810_100, "currency": "PKR"}}
+    assert TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 0}).status_code == 422

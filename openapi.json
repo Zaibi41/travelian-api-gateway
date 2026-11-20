@@ -2507,6 +2507,33 @@
         "title": "CalendarQuery",
         "type": "object"
       },
+      "CardFeeQuery": {
+        "properties": {
+          "amount_minor": {
+            "description": "The amount to pay (paisa), as shown by the gateway's own price.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000000000.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "product": {
+            "default": "flight",
+            "enum": [
+              "flight",
+              "group",
+              "hotel",
+              "umrah"
+            ],
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor"
+        ],
+        "title": "CardFeeQuery",
+        "type": "object"
+      },
       "CardFeeView": {
         "properties": {
           "fee": {
@@ -22896,6 +22923,51 @@
           }
         },
         "summary": "Start Payfast",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/card-fee": {
+      "post": {
+        "description": "The card / 1Link fee shown before payment (\"Card fee (3%): Rs X \u00b7 Total Rs Y\"). Display only: the amount PayFast is\ncharged is worked out again by the gateway from the booking when payment starts (travelian#74).",
+        "operationId": "card_fee_quote_v1_public_card_fee_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardFeeQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardFeeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "No fee applies."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Card Fee Quote",
         "tags": [
           "public website"
         ]
