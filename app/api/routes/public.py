@@ -170,7 +170,7 @@ async def flight_documents(body: FlightPaymentQuery, request: Request):
     from app.services import live_flights
 
     try:
-        service.check_rate(service.CALENDAR_LIMIT, _ip(request))
+        service.check_rate(service.DOCUMENTS_LIMIT, _ip(request))
         return FlightDocuments(documents=await live_flights.document_requirements(body.search_id, body.fare_ids, service.WEBSITE_SEARCH_VIEWER))
     except service.PublicError as error:
         return _error(error)

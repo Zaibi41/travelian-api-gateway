@@ -215,13 +215,37 @@ def test_reprice_says_which_travelers_need_a_cnic():
     assert [d.model_dump() for d in priced.documents] == [{"type": "ADT", "number": 1, "document": "cnic"}]
 
 
-def test_document_requirements_come_from_the_quote_once_per_selection():
-    view, _ = search(live_flights_website := BackOfficeUser("website", "website", NONE))
+WEBSITE = BackOfficeUser("website", "website", NONE)
+
+
+def _documents(sf, enabled=True):
+    view, _ = search(WEBSITE)
     fare_id = view.journeys[0].flights[0].fares[0].id
+    with patch.object(settings, "public_flight_booking_enabled", enabled), patch.object(settings, "sooperfare_booking_enabled", True):
+        ask = lambda: asyncio.run(live_flights.document_requirements(view.search_id, [fare_id], WEBSITE, sooperfare_factory=lambda: sf))  # noqa: E731
+        return ask, ask()
+
+
+def test_document_requirements_come_from_the_quote_once_per_selection():
     sf = fake_sf()
-    first = asyncio.run(live_flights.document_requirements(view.search_id, [fare_id], live_flights_website, sooperfare_factory=lambda: sf))
-    again = asyncio.run(live_flights.document_requirements(view.search_id, [fare_id], live_flights_website, sooperfare_factory=lambda: sf))
-    assert first == again == [{"type": "ADT", "number": 1, "document": "cnic"}]
+    with patch.object(settings, "public_flight_booking_enabled", True), patch.object(settings, "sooperfare_booking_enabled", True):
+        ask, first = _documents(sf)
+        assert first == ask() == [{"type": "ADT", "number": 1, "document": "cnic"}]
+    assert sf.quote.await_count == 1
+
+
+def test_no_supplier_call_when_the_website_cant_hold_the_fare():
+    sf = fake_sf()
+    _, documents = _documents(sf, enabled=False)
+    assert documents == [] and sf.quote.await_count == 0
+
+
+def test_a_failed_read_isnt_retried_at_the_supplier_at_once():
+    sf = fake_sf()
+    sf.quote = AsyncMock(side_effect=SooperfareError("timeout", "x"))
+    with patch.object(settings, "public_flight_booking_enabled", True), patch.object(settings, "sooperfare_booking_enabled", True):
+        with pytest.raises(live_flights.RepriceError):
+            _documents(sf)
     assert sf.quote.await_count == 1
 
 

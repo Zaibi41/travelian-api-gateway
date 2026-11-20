@@ -577,7 +577,9 @@ def can_book(viewer: BackOfficeUser, provider: str = "southair") -> bool:
     return booking_enabled(provider) and viewer.role in BACK_OFFICE_ROLES
 
 
-_DOCUMENTS: dict[tuple[str, tuple[str, ...]], tuple[float, list[dict]]] = {}
+_DOCUMENTS: dict[tuple[str, tuple[str, ...]], tuple[float, list[dict] | RepriceError]] = {}
+DOCUMENTS_MAX = 2000  # cached selections; the oldest go first
+DOCUMENTS_FAILURE_SECONDS = 60  # a failed read isn't retried at the supplier for this long
 
 
 async def document_requirements(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, sooperfare_factory=None) -> list[dict]:
@@ -587,24 +589,36 @@ async def document_requirements(search_id: str, fare_ids: list[str], viewer: Bac
     if session is None:
         raise RepriceError(404, "This search has expired. Search again.", code="search_expired")
     wanted = _selected_refs(session, fare_ids)
-    if wanted[0].provider != SOOPERFARE:
+    provider = wanted[0].provider
+    # The supplier is asked only for a fare that can really be held here (the same gate as checkout's payment options).
+    if (provider != SOOPERFARE or not booking_enabled(provider)
+            or any(restricted_airlines.segment_restricted(ref.segment) for ref in wanted)
+            or (viewer.role == "website" and not settings.public_flight_booking_enabled)):
         return []
     key, now = (search_id, tuple(fare_ids)), _now()
     cached = _DOCUMENTS.get(key)
     if cached and cached[0] > now:
+        if isinstance(cached[1], RepriceError):
+            raise cached[1]
         return cached[1]
-    try:
-        _, _, _, context = await sf_price_selection(session.request, wanted, sooperfare_factory)
-    except sooperfare.SooperfareError as error:
-        logger.warning("Document requirements not read", extra={"error_code": error.error_code})
-        raise RepriceError(502, "The airline's document rules couldn't be read. Try again.") from None
     from app.services.sooperfare_holds import required_documents
 
-    documents = required_documents(context.get("passengers") or [])
-    for old in [k for k, (until, _) in _DOCUMENTS.items() if until <= now]:
+    try:
+        _, _, _, context = await sf_price_selection(session.request, wanted, sooperfare_factory)
+        result: list[dict] | RepriceError = required_documents(context.get("passengers") or [])
+        until = now + QUOTE_TTL_SECONDS
+    except (sooperfare.SooperfareError, RepriceError) as error:
+        logger.warning("Document requirements not read", extra={"error_code": getattr(error, "error_code", None) or getattr(error, "code", None)})
+        result = RepriceError(502, "The airline's document rules couldn't be read. Try again.")
+        until = now + DOCUMENTS_FAILURE_SECONDS
+    for old in [k for k, (expires, _) in _DOCUMENTS.items() if expires <= now]:
         _DOCUMENTS.pop(old, None)
-    _DOCUMENTS[key] = (now + QUOTE_TTL_SECONDS, documents)
-    return documents
+    while len(_DOCUMENTS) >= DOCUMENTS_MAX:
+        _DOCUMENTS.pop(min(_DOCUMENTS, key=lambda k: _DOCUMENTS[k][0]))
+    _DOCUMENTS[key] = (until, result)
+    if isinstance(result, RepriceError):
+        raise result
+    return result
 
 
 async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> "RepriceView":
