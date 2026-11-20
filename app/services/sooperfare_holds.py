@@ -39,6 +39,22 @@ def _alpha2(code: str | None) -> str | None:
     return ALPHA2.get((code or "").upper())
 
 
+def required_documents(slots: list[dict]) -> list[dict]:
+    """The document each traveler must give, from SooperFare's quote slots (by type, in order): "nic" -> cnic; any
+    passport field -> passport. Travelers with no requirement are left out."""
+    out, seen = [], {}
+    for slot in slots:
+        kind = slot.get("type")
+        if kind not in ("ADT", "CHD", "INF"):
+            continue
+        seen[kind] = seen.get(kind, 0) + 1
+        required = set(slot.get("required_fields") or [])
+        document = "cnic" if "nic" in required else "passport" if required.intersection(PASSPORT_FIELDS) else None
+        if document:
+            out.append({"type": kind, "number": seen[kind], "document": document})
+    return out
+
+
 def reservation_passengers(request: HoldRequest, slots: list[dict]) -> tuple[list[dict], list[tuple[list, str]]]:
     """Fill SooperFare's passenger slots (from the quote, by type and order) with our passengers.
     Returns (passengers, field errors). Only the fields SooperFare asks for are sent."""

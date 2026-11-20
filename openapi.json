@@ -2985,6 +2985,23 @@
         "title": "FlightCalendarQuery",
         "type": "object"
       },
+      "FlightDocuments": {
+        "properties": {
+          "documents": {
+            "description": "Travelers whose airline asks for that document on this fare. Empty: no specific document known (the booking route still checks).",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "title": "FlightDocuments",
+        "type": "object"
+      },
       "FlightMoney": {
         "properties": {
           "amount_minor": {
@@ -8120,6 +8137,14 @@
             "title": "Booking Mode",
             "type": "string"
           },
+          "documents": {
+            "description": "Travelers who must give a CNIC or a passport for this fare; ask for it before the hold.",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
@@ -8254,6 +8279,42 @@
           "selling_total"
         ],
         "title": "RequestView",
+        "type": "object"
+      },
+      "RequiredDocument": {
+        "description": "A traveler whose airline asks for a specific document on this fare (SooperFare's quote: required_fields).",
+        "properties": {
+          "document": {
+            "description": "cnic: a Pakistani CNIC / B-form (13 digits); passport: a passport.",
+            "enum": [
+              "cnic",
+              "passport"
+            ],
+            "title": "Document",
+            "type": "string"
+          },
+          "number": {
+            "description": "1 for the first traveler of this type, 2 for the second, ... (booking order).",
+            "minimum": 1.0,
+            "title": "Number",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "ADT",
+              "CHD",
+              "INF"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "number",
+          "document"
+        ],
+        "title": "RequiredDocument",
         "type": "object"
       },
       "ResetPasswordRequest": {
@@ -19390,6 +19451,57 @@
           }
         },
         "summary": "Flight Calendar",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/flights/documents": {
+      "post": {
+        "description": "Which travelers must give a CNIC (or a passport) for the chosen fares, so checkout asks for it before submitting.",
+        "operationId": "flight_documents_v1_public_flights_documents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightPaymentQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightDocuments"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The search expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests."
+          },
+          "502": {
+            "description": "The airline's rules couldn't be read; the booking route still checks them."
+          }
+        },
+        "summary": "Flight Documents",
         "tags": [
           "public website"
         ]

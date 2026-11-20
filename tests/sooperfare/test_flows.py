@@ -205,3 +205,43 @@ def test_the_airline_list_is_reused_per_route_but_fares_are_searched_every_time(
     search(sf=sf)
     search(sf=sf)
     assert sf.availability.await_count == 1 and sf.search.await_count == 2
+
+
+# ---------- CNIC up front (C2): which travelers must give a CNIC, before the passenger form is sent ----------
+
+def test_reprice_says_which_travelers_need_a_cnic():
+    view, _ = search(ADMIN)
+    priced = reprice(view, ADMIN)
+    assert [d.model_dump() for d in priced.documents] == [{"type": "ADT", "number": 1, "document": "cnic"}]
+
+
+def test_document_requirements_come_from_the_quote_once_per_selection():
+    view, _ = search(live_flights_website := BackOfficeUser("website", "website", NONE))
+    fare_id = view.journeys[0].flights[0].fares[0].id
+    sf = fake_sf()
+    first = asyncio.run(live_flights.document_requirements(view.search_id, [fare_id], live_flights_website, sooperfare_factory=lambda: sf))
+    again = asyncio.run(live_flights.document_requirements(view.search_id, [fare_id], live_flights_website, sooperfare_factory=lambda: sf))
+    assert first == again == [{"type": "ADT", "number": 1, "document": "cnic"}]
+    assert sf.quote.await_count == 1
+
+
+def test_required_documents_number_travelers_by_type():
+    slots = [{"type": "ADT", "required_fields": ["nic"]}, {"type": "ADT", "required_fields": ["passport_number"]},
+             {"type": "CHD", "required_fields": ["nic"]}, {"type": "INF", "required_fields": ["dob"]}]
+    assert sooperfare_holds.required_documents(slots) == [
+        {"type": "ADT", "number": 1, "document": "cnic"}, {"type": "ADT", "number": 2, "document": "passport"},
+        {"type": "CHD", "number": 1, "document": "cnic"}]
+
+
+def test_public_documents_route():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    async def fake(search_id, fare_ids, viewer, sooperfare_factory=None):
+        assert viewer.user_id == "website"
+        return [{"type": "ADT", "number": 1, "document": "cnic"}]
+
+    with patch.object(live_flights, "document_requirements", fake):
+        answer = TestClient(app).post("/v1/public/flights/documents", json={"search_id": "s" * 16, "fare_ids": ["f1"]})
+    assert answer.status_code == 200 and answer.json() == {"documents": [{"type": "ADT", "number": 1, "document": "cnic"}]}

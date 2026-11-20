@@ -79,6 +79,13 @@ class PassengerPrice(BaseModel):
     selling_each: FlightMoney
 
 
+class RequiredDocument(BaseModel):
+    """A traveler whose airline asks for a specific document on this fare (SooperFare's quote: required_fields)."""
+    type: Literal["ADT", "CHD", "INF"]
+    number: int = Field(ge=1, description="1 for the first traveler of this type, 2 for the second, ... (booking order).")
+    document: Literal["cnic", "passport"] = Field(description="cnic: a Pakistani CNIC / B-form (13 digits); passport: a passport.")
+
+
 class RepriceView(BaseModel):
     quote_id: str = Field(description="Opaque. Valid for 10 minutes, for the user who repriced.")
     expires_at: datetime
@@ -94,6 +101,8 @@ class RepriceView(BaseModel):
     new_price_per_adult: FlightMoney | None = Field(None, description="Selling price per adult now (all legs). Omitted with no adult.")
     price_difference_per_adult: FlightMoney | None = Field(None, description="New less old price per adult; negative when the price fell.")
     margin: FlightMoney | None = Field(None, description="Selling total less supplier total. Only with the cost and margin permission.")
+    documents: list[RequiredDocument] = Field(default_factory=list, description="Travelers who must give a CNIC or a passport for "
+                                                                                 "this fare; ask for it before the hold.")
 
 
 _NAME = r"^[A-Za-z][A-Za-z '\-]{0,24}$"
