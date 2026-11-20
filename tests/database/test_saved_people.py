@@ -348,7 +348,7 @@ def test_hold_with_traveler_id_reruns_the_checks(db):
     child, _ = person(first="Little", dob=date(2020, 1, 1), document=passport("CD7654321"))
     with pytest.raises(flight_holds.HoldError) as error:
         hold([{"type": "ADT", "traveler_id": child.id}])
-    assert error.value.status == 422 and "doesn't match the passenger type" in error.value.message
+    assert error.value.status == 422 and "that's a Child fare, not Adult" in error.value.message
 
 
 def test_identity_values_together_with_traveler_id_are_refused(db):
