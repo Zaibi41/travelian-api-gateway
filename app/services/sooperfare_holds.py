@@ -9,7 +9,7 @@
 
 Answers as read live on 18 November 2026 (one approved Airblue test hold; tests/sooperfare/fixtures/reservation_PA.json):
 data.uuid (SooperFare's booking id, kept as supplier_ref), data.order_ref_id, data.providers[].pnr, data.billable_price,
-data.reservation_status, data.expiry_at. Ticket issuing (booking/confirm) is on hold: not built (roadmap item 4).
+data.reservation_status, data.expiry_at. Ticket issuing (booking/confirm) is in app.services.issuance (gateway#45).
 """
 
 from __future__ import annotations
