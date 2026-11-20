@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import secrets
 import string
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -118,6 +119,12 @@ def save_request(*, provider: str, currency: str, selling_total_minor: int, supp
     return reference
 
 
+# A staff re-hold (app.services.flight_fallback.staff_rehold): who asked, and the changed selling total they accepted
+# (None: the same total only). Set for the one call; the automatic re-hold after a card payment never changes the price.
+STAFF_REHOLD: ContextVar[tuple[str | None, int | None] | None] = ContextVar("staff_rehold", default=None)
+REHOLD_STATUSES = ("held", "pending_payment", "payment_received", "expired", "paid_not_ticketed")
+
+
 def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None,
                  supplier_total_minor: int, selling_total_minor: int, supplier_response: dict[str, Any]) -> str:
     """A new supplier hold (re-hold of the same fare) for an existing paid booking whose hold was lost. Only while the booking
@@ -129,9 +136,24 @@ def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, 
         row = connection.execute(text(
             "SELECT id, pnr, provider_id, booking_status, issuance_status, total_minor FROM bookings WHERE reference = :r FOR UPDATE"),
             {"r": reference}).one_or_none()
-        if (row is None or row.booking_status not in ("held", "pending_payment", "payment_received") or row.issuance_status != "not_issued"
-                or (row.provider_id or "southair") != provider or row.total_minor != selling_total_minor):
+        actor, accepted = STAFF_REHOLD.get() or (None, None)
+        if (row is None or row.booking_status not in REHOLD_STATUSES or row.issuance_status != "not_issued"
+                or (row.provider_id or "southair") != provider
+                or (row.total_minor != selling_total_minor and accepted != selling_total_minor)):
             raise ValueError("The booking can't take a new hold.")
+        if row.total_minor != selling_total_minor:  # a new price the staff member accepted
+            from app.db.booking_payments import payment_status
+
+            paid = connection.execute(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"),
+                                      {"b": row.id}).scalar_one()
+            sellings = connection.execute(text("SELECT id, selling_minor FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+                                          {"b": row.id}).all()
+            for (traveler_id, _), selling in zip(sellings, scale([previous or 0 for _, previous in sellings], selling_total_minor)):
+                connection.execute(text("UPDATE booking_travelers SET selling_minor = :s WHERE id = :t"), {"s": selling, "t": traveler_id})
+            connection.execute(text("UPDATE bookings SET total_minor = :t, payment_status = :p WHERE id = :b"),
+                               {"t": selling_total_minor, "p": payment_status(paid, selling_total_minor), "b": row.id})
+            _event(connection, row.id, actor, "selling_price_set", {"amount_minor": selling_total_minor,
+                                                                     "previous_amount_minor": row.total_minor, "reason": "rehold"})
         connection.execute(text(
             "UPDATE bookings SET pnr = :pnr, supplier_ref = :ref, hold_expires_at = :exp, supplier_cost_minor = :cost,"
             " booking_status = 'held', supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
@@ -143,7 +165,7 @@ def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, 
                                        {"b": row.id}).all()
         for (traveler_id, _), cost in zip(travelers, scale([previous or 0 for _, previous in travelers], supplier_total_minor)):
             connection.execute(text("UPDATE booking_travelers SET cost_minor = :c WHERE id = :t"), {"c": cost, "t": traveler_id})
-        _event(connection, row.id, None, "rehold_created", {"pnr": pnr, "previous_pnr": row.pnr,
+        _event(connection, row.id, actor, "rehold_created", {"pnr": pnr, "previous_pnr": row.pnr, "by_staff": actor is not None,
                                                              "time_limit": hold_expires_at.isoformat() if hold_expires_at else None,
                                                              "supplier_total_minor": supplier_total_minor})
     return reference

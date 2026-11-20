@@ -260,6 +260,19 @@ class SupplierBookingView(BaseModel):
     cancel_at: datetime | None = None
     status_at_supplier: str | None = Field(None, description="The reservation status the supplier last showed.")
     can_cancel: bool = False
+    can_rehold: bool = Field(False, description="Re-hold at SooperFare is offered: the hold is gone (expired, or paid but not "
+                                                "ticketed), nothing is issued, and the viewer may issue tickets.")
+
+
+class ReholdBody(BaseModel):
+    """Re-hold at SooperFare."""
+
+    accept_total_minor: int | None = Field(None, ge=1, description="The new selling total (minor units) staff saw and accepted, "
+                                                                     "after a 409 price_changed. Leave out to hold only at the same total.")
+
+
+class ReholdResult(BaseModel):
+    message: str = Field(description="The new hold in plain words: new PNR and when it expires.")
 
 
 class IssuanceAttempt(BaseModel):

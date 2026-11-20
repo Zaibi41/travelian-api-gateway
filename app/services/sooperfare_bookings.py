@@ -44,18 +44,20 @@ class Record:
     supplier_cost_minor: int | None
     currency: str
     supplier_response: dict[str, Any]
+    issuance_status: str = "not_issued"
+    hold_over: bool = False  # the hold's time limit has passed
 
 
 def _load(reference: str) -> Record | None:
     with agencies.application_engine().begin() as connection:
         row = connection.execute(text(
-            "SELECT id, reference, provider_id, booking_status, pnr, supplier_ref, supplier_cost_minor, currency, supplier_response"
-            " FROM bookings WHERE reference = :r"), {"r": reference}).mappings().one_or_none()
+            "SELECT id, reference, provider_id, booking_status, pnr, supplier_ref, supplier_cost_minor, currency, supplier_response,"
+            " issuance_status, COALESCE(hold_expires_at <= now(), true) AS hold_over FROM bookings WHERE reference = :r"), {"r": reference}).mappings().one_or_none()
     if row is None:
         return None
     response = row["supplier_response"] if isinstance(row["supplier_response"], dict) else json.loads(row["supplier_response"] or "{}")
     return Record(row["id"], row["reference"], row["provider_id"], row["booking_status"], row["pnr"], row["supplier_ref"],
-                  row["supplier_cost_minor"], row["currency"], response or {})
+                  row["supplier_cost_minor"], row["currency"], response or {}, row["issuance_status"], bool(row["hold_over"]))
 
 
 def _save(record: Record, actor: str | None, action: str, details: dict[str, Any], *, cancel: dict[str, Any] | None = None,
@@ -175,7 +177,9 @@ def view(reference: str, supplier_names: bool) -> dict[str, Any] | None:
     return {"supplier": "SooperFare", "booking_id": record.supplier_ref, "order_ref": reservation.get("order_ref_id"),
             "cancel_state": cancel_state.get("state", "none"), "cancel_message": cancel_state.get("message"),
             "cancel_at": cancel_state.get("at"), "status_at_supplier": (cancel_state.get("sooperfare") or {}).get("reservation_status"),
-            "can_cancel": record.booking_status == "held"}
+            "can_cancel": record.booking_status == "held",
+            "can_rehold": record.issuance_status == "not_issued" and (record.booking_status in ("expired", "paid_not_ticketed")
+                                                                    or (record.booking_status == "held" and record.hold_over))}
 
 
 # ---------- confirm (issue) ----------

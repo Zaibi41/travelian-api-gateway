@@ -8,6 +8,7 @@ Every step writes a booking_events entry. Ticket numbers are stored per traveler
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
@@ -46,23 +47,34 @@ class Target:
     supplier_ref: str | None
     paid_minor: int
     traveler_types: list[tuple[int, str]]  # (position, passenger type) in booking order
+    test_booking: bool = False  # marked as a test, or a passenger is named TEST: never issued
 
 
 def _load(connection, reference: str, lock: bool) -> Target:
     row = connection.execute(
         text("SELECT id, reference, pnr, provider_id, product, booking_status, issuance_status, hold_expires_at, currency, total_minor,"
-             " supplier_cost_minor, supplier_ref FROM bookings WHERE reference = :r" + (" FOR UPDATE" if lock else "")),
+             " supplier_cost_minor, supplier_ref, is_test FROM bookings WHERE reference = :r" + (" FOR UPDATE" if lock else "")),
         {"r": reference},
     ).mappings().one_or_none()
     if row is None:
         raise IssuanceRefused(404, "Booking not found.")
     paid = connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"), {"b": row["id"]})
     travelers = connection.execute(
-        text("SELECT position, passenger_type FROM booking_travelers WHERE booking_id = :b ORDER BY position"), {"b": row["id"]},
+        text("SELECT position, passenger_type, first_name, last_name FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
+        {"b": row["id"]},
     ).all()
+    test = bool(row["is_test"]) or any(is_test_name(t.first_name) or is_test_name(t.last_name) for t in travelers)
     return Target(row["id"], row["reference"], row["pnr"], row["provider_id"], row["product"], row["booking_status"], row["issuance_status"],
                   row["hold_expires_at"], row["currency"], row["total_minor"], row["supplier_cost_minor"], row["supplier_ref"], paid,
-                  [(t.position, t.passenger_type) for t in travelers])
+                  [(t.position, t.passenger_type) for t in travelers], test)
+
+
+def is_test_name(name: str | None) -> bool:
+    """A passenger name containing the word TEST (any case): "TEST", "Test Passenger", "Ali TEST"."""
+    return bool(name) and re.search(r"(?<![a-z])test(?![a-z])", name, re.IGNORECASE) is not None
+
+
+TEST_BOOKING = "This is a test booking (a passenger is named TEST, or it is marked as a test), so it can't be issued."
 
 
 def load(reference: str) -> Target:
@@ -73,7 +85,7 @@ def load(reference: str) -> Target:
 def blockers(target: Target, now: datetime, margin_seconds: int, products: tuple[str, ...] = ("flight",)) -> list[str]:
     """Why this booking can't be issued now (empty when it can). Same rules for request and issue.
     `products`: the products the caller's issuing path handles (Southair: flight; Group Ticketing: group)."""
-    reasons = []
+    reasons = [TEST_BOOKING] if target.test_booking else []
     if target.product not in products or not target.pnr or not target.supplier_ref:
         reasons.append("This booking has no supplier hold to issue.")
     if target.booking_status != "held":
