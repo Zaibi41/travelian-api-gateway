@@ -207,6 +207,30 @@ def test_remove_a_document(db):
     assert store.search(None, "AB1234567") == []
 
 
+def test_edit_a_document_renewed_passport_and_new_expiry(db):
+    """Issue #12: a renewed passport (new number, new expiry) replaces the old one for new bookings; the old one stays for
+    history. The same number only changes the expiry. Another person's number is refused."""
+    saved, _ = person(document=passport())
+    doc = saved.documents[0].id
+    same = api().put(f"/v1/admin/customers/{saved.id}/documents/{doc}",
+                     json={"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234567", "document_expiry": "2032-05-01"})
+    assert same.status_code == 200 and [(d["id"], d["document_expiry"]) for d in same.json()["documents"]] == [(doc, "2032-05-01")]
+    renewed = api().put(f"/v1/admin/customers/{saved.id}/documents/{doc}",
+                        json={"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234568", "document_expiry": "2036-01-15"})
+    documents = renewed.json()["documents"]
+    assert renewed.status_code == 200 and len(documents) == 1 and documents[0]["id"] != doc
+    assert (documents[0]["document_number"], documents[0]["document_expiry"]) == ("AB1234568", "2036-01-15")
+    assert store.search(None, "AB1234567") == [] and [p.id for p in store.search(None, "AB1234568")] == [saved.id]
+    other, _ = person(first="Other", document=passport("ZZ7654321"))
+    taken = api().put(f"/v1/admin/customers/{saved.id}/documents/{documents[0]['id']}",
+                      json={"id_type": "PSPT", "document_country": "PAK", "document_number": "ZZ7654321", "document_expiry": "2036-01-15"})
+    assert taken.status_code == 409
+    assert api().put(f"/v1/admin/customers/{saved.id}/documents/{doc}",   # the replaced one can't be edited any more
+                     json={"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234569", "document_expiry": "2036-01-15"}).status_code == 404
+    assert api(STAFF).put(f"/v1/admin/customers/{saved.id}/documents/{documents[0]['id']}",
+                          json={"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234570", "document_expiry": "2036-01-15"}).status_code == 403
+
+
 # ---------- booking history ----------
 
 def _booking_with_history(connection, metadata, saved):

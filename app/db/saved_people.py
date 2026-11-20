@@ -411,6 +411,32 @@ def add_document(owner: str | None, actor: str, person_id: str, document: Docume
         return load(connection, owner, person_id)
 
 
+def edit_document(owner: str | None, actor: str, person_id: str, document_id: str, document: DocumentInput) -> Person:
+    """Issue #12: correct or renew a saved document. Same type, country and number: the expiry is updated in place. A
+    new number (e.g. a renewed passport): the old document is kept for past bookings (removed from use) and the new one
+    added, in one step. Never another person's document."""
+    with agencies.application_engine().begin() as connection:
+        person = load(connection, owner, person_id, lock=True)
+        if person.merged_into_id:
+            raise PeopleError(409, "person_merged", "That person was merged into another record.", merged_into_id=person.merged_into_id)
+        old = next((doc for doc in person.documents if doc.id == document_id), None)
+        if old is None:
+            raise PeopleError(404, "document_not_found", "Document not found for this person.")
+        held = _check_document_free(connection, owner, document, person.first_name, person.last_name, person.date_of_birth, person_id=person_id)
+        if held is not None and held[1].id != document_id:
+            raise PeopleError(409, "document_already_saved", "This document is already saved for this person.")
+        if held is not None:  # the same document: only the expiry (and the number's spacing) change
+            connection.execute(text("UPDATE saved_person_documents SET document_number = :n, document_expiry = :e WHERE id = :d"),
+                               {"n": document.document_number.strip(), "e": document.document_expiry, "d": document_id})
+            new_id = document_id
+        else:
+            connection.execute(text("UPDATE saved_person_documents SET removed_at = now() WHERE id = :d"), {"d": document_id})
+            new_id = _insert_document(connection, owner, actor, person_id, document)
+        _event(connection, person_id, actor, "document_edited", {"document_id": document_id, "new_document_id": new_id,
+                                                                 "id_type": document.id_type, "replaced": new_id != document_id})
+        return load(connection, owner, person_id)
+
+
 def remove_document(owner: str | None, actor: str, person_id: str, document_id: str) -> Person:
     with agencies.application_engine().begin() as connection:
         load(connection, owner, person_id, lock=True)
