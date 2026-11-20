@@ -265,12 +265,19 @@ async def list_payments(viewer: Annotated[BackOfficeUser, Depends(require_financ
                                       card_fee=money(d.card_fee_minor, "PKR")) for d in page.days])
 
 
+class Number(str):
+    """A cell the gateway built as a number (money): written as is, never escaped."""
+
+
 def rupees(minor: int | None) -> str:
     """Integer paisa as a rupee string with 2 decimals (CSV); exact, no floats."""
     if minor is None:
         return ""
     sign, value = ("-", -minor) if minor < 0 else ("", minor)
-    return f"{sign}{value // 100}.{value % 100:02d}"
+    return Number(f"{sign}{value // 100}.{value % 100:02d}")
+
+
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 METHOD_LABEL = {"bank_transfer": "Bank transfer", "jazzcash": "JazzCash", "1link": "1Link", "payfast": "Card (PayFast)"}
@@ -285,8 +292,8 @@ def csv_text(header: list[str], rows: list[list[Any]]) -> str:
     writer = csv.writer(out)
     writer.writerow(header)
     for row in rows:
-        # A cell starting with = + - @ could run as a formula in Excel: prefix it with a quote (money cells are numbers).
-        writer.writerow([f"'{v}" if isinstance(v, str) and v[:1] in "=+@" else v for v in row])
+        # Text starting with = + - @, tab or CR could run as a formula in Excel: prefix it with a quote (money cells are Number).
+        writer.writerow([f"'{v}" if isinstance(v, str) and not isinstance(v, Number) and v.startswith(FORMULA_START) else v for v in row])
     return out.getvalue()
 
 

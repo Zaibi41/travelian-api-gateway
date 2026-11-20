@@ -53,7 +53,8 @@ def test_card_fee_refuses_floats_and_bad_settings():
 
 def test_csv_money_is_exact_and_formula_safe():
     assert [rupees(v) for v in (0, 5, 140_100, -2_050, None)] == ["0.00", "0.05", "1401.00", "-20.50", ""]
-    assert csv_text(["A"], [["=HYPERLINK(1)"], ["+92 300"], ["TRV-1"]]).splitlines() == ["A", "'=HYPERLINK(1)", "'+92 300", "TRV-1"]
+    lines = csv_text(["A"], [["=HYPERLINK(1)"], ["+92 300"], ["-2+3"], ["@SUM(A1)"], ["\tx"], ["TRV-1"], [rupees(-2_050)]]).splitlines()
+    assert lines == ["A", "'=HYPERLINK(1)", "'+92 300", "'-2+3", "'@SUM(A1)", "'\tx", "TRV-1", "-20.50"]
 
 
 @pytest.mark.parametrize("path", ["/v1/admin/finance/payments", "/v1/admin/finance/payments.csv", "/v1/admin/finance/refunds-due",
