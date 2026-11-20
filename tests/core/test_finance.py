@@ -96,3 +96,35 @@ def test_require_finance_refuses_without_grant(monkeypatch):
     with pytest.raises(HTTPException) as error:
         fv._finance_user(object())
     assert error.value.status_code == 403
+
+
+def test_finance_without_cost_grant_gets_no_supplier_cost_or_profit(monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.db import finance
+
+    booking = finance.BookingRef("b1", "TRV-ABC123", "PKR", 46_700, 45_770, True, "southair", "ticket_issued")
+    charge = finance.SupplierCharge("c1", 0, "A B", "southair", 45_770, "PKR", "issuance", None, None, None, datetime.now(timezone.utc))
+    monkeypatch.setattr(finance, "booking_finance", lambda ref: finance.BookingFinance(booking, [], [], [charge], [], 0))
+    staff = _client(monkeypatch, "staff", {fv.FINANCE}).get("/v1/admin/finance/bookings/TRV-ABC123").json()
+    assert staff.get("profit") is None and staff.get("supplier_charges") is None
+    assert "45770" not in str(staff) and "southair" not in str(staff)
+    app.dependency_overrides.clear()
+    with_cost = _client(monkeypatch, "staff", {fv.FINANCE, fv.SEE_COST_AND_MARGIN}).get("/v1/admin/finance/bookings/TRV-ABC123").json()
+    assert with_cost["profit"]["profit"]["amount_minor"] == 930 and len(with_cost["supplier_charges"]) == 1
+    app.dependency_overrides.clear()
+    refused = _client(monkeypatch, "staff", {fv.FINANCE}).post("/v1/admin/finance/bookings/TRV-ABC123/supplier-charges",
+                                                               json={"amount_minor": 100, "reason": "x"})
+    assert refused.status_code == 403
+
+
+def test_audit_log_hides_cost_details_without_cost_grant(monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.db import finance
+
+    entry = finance.AuditEntry(1, datetime.now(timezone.utc), "u", "super_admin", "supplier_charge_recorded", "supplier_charge", "c1", "TRV-1",
+                               {"charges_total_minor": 0}, {"amount_minor": 45_770}, "x")
+    monkeypatch.setattr(finance, "list_audit", lambda **kw: ([entry], 1))
+    body = _client(monkeypatch, "staff", {fv.FINANCE}).get("/v1/admin/finance/audit-log").json()
+    assert body["entries"][0]["after"] is None and body["entries"][0]["action"] == "supplier_charge_recorded"

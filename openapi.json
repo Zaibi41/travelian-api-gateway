@@ -1316,7 +1316,15 @@
             "type": "array"
           },
           "profit": {
-            "$ref": "#/components/schemas/ProfitView"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfitView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission (left out otherwise)."
           },
           "reference": {
             "title": "Reference",
@@ -1334,17 +1342,23 @@
             "type": "array"
           },
           "supplier_charges": {
-            "items": {
-              "$ref": "#/components/schemas/SupplierChargeView"
-            },
-            "title": "Supplier Charges",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SupplierChargeView"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission.",
+            "title": "Supplier Charges"
           }
         },
         "required": [
           "reference",
-          "profit",
-          "supplier_charges",
           "payment_fees",
           "refunds",
           "refundable"
@@ -14427,7 +14441,7 @@
     },
     "/v1/admin/finance/bookings/{reference}/supplier-charges": {
       "post": {
-        "description": "Record what the supplier actually charged (tickets issued in a supplier portal), or correct it with a negative amount. Audited.",
+        "description": "Record what the supplier actually charged (tickets issued in a supplier portal), or correct it with a negative amount. Audited.\nNeeds the cost and margin permission too.",
         "operationId": "add_supplier_charge_v1_admin_finance_bookings__reference__supplier_charges_post",
         "parameters": [
           {

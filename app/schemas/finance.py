@@ -123,8 +123,8 @@ class ProfitView(BaseModel):
 
 class BookingFinanceView(BaseModel):
     reference: str
-    profit: ProfitView
-    supplier_charges: list[SupplierChargeView]
+    profit: ProfitView | None = Field(None, description="Only with the cost and margin permission (left out otherwise).")
+    supplier_charges: list[SupplierChargeView] | None = Field(None, description="Only with the cost and margin permission.")
     payment_fees: list[PaymentFeeView]
     refunds: list[RefundView]
     refundable: BookingMoney = Field(description="Received and not yet refunded (card fees excluded: they are not refunded).")

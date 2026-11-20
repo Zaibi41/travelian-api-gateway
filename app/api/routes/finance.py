@@ -65,7 +65,13 @@ async def audit_log(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
     start, end = day_range(date_from, date_to)
     entries, total = await run_in_threadpool(lambda: store.list_audit(action=action, entity_type=entity_type, booking_reference=booking_reference,
                                                                       date_from=start, date_to=end, limit=limit, offset=offset))
-    return AuditLogPage(entries=[AuditEntryView(**entry.__dict__) for entry in entries], total=total)
+    views = []
+    for entry in entries:
+        view = AuditEntryView(**entry.__dict__)
+        if entry.entity_type in COST_ENTITIES and not viewer.visibility.cost_and_margin:
+            view.before = view.after = None
+        views.append(view)
+    return AuditLogPage(entries=views, total=total)
 
 
 def _charge(c: store.SupplierCharge) -> SupplierChargeView:
@@ -107,20 +113,32 @@ def profit_view(data: store.BookingFinance) -> ProfitView:
                       missing=list(p.missing))
 
 
-async def _booking_view(reference: str) -> BookingFinanceView:
+#: Audit entries whose before/after carry supplier cost; sent only with the cost and margin permission.
+COST_ENTITIES = {"supplier_charge"}
+
+
+async def _booking_view(reference: str, viewer: BackOfficeUser) -> BookingFinanceView:
     try:
         data = await run_in_threadpool(store.booking_finance, reference)
     except store.FinanceRefused as error:
         raise refused(error) from None
-    return BookingFinanceView(reference=data.booking.reference, profit=profit_view(data), supplier_charges=[_charge(c) for c in data.charges],
-                              payment_fees=[_fee(f) for f in data.fees], refunds=[refund_view(r) for r in data.refunds],
+    view = BookingFinanceView(reference=data.booking.reference, payment_fees=[_fee(f) for f in data.fees], refunds=[refund_view(r) for r in data.refunds],
                               refundable=money(data.refundable_minor, data.booking.currency))
+    if viewer.visibility.cost_and_margin:  # supplier cost and profit: never without the grant (AGENTS.md field visibility)
+        view.profit = profit_view(data)
+        view.supplier_charges = [_charge(c) for c in data.charges]
+    return view
+
+
+def require_cost(viewer: BackOfficeUser) -> None:
+    if not viewer.visibility.cost_and_margin:
+        raise HTTPException(403, "Recording supplier charges needs the cost and margin permission.")
 
 
 @router.get("/bookings/{reference}", response_model=BookingFinanceView, responses={404: {"description": "Booking not found."}})
 async def booking_finance(reference: str, viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> BookingFinanceView:
     """A booking's profit (selling + fees charged - supplier charge - payment fees - refunds), supplier charges, fees and refunds."""
-    return await _booking_view(reference)
+    return await _booking_view(reference, viewer)
 
 
 @router.post("/bookings/{reference}/supplier-charges", response_model=BookingFinanceView, status_code=201,
@@ -128,14 +146,16 @@ async def booking_finance(reference: str, viewer: Annotated[BackOfficeUser, Depe
                         422: {"description": "Amount zero, reason missing or unknown traveler."}})
 async def add_supplier_charge(reference: str, body: AddSupplierChargeRequest,
                               viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> BookingFinanceView:
-    """Record what the supplier actually charged (tickets issued in a supplier portal), or correct it with a negative amount. Audited."""
+    """Record what the supplier actually charged (tickets issued in a supplier portal), or correct it with a negative amount. Audited.
+    Needs the cost and margin permission too."""
+    require_cost(viewer)
     try:
         await run_in_threadpool(lambda: store.add_supplier_charge(reference, actor(viewer), amount_minor=body.amount_minor, reason=body.reason,
                                                                   traveler_position=body.traveler_position,
                                                                   supplier_reference=body.supplier_reference))
     except store.FinanceRefused as error:
         raise refused(error) from None
-    return await _booking_view(reference)
+    return await _booking_view(reference, viewer)
 
 
 @router.post("/payments/{payment_id}/fees", response_model=PaymentFeeView, status_code=201,
