@@ -523,3 +523,36 @@ def test_a_real_hold_notifies_staff_with_its_facts(request):
     assert kind == "hold_created" and reference == "TRV-ABC123"
     assert details["pnr"] == "63B55C" and details["passenger"] == "MR Test Passenger" and details["route"] == "KHI → MUX"
     assert details["fare"] == "Rs 467" and details["hold_expires_at"].startswith("2026-11-20T13:18")
+
+
+# Issue #52: the age on the last travel date decides the fare type; the message names the age and the fare.
+CHILD = {**ADULT, "type": "CHD", "title": "MISS", "first_name": "Misbah", "date_of_birth": "2014-12-15"}
+
+
+@pytest.mark.parametrize("passenger,travel,fits", [
+    (CHILD, (2026, 12, 14), True),                       # 11 the day before her birthday
+    (CHILD, (2026, 12, 15), False),                      # 12 on her birthday: an adult fare
+    ({**INFANT, "date_of_birth": "2024-12-05"}, (2026, 12, 4), True),
+    ({**INFANT, "date_of_birth": "2024-12-05"}, (2026, 12, 5), False),   # turns 2: a child fare
+    ({**CHILD, "date_of_birth": "2024-12-05"}, (2026, 12, 4), False),    # still 1: an infant fare
+    ({**ADULT, "date_of_birth": "2014-12-15"}, (2026, 12, 15), True),
+])
+def test_age_is_checked_on_the_travel_date(passenger, travel, fits):
+    adult = [] if passenger["type"] == "ADT" else [ADULT]
+    request = hold_request(passengers=[*adult, passenger])
+    if fits:
+        flight_holds._supplier_passengers(request, datetime(*travel).date())
+        return
+    with pytest.raises(flight_holds.HoldError) as error:
+        flight_holds._supplier_passengers(request, datetime(*travel).date())
+    assert error.value.status == 422 and error.value.code == "dob_type_mismatch"
+    assert error.value.field_errors == [(["passengers", len(adult), "date_of_birth"], error.value.message)]
+
+
+def test_mismatch_message_names_the_age_and_the_fare():
+    from datetime import date
+    assert flight_holds.age_type_mismatch("Misbah", "CHD", date(2014, 12, 15), date(2026, 12, 20)) == (
+        "Misbah will be 12 on the travel date (20 Dec 2026), that's an Adult fare, not Child. "
+        "Check the date of birth, or search again with the right number of adults, children and infants.")
+    assert flight_holds.age_type_mismatch("Misbah", "CHD", date(2014, 12, 15), date(2026, 12, 10)) is None
+    assert "will be under 1" in flight_holds.age_type_mismatch("Baby", "CHD", date(2026, 6, 1), date(2026, 12, 10))

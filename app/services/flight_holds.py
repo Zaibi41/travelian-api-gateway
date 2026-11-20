@@ -60,6 +60,26 @@ def _age_on(birth: date, on: date) -> int:
     return on.year - birth.year - ((on.month, on.day) < (birth.month, birth.day))
 
 
+_KIND = {"ADT": ("an Adult", "Adult"), "CHD": ("a Child", "Child"), "INF": ("an Infant", "Infant")}
+
+
+def type_for_age(age: int) -> str:
+    """Airline rule, age on the last travel date: under 2 infant, 2-11 child, 12 and over adult."""
+    return "INF" if age < 2 else "CHD" if age < 12 else "ADT"
+
+
+def age_type_mismatch(first_name: str, kind: str, birth: date, travel: date) -> str | None:
+    """Issue #52: why this date of birth doesn't fit the passenger type on the last travel date (None when it fits).
+    The website and admin forms show the same sentence at the date of birth before submitting."""
+    age = _age_on(birth, travel)
+    fits = type_for_age(age)
+    if fits == kind:
+        return None
+    years = "under 1" if age < 1 else str(age)
+    return (f"{first_name.strip()} will be {years} on the travel date ({travel.day} {travel:%b %Y}), that's {_KIND[fits][0]} fare, "
+            f"not {_KIND[kind][1]}. Check the date of birth, or search again with the right number of adults, children and infants.")
+
+
 def _add_months(day: date, months: int) -> date:
     month = day.month - 1 + months
     year, month = day.year + month // 12, month % 12 + 1
@@ -106,10 +126,10 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
     infants = 0
     links = infant_adults(request)
     result = []
-    for passenger in request.passengers:
-        age = _age_on(passenger.date_of_birth, travel)
-        if passenger.type == "ADT" and age < 12 or passenger.type == "CHD" and not 2 <= age < 12 or passenger.type == "INF" and age >= 2:
-            raise HoldError(422, f"{passenger.first_name}'s date of birth doesn't match the passenger type.")
+    for index, passenger in enumerate(request.passengers):
+        mismatch = age_type_mismatch(passenger.first_name, passenger.type, passenger.date_of_birth, travel)
+        if mismatch:
+            raise HoldError(422, mismatch, code="dob_type_mismatch", field_errors=[(["passengers", index, "date_of_birth"], mismatch)])
         if passenger.type == "INF" and passenger.title not in ("MASTER", "MISS"):
             raise HoldError(422, "Infants take the title Mstr or Miss.")
         if passenger.type == "ADT" and passenger.title == "MASTER":
@@ -327,7 +347,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     given = {kind: sum(p.type == kind for p in request.passengers) for kind in counts}
     if given != counts:
         raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
-    passengers = _supplier_passengers(request, quote.request.departure_date)
+    # Ages are taken on the last travel date (the return date of a round trip), as the airlines rule (issue #52).
+    passengers = _supplier_passengers(request, quote.request.return_date or quote.request.departure_date)
     warnings = passport_warnings(request, quote.request)
 
     if quote.provider == live_flights.SOOPERFARE:
