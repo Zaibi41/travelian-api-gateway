@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta, timezone
@@ -73,6 +74,7 @@ SEARCH_LIMIT = RateLimiter(30, 60)  # searches per IP per minute
 CALENDAR_LIMIT = RateLimiter(120, 60)  # calendar reads per IP per minute
 BOOK_LIMIT = RateLimiter(5, 3600)  # bookings per IP per hour
 PAY_LIMIT = RateLimiter(20, 3600)  # payment starts and views per IP per hour
+QR_LIMIT = RateLimiter(30, 3600)  # QR downloads per IP per hour
 
 
 def check_rate(limiter: RateLimiter, ip: str) -> None:
@@ -306,6 +308,7 @@ class BankAccountView(BaseModel):
     account_number: str | None = None
     iban: str | None = None
     qr_url: str | None = None
+    qr_download_url: str | None = Field(None, description="Gateway path that downloads the QR image as a file (every browser, no S3 CORS).")
 
 
 class PaymentMethodsView(BaseModel):
@@ -319,13 +322,48 @@ class PaymentMethodsView(BaseModel):
     logo_url: str | None = None
 
 
+def _qr_path(account) -> str | None:
+    from app.services import assets
+
+    return f"/v1/public/payment-qr/{account.id}" if account.qr_asset_key and assets.public_url(account.qr_asset_key) else None
+
+
+QR_MAX_BYTES = 5 * 1024 * 1024
+QR_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+async def payment_qr(account_id: str, client_factory=None) -> tuple[bytes, str, str]:
+    """The QR image of an account checkout shows (bank transfer or JazzCash), as (bytes, content type, file name).
+    Read from its public S3 URL (no credentials); only images, at most 5 MB."""
+    import httpx
+
+    from app.db import payment_accounts
+    from app.services import assets
+
+    shown = {a.id: a for a in payment_accounts.list_accounts() if a.method in ("bank_transfer", "jazzcash")}
+    account = shown.get(account_id)
+    url = assets.public_url(account.qr_asset_key) if account else None
+    if account is None or url is None:
+        raise PublicError(404, "This QR code isn't available.", "not_found")
+    try:
+        async with (client_factory or httpx.AsyncClient)(timeout=10, follow_redirects=False) as client:
+            answer = await client.get(url)
+    except httpx.HTTPError:
+        raise PublicError(502, "The QR image couldn't be loaded. Try again, or scan it from the screen.", "qr_unavailable") from None
+    kind = (answer.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if answer.status_code != 200 or kind not in QR_TYPES or len(answer.content) > QR_MAX_BYTES:
+        raise PublicError(502, "The QR image couldn't be loaded. Try again, or scan it from the screen.", "qr_unavailable")
+    name = re.sub(r"[^a-z0-9]+", "-", (account.bank_name or account.method).lower()).strip("-") or "payment"
+    return answer.content, kind, f"travelian-{name}-qr.{QR_TYPES[kind]}"
+
+
 def bank_accounts() -> list[BankAccountView]:
     from app.db import payment_accounts
     from app.services import assets
 
     # Only accounts a customer can actually pay into: a title plus the full number, IBAN or a QR image.
     return [BankAccountView(bank_name=a.bank_name, account_title=a.account_title, account_number=a.account_number, iban=a.iban,
-                            qr_url=assets.public_url(a.qr_asset_key))
+                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
             for a in payment_accounts.list_accounts()
             if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
 
@@ -336,7 +374,7 @@ def jazzcash_accounts() -> list[BankAccountView]:
     from app.services import assets
 
     return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number,
-                            qr_url=assets.public_url(a.qr_asset_key))
+                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
             for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
 
 
