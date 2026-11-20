@@ -43,6 +43,8 @@ class BookingRow:
     itinerary: list[dict] | None = None
     #: Group bookings: the airline's final PNR, recorded by staff after payment.
     final_pnr: str | None = None
+    #: False for bookings whose cost was filled in as the selling price (migration 0028): profit "not known".
+    cost_known: bool = True
 
 
 _SELECT = text(
@@ -50,7 +52,7 @@ _SELECT = text(
            b.issuance_status, b.created_at, b.hold_expires_at, b.currency, b.total_minor,
            b.supplier_cost_minor, b.import_source, b.agency_id, a.name AS agency_name, b.updated_at,
            NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), '') AS customer_name, b.itinerary,
-           b.supplier_response ->> 'final_pnr' AS final_pnr
+           b.supplier_response ->> 'final_pnr' AS final_pnr, b.cost_known
        FROM bookings b LEFT JOIN agencies a ON a.id = b.agency_id
        LEFT JOIN booking_customers c ON c.booking_id = b.id
        WHERE b.booking_status NOT IN ('hold_pending', 'hold_failed')"""
@@ -83,6 +85,7 @@ def list_dashboard_bookings() -> list[BookingRow]:
             import_source=row["import_source"], agency_id=row["agency_id"],
             agency_name=row["agency_name"], updated_at=row["updated_at"], customer_name=row["customer_name"],
             itinerary=row["itinerary"] if isinstance(row["itinerary"], list) else None, final_pnr=row.get("final_pnr") or None,
+            cost_known=row.get("cost_known", True) is not False,
         )
         for row in rows
     ]

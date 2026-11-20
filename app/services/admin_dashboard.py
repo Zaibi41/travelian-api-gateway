@@ -229,7 +229,7 @@ def money_by_currency(sales: list[BookingRow]) -> tuple[list[CurrencyAmount], li
     for currency in sorted(by_currency, key=lambda c: (c != "PKR", c)):
         rows = by_currency[currency]
         priced = all(b.total_minor is not None for b in rows)
-        costed = priced and not any(cost_unknown(b.import_source, b.supplier_cost_minor, b.total_minor) for b in rows)
+        costed = priced and not any(cost_unknown(b.import_source, b.supplier_cost_minor, b.total_minor, b.cost_known) for b in rows)
         sales_out.append(CurrencyAmount(currency=currency, amount_minor=sum(b.total_minor or 0 for b in rows) if priced else None))
         profit_out.append(CurrencyAmount(currency=currency, amount_minor=sum((b.total_minor or 0) - (b.supplier_cost_minor or 0) for b in rows)
                                          if costed else None))

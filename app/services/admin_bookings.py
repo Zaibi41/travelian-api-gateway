@@ -244,7 +244,7 @@ def person_booking(booking: BookingRow, visibility: FieldVisibility, ticket_numb
         "ticket_numbers": ticket_numbers, "selling_price": _money(booking.total_minor, booking.currency),
     }
     if visibility.cost_and_margin:
-        if cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor):
+        if cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor, booking.cost_known):
             row["cost_unknown"] = True
         else:
             row["supplier_cost"] = _money(booking.supplier_cost_minor, booking.currency)
@@ -318,7 +318,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         problems = email_problems(people.events)
         if problems:
             detail.customer_email_problems = [CustomerEmailProblem(**problem) for problem in problems]
-    unknown_cost = cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor)
+    unknown_cost = cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor, booking.cost_known)
     if people and people.travelers and all(t.selling_minor is not None for t in people.travelers):
         per_type: dict[str, list] = {}
         for traveler in people.travelers:

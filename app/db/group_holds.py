@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies
+from app.db import agencies, finance
 from app.db.supplier_bookings import _event
 
 RELEASE_PENDING, RELEASE_DONE, RELEASE_FAILED = "pending", "released", "failed"
@@ -425,4 +425,5 @@ def record_tickets(reference: str, actor: str, final_pnr: str, tickets: dict[int
             _event(connection, booking.id, actor, "ticket_numbers_recorded", {"tickets": len(taken), "travelers": len(merged)})
         if ticketed and booking.booking_status != "ticket_issued":
             _event(connection, booking.id, actor, "group_ticketed", {"final_pnr": final_pnr, "tickets": len(taken)})
+            finance.record_issue_charges(connection, booking.id, actor)  # travelian#91: the actual supplier charge per ticket
         return _load(connection, reference, lock=False)

@@ -54,10 +54,11 @@ def scale(parts: list[int | None], total_minor: int) -> list[int]:
     return result
 
 
-def cost_unknown(import_source: str | None, cost_minor: int | None, total_minor: int | None) -> bool:
-    """No real supplier cost: none recorded, or an imported booking whose cost was filled in as its total (migration
-    0021). Profit is then "n/a", never 0."""
-    return cost_minor is None or (import_source is not None and cost_minor == total_minor)
+def cost_unknown(import_source: str | None, cost_minor: int | None, total_minor: int | None, cost_known: bool = True) -> bool:
+    """No real supplier cost: none recorded, an imported booking whose cost was filled in as its total (migration
+    0021), or a booking marked cost_known = false (migration 0028: cost = selling price before costs were recorded).
+    Profit is then "not known", never 0."""
+    return cost_minor is None or not cost_known or (import_source is not None and cost_minor == total_minor)
 
 
 @dataclass(frozen=True)

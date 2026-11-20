@@ -30,7 +30,9 @@ RECORD_PAYMENTS = "record_payments"
 ISSUE_TICKETS = "issue_tickets"
 MANAGE_PEOPLE = "manage_people"
 MERGE_PEOPLE = "merge_people"
-ACTIONS = (RECORD_PAYMENTS, ISSUE_TICKETS, MANAGE_PEOPLE, MERGE_PEOPLE)
+#: Finance screens and actions (payments review, refunds, supplier charges, audit log). Migration 0028.
+FINANCE = "finance"
+ACTIONS = (RECORD_PAYMENTS, ISSUE_TICKETS, MANAGE_PEOPLE, MERGE_PEOPLE, FINANCE)
 PERMISSIONS = (SEE_SUPPLIER_NAMES, SEE_COST_AND_MARGIN, *ACTIONS)  # reveal_identity is gone: nothing is masked
 
 FULL_ACCESS_ROLES = {"super_admin"}
@@ -121,6 +123,20 @@ async def require_finance_accounts(
 ) -> BackOfficeUser:
     """Finance > Accounts & Ledgers: FINANCE_ACCOUNT_ROLES only, everyone else 403."""
     return await run_in_threadpool(_back_office_user, user, FINANCE_ACCOUNT_ROLES, "Accounts & Ledgers access denied.")
+
+
+def _finance_user(identity) -> BackOfficeUser:
+    viewer = _back_office_user(identity, BACK_OFFICE_ROLES, "Finance access denied.")
+    if not viewer.can(FINANCE):
+        raise HTTPException(403, "Finance access denied.")
+    return viewer
+
+
+async def require_finance(
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> BackOfficeUser:
+    """Finance screens and actions: super_admin, or staff granted "finance". Everyone else 403."""
+    return await run_in_threadpool(_finance_user, user)
 
 
 async def require_search_viewer(
