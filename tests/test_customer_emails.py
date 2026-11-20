@@ -28,7 +28,7 @@ def wired(monkeypatch):
     recorded, sent = [], []
     monkeypatch.setattr(ce, "deliver", REAL_DELIVER)
     monkeypatch.setattr(ce, "_facts", lambda reference: dict(FACTS))
-    monkeypatch.setattr(ce, "_already_sent", lambda booking_id, kind: any(r[1] == kind and r[2] for r in recorded))
+    monkeypatch.setattr(ce, "_already_sent", lambda booking_id, kind: any(r[1] in ((kind,) if isinstance(kind, str) else kind) and r[2] for r in recorded))
     monkeypatch.setattr(ce, "create_link", lambda booking_id, itinerary, purpose: "tok123")
     monkeypatch.setattr(ce, "_record", lambda booking_id, kind, ok, why, to: recorded.append((booking_id, kind, ok, why)))
     return recorded, sent
@@ -115,3 +115,47 @@ def test_booking_link_route_opens_one_booking_read_only(monkeypatch):
     good = client.get("/v1/public/booking-links/good-token-123")
     assert good.status_code == 200 and good.json()["reference"] == "TRV-1" and good.json()["travelers"] == ["MR Ali Raza"]
     assert seen == [True] and "can_pay" not in good.json()                # read-only lookup shape, opened by the link
+
+
+# ---------- gateway#52: hold ended, booking cancelled ----------
+
+def test_hold_ended_email_only_after_a_hold_email(wired, monkeypatch):
+    recorded, sent = wired
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (sent.append((to, email)), (True, "sent"))[1])
+    # Never told about the hold (e.g. a staff hold): nothing is sent or recorded.
+    assert ce.deliver("TRV-1", "hold_expired") == (False, "not needed") and sent == [] and recorded == []
+    assert ce.deliver("TRV-1", "booking_held")[0] is True
+    assert ce.deliver("TRV-1", "hold_expired") == (True, "sent")
+    email = sent[-1][1]
+    assert email.subject == "Booking TRV-1: your hold has ended"
+    assert "Nothing was charged" in email.html and "/flights-search" in email.html and "wa.me/" in email.html
+    assert "Nothing was charged" in email.text and "Southair" not in email.html and "SooperFare" not in email.html
+    assert ce.deliver("TRV-1", "hold_expired") == (False, "already sent")
+
+
+def test_hold_ended_email_not_sent_when_money_was_paid(wired, monkeypatch):
+    recorded, sent = wired
+    monkeypatch.setattr(ce, "_facts", lambda reference: {**FACTS, "paid_minor": 1_000_000})
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (sent.append((to, email)), (True, "sent"))[1])
+    ce.deliver("TRV-1", "booking_held")
+    assert ce.deliver("TRV-1", "hold_expired") == (False, "not needed") and len(sent) == 1
+
+
+@pytest.mark.parametrize("paid,words", [(0, "Nothing was charged."), (2_407_000, "Our team will contact you about the refund.")])
+def test_cancelled_email_says_what_happens_to_the_money(paid, words):
+    booking = ce.booking_from({**FACTS, "paid_minor": paid}, "https://travelian.pk/my-bookings/view/tok")
+    email = ce.render("booking_cancelled", booking)
+    assert email.subject == "Booking TRV-1 is cancelled" and words in email.html and words in email.text
+    assert "wa.me/" in email.html
+
+
+def test_every_kind_renders():
+    booking = ce.booking_from(dict(FACTS), "https://travelian.pk/my-bookings/view/tok")
+    monkey_accounts = ce._accounts
+    try:
+        ce._accounts = lambda kind: []
+        for kind in sorted(ce.KINDS):
+            email = ce.render(kind, booking)
+            assert email.subject and "TRV-1" in email.html and email.text
+    finally:
+        ce._accounts = monkey_accounts

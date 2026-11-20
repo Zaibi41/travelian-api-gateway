@@ -43,6 +43,23 @@ def test_expired_flights_are_counted_and_payments_flagged_by_booking(caplog):
     assert supplier.mock_calls == []  # no supplier or airline call
 
 
+def test_unpaid_expired_holds_get_the_hold_ended_email(request):
+    from app.services import flight_fallback
+
+    async def hold_lost(reference, reason):
+        pass
+
+    with patch.object(flight_fallback, "hold_lost", hold_lost), \
+         patch.object(group_store, "expire_due", lambda now, no_release=frozenset(): ["TRV-GRP001"]):
+        supplier = MagicMock()
+        with patch.object(flight_expiry, "expire_due", MagicMock(return_value=[flight_expiry.FlightExpired("TRV-PAID01", 2_666_000, "PKR", "paid_not_ticketed"),
+                                                                               flight_expiry.FlightExpired("TRV-AB12CD", 0, "PKR")])), \
+             patch.object(group_store, "releases_due", lambda limit: []), patch.object(group_hold_expiry, "provider_for", lambda vendor: supplier):
+            asyncio.run(group_hold_expiry.run_once(NOW))
+    # deliver decides per booking whether the customer was told about the hold (tests/test_customer_emails.py).
+    assert [(ref, kind) for ref, kind, _ in request.node.customer_emails] == [("TRV-AB12CD", "hold_expired"), ("TRV-GRP001", "hold_expired")]
+
+
 def test_nothing_due_logs_zero(caplog):
     caplog.set_level("INFO")
     outcome, _, _ = run([])
