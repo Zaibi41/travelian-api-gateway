@@ -35,6 +35,10 @@ Built in gateway#45; **not called yet**. The owner issues the first real booking
 *2 · Issue the ticket*). Its request and SooperFare's answer are saved on that booking (`supplier_response.ticketing`:
 `confirm.request`, `confirm.answer`, `booking_list`) and will be copied here, with secrets and personal data removed.
 
+Before sending, `POST /v1/booking/list` must show the booking `active`, not paid, not issued, with `billable_price` equal to
+the supplier cost on the booking; otherwise nothing is sent. SooperFare bookings are never issued automatically after a card
+payment (staff get a red alert and issue from the admin).
+
 What the gateway sends (one call, never retried), for a held, fully paid booking that isn't a TEST booking:
 
 ```json
@@ -45,6 +49,8 @@ What the gateway sends (one call, never retried), for a held, fully paid booking
 Then `POST /v1/booking/list` (re-read after 0, 3 and 6 s): **Ticket issued** only when `additional.is_issued` is true and
 every passenger in `booking.providers[].legs[].passengers[]` has a `ticket_number` (matched to our travelers by type and
 order). Anything else leaves the booking *unknown*, so staff use *Check with supplier* (read-only) and nobody confirms twice.
+After a confirm, *Check with supplier* never re-opens issuing just because the list still shows the booking on hold (the list
+can lag); staff check SooperFare's portal and use *Mark as not issued* with a reason.
 
 ### First real confirm
 

@@ -112,8 +112,15 @@ def _sooperfare_record(listing: dict[str, Any], booking_ref: str) -> dict[str, A
                     "is_paid": bool(flags.get("is_paid")), "is_issued": bool(flags.get("is_issued")), "expiry_at": booking.get("expiry_at"),
                     "order_ref_id": booking.get("order_ref_id"), "pnr": next((str(p.get("pnr")) for p in booking.get("providers") or []
                                                                              if isinstance(p, dict) and p.get("pnr")), None),
-                    "tickets": _tickets(booking)}
+                    "tickets": _tickets(booking), "billable_minor": _minor(booking.get("billable_price"))}
     return None
+
+
+def _minor(value) -> int | None:
+    try:
+        return int(round(float(str(value)) * 100))
+    except (TypeError, ValueError):
+        return None
 
 
 def is_cancelled(state: dict[str, Any] | None) -> bool:

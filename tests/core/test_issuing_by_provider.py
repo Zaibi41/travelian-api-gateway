@@ -30,17 +30,22 @@ def passenger(kind, ticket):
     return {"ticket_number": ticket, "status": "issued" if ticket else "not_issued", "passenger": {"traveler_type": kind}}
 
 
-def listing(*, issued=True, paid=True, status="active", legs=(("adult", "2147483647001"),)):
+def listing(*, issued=True, paid=True, status="active", legs=(("adult", "2147483647001"),), billable="22070.00"):
     """SooperFare's booking/list answer for uuid-1. legs: one tuple of (type, ticket) per leg, one pair per passenger."""
     if legs and not isinstance(legs[0][0], tuple):
         legs = (legs,)
     return {"data": [{"uuid": "uuid-1", "additional": {"is_issued": issued, "is_paid": paid, "is_cancelled": False},
-                      "booking": {"reservation_status": status, "providers": [
+                      "booking": {"reservation_status": status, "billable_price": billable, "providers": [
                           {"pnr": "IKVIMS", "legs": [{"passengers": [passenger(kind, ticket) for kind, ticket in leg]} for leg in legs]}]}}]}
 
 
-def sooperfare(confirm=None, lists=None):
-    lists = list(lists or [listing()])
+#: SooperFare's record before the confirm: on hold, unpaid, not issued, at the stored supplier cost (Rs 22,070).
+HELD = listing(issued=False, paid=False, legs=(("adult", None),))
+
+
+def sooperfare(confirm=None, lists=None, before=HELD):
+    """booking/list answers: `before` (the check before the confirm; None for a Check with supplier), then `lists`."""
+    lists = ([before] if before is not None else []) + list(lists or [listing()])
     return MagicMock(confirm=confirm or AsyncMock(return_value={"status": True, "message": "Operation Successfull"}),
                      booking_list=AsyncMock(side_effect=lists + [lists[-1]] * 5))
 
@@ -98,7 +103,7 @@ def test_issue_sends_one_confirm_and_records_the_ticket_numbers():
 def test_issue_rereads_the_booking_list_until_the_numbers_appear():
     sf = sooperfare(lists=[listing(issued=False, legs=(("adult", None),)), listing()])
     outcome, _, mark_issued = run_issue(sf)
-    assert outcome.result == "issued" and sf.booking_list.await_count == 2 and sf.confirm.await_count == 1
+    assert outcome.result == "issued" and sf.booking_list.await_count == 3 and sf.confirm.await_count == 1  # before + 2 after
 
 
 @pytest.mark.parametrize("answer,code", [
@@ -202,7 +207,7 @@ def test_a_sooperfare_booking_never_reaches_southair():
 def run_verify(sf, status="unknown"):
     booking = target("sooperfare", status)
     with patch.object(store, "load", return_value=booking), patch.object(store, "mark_issued") as mark_issued, \
-         patch.object(store, "resolve_not_issued") as resolved, patch.object(store, "mark_unknown") as unknown, \
+         patch.object(store, "resolve_not_issued") as resolved, patch.object(store, "mark_unknown") as unknown, patch.object(store, "log_check"), \
          patch.object(store, "last_attempt", return_value=("issuance_failed", {}, datetime.now(timezone.utc))), \
          patch.object(sooperfare_bookings, "_load", return_value=RECORD):
         outcome = asyncio.run(issuance.verify("TRV-1", ADMIN, sooperfare_factory=lambda: sf))
@@ -210,22 +215,32 @@ def run_verify(sf, status="unknown"):
 
 
 def test_check_records_the_tickets_sooperfare_shows():
-    sf = sooperfare()
+    sf = sooperfare(before=None)
     outcome, mark_issued, _, _ = run_verify(sf)
     assert outcome.result == "issued" and mark_issued.call_args.args[2] == {0: "2147483647001"}
     sf.confirm.assert_not_awaited()
 
 
-def test_check_says_safe_to_issue_again_when_sooperfare_shows_it_untouched():
-    sf = sooperfare(lists=[listing(issued=False, paid=False, legs=(("adult", None),))])
-    outcome, _, resolved, _ = run_verify(sf)
+def test_check_after_a_refusal_says_safe_to_issue_again_when_sooperfare_shows_it_untouched():
+    sf = sooperfare(lists=[HELD], before=None)
+    outcome, _, resolved, _ = run_verify(sf, status="not_issued")
     assert outcome.result == "not_issued" and "safe to issue again" in outcome.message
-    resolved.assert_called_once()
+    resolved.assert_not_called()
+    sf.confirm.assert_not_awaited()
+
+
+def test_check_after_a_confirm_never_reopens_issuing_from_the_list_alone():
+    """SooperFare's list can lag a confirm: 'still on hold' keeps it unknown until staff resolve it (no double charge)."""
+    sf = sooperfare(lists=[HELD], before=None)
+    outcome, mark_issued, resolved, unknown = run_verify(sf, status="unknown")
+    assert outcome.result == "unknown" and outcome.issuance_status == "unknown" and "Mark as not issued" in outcome.message
+    resolved.assert_not_called()
+    mark_issued.assert_not_called()
     sf.confirm.assert_not_awaited()
 
 
 def test_check_stays_unknown_when_paid_but_not_issued():
-    sf = sooperfare(lists=[listing(issued=False, paid=True, legs=(("adult", None),))])
+    sf = sooperfare(lists=[listing(issued=False, paid=True, legs=(("adult", None),))], before=None)
     outcome, mark_issued, resolved, _ = run_verify(sf)
     assert outcome.result == "unknown" and "paid but not issued" in outcome.message
     mark_issued.assert_not_called()
@@ -234,7 +249,7 @@ def test_check_stays_unknown_when_paid_but_not_issued():
 
 def test_check_when_sooperfare_doesnt_list_it_changes_nothing():
     with pytest.raises(store.IssuanceRefused) as error:
-        run_verify(sooperfare(lists=[{"data": []}]))
+        run_verify(sooperfare(lists=[{"data": []}], before=None))
     assert error.value.status == 502
 
 
@@ -254,3 +269,46 @@ def test_ticketing_is_off_for_sooperfare_by_default():
     with patch.object(settings, "southair_ticketing_enabled", True), patch.object(settings, "sooperfare_ticketing_enabled", False):
         assert issuance.ticketing_on("southair") and issuance.ticketing_on(None)
         assert not issuance.ticketing_on("sooperfare")
+
+
+# ---------- checks before the confirm (it charges Travelian's balance) ----------
+
+@pytest.mark.parametrize("before,code", [
+    ({"data": []}, "sooperfare_check_failed"),                                                   # not listed
+    (listing(issued=False, paid=True, legs=(("adult", None),)), "sooperfare_already_paid"),
+    (listing(issued=True, paid=True), "sooperfare_already_paid"),
+    (listing(issued=False, paid=False, status="expired", legs=(("adult", None),)), "sooperfare_not_held"),
+    (listing(issued=False, paid=False, legs=(("adult", None),), billable="23070.00"), "supplier_cost_changed_at_sooperfare"),
+])
+def test_nothing_is_sent_unless_sooperfare_shows_it_held_unpaid_at_the_recorded_cost(before, code):
+    sf = sooperfare(before=before)
+    with pytest.raises(store.IssuanceRefused) as error:
+        run_issue(sf)
+    assert error.value.code == code and "Nothing was sent to SooperFare" in error.value.message
+    sf.confirm.assert_not_awaited()
+
+
+def test_nothing_is_sent_when_the_request_doesnt_match_the_locked_booking():
+    sf = sooperfare()
+    changed = store.Target("b1", "TRV-1", "IKVIMS", "sooperfare", "flight", "held", "not_issued", datetime.now(timezone.utc) + timedelta(hours=20),
+                           "PKR", 2207000, 2307000, "uuid-1", 2207000, [(0, "ADT")])  # supplier cost changed after the request was built
+    with pytest.raises(store.IssuanceRefused) as error:
+        run_issue(sf, changed)
+    assert error.value.code == "booking_changed"
+    sf.confirm.assert_not_awaited()
+
+
+# ---------- never automatically ----------
+
+def test_a_paid_sooperfare_booking_is_never_issued_automatically():
+    from app.services import flight_fallback, flight_payments
+
+    booking = target("sooperfare")
+    with patch.object(settings, "sooperfare_ticketing_enabled", True), patch.object(settings, "sooperfare_confirm_enabled", True), \
+         patch.object(settings, "southair_ticketing_enabled", True), patch.object(flight_payments.payfast, "payments_allowed", return_value=True), \
+         patch.object(store, "load", return_value=booking), patch.object(flight_payments.customer_emails if hasattr(flight_payments, "customer_emails") else __import__("app.services.customer_emails", fromlist=["x"]), "send", AsyncMock()), \
+         patch.object(flight_fallback, "needs_staff", AsyncMock(return_value="needs_staff")) as staff, \
+         patch.object(issuance, "issue", AsyncMock()) as issue:
+        outcome = asyncio.run(flight_payments.after_verified_card_payment("TRV-1"))
+    assert outcome == "needs_staff" and "never automatically" in staff.call_args.args[1]
+    issue.assert_not_awaited()

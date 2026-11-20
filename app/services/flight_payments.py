@@ -50,9 +50,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+#: Suppliers issued automatically after a verified card payment. SooperFare is never issued automatically: staff issue it
+#: from the admin (its confirm charges Travelian's SooperFare balance; gateway#45).
+AUTO_ISSUING_PROVIDERS = (None, "southair")
+
+
 def auto_issuing() -> bool:
     """Automatic issuing after a card payment: only with production PayFast (a UAT payment is test money) and Southair
-    ticketing on. SooperFare is never issued automatically (its confirm call isn't built)."""
+    ticketing on, and only for AUTO_ISSUING_PROVIDERS."""
     return payfast.payments_allowed() and settings.southair_ticketing_enabled
 
 
@@ -117,6 +122,8 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
         return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
     if not payfast.payments_allowed():
         return await staff(f"automatic issuing is off: PayFast is in {payfast.mode()} mode, so nothing was sent to the supplier")
+    if target.provider not in AUTO_ISSUING_PROVIDERS:
+        return await staff("this supplier's tickets are issued by staff from the admin (Payments tab, Issue the ticket), never automatically")
     reason = issuance.ticketing_reason(target.provider, target.product)
     if reason:
         return await staff(f"automatic issuing didn't run. {reason}")
@@ -143,7 +150,7 @@ async def recover(now: datetime | None = None, client_factory=None, sooperfare_f
     before = now - timedelta(minutes=minutes)
     outcomes: dict[str, str] = {}
     for reference, status, provider in await run_in_threadpool(flight_recovery.stuck_card_payments, before):
-        if status == "not_issued" and not (auto_issuing() and issuance.ticketing_on(provider)):
+        if status == "not_issued" and not (auto_issuing() and provider in AUTO_ISSUING_PROVIDERS and issuance.ticketing_on(provider)):
             continue  # paid, issuance pending with staff by design (already alerted); nothing to retry
         claimed = await run_in_threadpool(flight_recovery.claim_recovery, reference, before, {"stuck_minutes": minutes})
         if claimed is None:

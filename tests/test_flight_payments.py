@@ -185,11 +185,12 @@ def test_ticketing_off_never_calls_the_supplier_and_goes_to_staff():
 
 
 def test_sooperfare_is_never_issued_from_travelian_even_with_its_flag_on():
-    """SooperFare ticket issuing isn't built (its confirm call has no documented answer): paid, staff red alert."""
-    result, issue, alerts = _after(_target(provider="sooperfare"), ticketing=True)
+    """SooperFare is issued by staff from the admin only (gateway#45): a paid booking gets a staff red alert, never an issue call."""
+    with patch.object(settings, "sooperfare_ticketing_enabled", True), patch.object(settings, "sooperfare_confirm_enabled", True):
+        result, issue, alerts = _after(_target(provider="sooperfare"), ticketing=True)
     assert result == "needs_staff"
     issue.assert_not_awaited()
-    assert [kind for kind, _ in alerts] == ["needs_staff"] and "SooperFare's portal" in alerts[0][1]
+    assert [kind for kind, _ in alerts] == ["needs_staff"] and "never automatically" in alerts[0][1]
 
 
 def test_payment_after_the_hold_ended_is_never_sent_for_ticketing():
