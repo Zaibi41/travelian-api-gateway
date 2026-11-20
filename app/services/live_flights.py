@@ -577,6 +577,36 @@ def can_book(viewer: BackOfficeUser, provider: str = "southair") -> bool:
     return booking_enabled(provider) and viewer.role in BACK_OFFICE_ROLES
 
 
+_DOCUMENTS: dict[tuple[str, tuple[str, ...]], tuple[float, list[dict]]] = {}
+
+
+async def document_requirements(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, sooperfare_factory=None) -> list[dict]:
+    """Which travelers must give a CNIC or a passport for these fares, before the passenger form is sent (SooperFare's
+    quote; other suppliers: none known up front). Kept for the quote's lifetime so a page reload doesn't ask again."""
+    session = get_session(search_id, viewer.user_id)
+    if session is None:
+        raise RepriceError(404, "This search has expired. Search again.", code="search_expired")
+    wanted = _selected_refs(session, fare_ids)
+    if wanted[0].provider != SOOPERFARE:
+        return []
+    key, now = (search_id, tuple(fare_ids)), _now()
+    cached = _DOCUMENTS.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    try:
+        _, _, _, context = await sf_price_selection(session.request, wanted, sooperfare_factory)
+    except sooperfare.SooperfareError as error:
+        logger.warning("Document requirements not read", extra={"error_code": error.error_code})
+        raise RepriceError(502, "The airline's document rules couldn't be read. Try again.") from None
+    from app.services.sooperfare_holds import required_documents
+
+    documents = required_documents(context.get("passengers") or [])
+    for old in [k for k, (until, _) in _DOCUMENTS.items() if until <= now]:
+        _DOCUMENTS.pop(old, None)
+    _DOCUMENTS[key] = (now + QUOTE_TTL_SECONDS, documents)
+    return documents
+
+
 async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> "RepriceView":
     from app.schemas.live_flights import PassengerPrice, RepriceView
 
@@ -623,7 +653,10 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         provider=provider, supplier_context=context,
     )
     _store_quote(quote)
+    from app.services.sooperfare_holds import required_documents
+
     view = RepriceView(
+        documents=required_documents((context or {}).get("passengers") or []),
         quote_id=quote.id, expires_at=datetime.fromtimestamp(quote.expires_at, timezone.utc),
         selling_total=FlightMoney(amount_minor=selling_total, currency=currency),
         new_total=FlightMoney(amount_minor=selling_total, currency=currency),

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.flights import FlightSearchRequest
+from app.schemas.live_flights import RequiredDocument
 from app.services import public_booking as service
 
 router = APIRouter(prefix="/public", tags=["public website"])
@@ -154,6 +155,27 @@ async def flight_payment_options(body: FlightPaymentQuery, request: Request):
         return await service.flight_payment_options(body.search_id, body.fare_ids)
     except service.PublicError as error:
         return _error(error)
+
+
+class FlightDocuments(BaseModel):
+    documents: list[RequiredDocument] = Field(description="Travelers whose airline asks for that document on this fare. Empty: no "
+                                                          "specific document known (the booking route still checks).")
+
+
+@router.post("/flights/documents", response_model=FlightDocuments,
+             responses={404: {"description": "The search expired."}, 429: {"description": "Too many requests."},
+                        502: {"description": "The airline's rules couldn't be read; the booking route still checks them."}})
+async def flight_documents(body: FlightPaymentQuery, request: Request):
+    """Which travelers must give a CNIC (or a passport) for the chosen fares, so checkout asks for it before submitting."""
+    from app.services import live_flights
+
+    try:
+        service.check_rate(service.CALENDAR_LIMIT, _ip(request))
+        return FlightDocuments(documents=await live_flights.document_requirements(body.search_id, body.fare_ids, service.WEBSITE_SEARCH_VIEWER))
+    except service.PublicError as error:
+        return _error(error)
+    except live_flights.RepriceError as error:
+        return JSONResponse({"detail": error.message, "code": error.code}, status_code=error.status)
 
 
 Token = Annotated[str, Header(alias="X-Booking-Token", min_length=8, max_length=200)]
