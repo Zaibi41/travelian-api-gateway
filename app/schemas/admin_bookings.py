@@ -318,6 +318,8 @@ class IssuanceChecklist(BaseModel):
     margin: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
     last_attempt: IssuanceAttempt | None = Field(None, description="The last issuing attempt or supplier check, with its reason.")
     can_check: bool = Field(False, description="Check with supplier is available (unknown or failed issuance; read-only).")
+    balance_warning: str | None = Field(None, description="The supplier's known balance is low or below this ticket's cost (Finance > Wallets). "
+                                                         "Amounts and supplier name only with cost and margin plus supplier names.")
 
 
 class IssueTicketRequest(BaseModel):

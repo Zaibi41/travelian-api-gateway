@@ -236,3 +236,45 @@ class UpdatePaymentSettings(BaseModel):
     card_fee_bps: int | None = Field(None, ge=0, le=1000)
     card_fee_on_group: bool | None = None
     reason: str | None = Field(None, max_length=500)
+
+
+class SupplierWalletView(BaseModel):
+    provider_id: str
+    name: str
+    mode: Literal["api", "calculated"] = Field(description="api: read from the supplier; calculated: top-ups + adjustments - ticket charges.")
+    balance: BookingMoney | None = Field(None, description="Null = not known yet (never read, or nothing recorded).")
+    as_of: datetime | None = Field(None, description="When the supplier was last read (api) or the last movement (calculated).")
+    tracking_since: datetime | None = None
+    threshold: BookingMoney | None = Field(None, description="Alert below this. Null = no alert set.")
+    low: bool | None = None
+    note: str | None = Field(None, description="Plain words, e.g. why the balance can't be read.")
+
+
+class SupplierWalletList(BaseModel):
+    wallets: list[SupplierWalletView]
+
+
+class WalletEntryRequest(BaseModel):
+    amount_minor: int = Field(description="Paisa. Top-up: more than 0. Adjustment: + or -, never 0.")
+    reference: str | None = Field(None, max_length=120)
+    reason: str | None = Field(None, max_length=500)
+    occurred_at: datetime
+
+
+class WalletThresholdRequest(BaseModel):
+    threshold_minor: int | None = Field(None, ge=0, le=100_000_000_000, description="Null removes the alert.")
+
+
+class WalletHistoryItem(BaseModel):
+    at: datetime
+    kind: Literal["balance_check", "top_up", "adjustment", "ticket"]
+    amount: BookingMoney | None = None
+    balance: BookingMoney | None = None
+    reference: str | None = None
+    reason: str | None = None
+    booking_reference: str | None = None
+    by_user_id: str | None = None
+
+
+class WalletHistory(BaseModel):
+    items: list[WalletHistoryItem]

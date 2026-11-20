@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import Path as PathParam
 from starlette.concurrency import run_in_threadpool
 
 from app.core.authentication import AuthenticatedUser, require_authenticated_user
@@ -416,3 +417,86 @@ async def update_payment_settings(body: UpdatePaymentSettings, viewer: Annotated
             raise HTTPException(422, str(error)) from None
         stored = await run_in_threadpool(store.set_setting, key, value, actor(viewer), body.reason)
     return _payment_settings(stored or await run_in_threadpool(store.get_settings))
+
+
+# ------------------------------------------------------------------------------------------------ Finance > Wallets (#68)
+from app.db import supplier_wallets as wallet_store  # noqa: E402
+from app.schemas.finance import (  # noqa: E402
+    SupplierWalletList, SupplierWalletView, WalletEntryRequest, WalletHistory, WalletHistoryItem, WalletThresholdRequest,
+)
+from app.services import supplier_wallets as wallet_service  # noqa: E402
+
+PROVIDER_PATTERN = "^(southair|sooperfare)$"
+
+
+async def require_wallet_viewer(viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> BackOfficeUser:
+    """Supplier balances: Finance and the cost and margin permission (never agency roles)."""
+    if not viewer.visibility.cost_and_margin:
+        raise HTTPException(403, "Supplier balances need the cost and margin permission.")
+    return viewer
+
+
+def _wallet_view(w: wallet_store.Wallet, note: str | None = None) -> SupplierWalletView:
+    if note is None and w.balance_minor is None:
+        note = ("Not read yet. Press Refresh." if w.mode == "api"
+                else "SooperFare has no balance API. Record a top-up (or the opening balance as an adjustment) to start.")
+    return SupplierWalletView(provider_id=w.provider_id, name=w.name, mode=w.mode,
+                              balance=None if w.balance_minor is None else money(w.balance_minor, w.currency), as_of=w.as_of,
+                              tracking_since=w.tracking_since, threshold=None if w.threshold_minor is None else money(w.threshold_minor, w.currency),
+                              low=w.low, note=note)
+
+
+@router.get("/supplier-balances", response_model=SupplierWalletList)
+async def supplier_balances(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)]) -> SupplierWalletList:
+    """Each supplier's last known balance: Southair as last read from its API, SooperFare calculated. No customer wallets."""
+    return SupplierWalletList(wallets=[_wallet_view(w) for w in await run_in_threadpool(wallet_store.wallets)])
+
+
+@router.post("/supplier-balances/southair/refresh", response_model=SupplierWalletView, responses={502: {"description": "Southair didn't answer."}})
+async def refresh_southair(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)]) -> SupplierWalletView:
+    """Read Southair's balance now (read-only /my-profile) and keep it as a snapshot."""
+    try:
+        return _wallet_view(await wallet_service.refresh_southair(actor(viewer)))
+    except wallet_service.BalanceUnavailable as error:
+        raise HTTPException(502, error.message) from None
+
+
+async def _entry(provider: str, kind: str, body: WalletEntryRequest, viewer: BackOfficeUser) -> SupplierWalletView:
+    try:
+        await run_in_threadpool(lambda: wallet_store.add_entry(provider, actor(viewer), kind=kind, amount_minor=body.amount_minor,
+                                                               reference=body.reference, reason=body.reason, occurred_at=body.occurred_at))
+    except store.FinanceRefused as error:
+        raise refused(error) from None
+    return _wallet_view(await wallet_service.check_low(provider))
+
+
+@router.post("/supplier-balances/{provider}/top-ups", response_model=SupplierWalletView, status_code=201, responses={422: {}})
+async def record_top_up(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)], body: WalletEntryRequest,
+                        provider: str = PathParam(pattern=PROVIDER_PATTERN)) -> SupplierWalletView:
+    """Record money Travelian paid into a supplier account with no balance API (SooperFare). Records only; moves no money."""
+    return await _entry(provider, "top_up", body, viewer)
+
+
+@router.post("/supplier-balances/{provider}/adjustments", response_model=SupplierWalletView, status_code=201, responses={422: {}})
+async def adjust_balance(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)], body: WalletEntryRequest,
+                         provider: str = PathParam(pattern=PROVIDER_PATTERN)) -> SupplierWalletView:
+    """Correct the calculated balance (+ or -) with a reason, e.g. to match SooperFare's portal. Audited."""
+    return await _entry(provider, "adjustment", body, viewer)
+
+
+@router.put("/supplier-balances/{provider}/threshold", response_model=SupplierWalletView)
+async def set_threshold(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)], body: WalletThresholdRequest,
+                        provider: str = PathParam(pattern=PROVIDER_PATTERN)) -> SupplierWalletView:
+    """The low-balance alert level for this supplier (a Finance setting, audited). Null removes it."""
+    await run_in_threadpool(store.set_setting, wallet_store.threshold_key(provider), body.threshold_minor, actor(viewer))
+    return _wallet_view(await wallet_service.check_low(provider))
+
+
+@router.get("/supplier-balances/{provider}/history", response_model=WalletHistory)
+async def wallet_history(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)],
+                         provider: str = PathParam(pattern=PROVIDER_PATTERN)) -> WalletHistory:
+    """Balance checks, top-ups, adjustments and ticket charges, newest first."""
+    items = await run_in_threadpool(wallet_store.history, provider)
+    return WalletHistory(items=[WalletHistoryItem(at=i.at, kind=i.kind, amount=None if i.amount_minor is None else money(i.amount_minor, "PKR"),
+                                                  balance=None if i.balance_minor is None else money(i.balance_minor, "PKR"), reference=i.reference,
+                                                  reason=i.reason, booking_reference=i.booking_reference, by_user_id=i.by_user_id) for i in items])
