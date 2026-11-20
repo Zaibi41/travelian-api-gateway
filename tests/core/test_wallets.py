@@ -72,6 +72,6 @@ def test_low_balance_alert_and_audit_hide_supplier_figures(monkeypatch):
     monkeypatch.setattr(notifications, "_record", lambda kind, reference, title, details: recorded.append((title, details)) or "n1")
     monkeypatch.setattr(notifications, "_send_email", lambda subject, body, html=None: recorded.append((subject, body)) or False)
     asyncio.run(service._low_balance_alert(store.Wallet("sooperfare", "SooperFare", "calculated", 4_000_000, "PKR", None, None, 5_000_000)))
-    assert "SooperFare" not in str(recorded) and "40,000" not in str(recorded) and "Rs" not in str(recorded)
+    assert "sooperfare" not in str(recorded).lower() and "40,000" not in str(recorded) and "Rs" not in str(recorded)
     assert hides_cost("supplier_wallet", "sooperfare") and hides_cost("finance_setting", "low_balance_southair_minor")
     assert not hides_cost("finance_setting", "card_fee_bps")

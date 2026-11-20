@@ -73,7 +73,7 @@ async def _low_balance_alert(wallet: store.Wallet) -> None:
     lines = ["A supplier balance dropped below its alert level.", "Top up before issuing more tickets (Finance > Wallets)."]
     try:
         notification_id = await run_in_threadpool(notifications._record, "low_supplier_balance", None, title,
-                                                   {"provider_id": wallet.provider_id, "urgent": True})
+                                                   {"urgent": True})
     except Exception:  # noqa: BLE001
         logger.error("Low balance alert not recorded", exc_info=True)
         return
