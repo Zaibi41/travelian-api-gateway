@@ -148,7 +148,7 @@ def test_hold_reserves_once_verifies_the_total_and_saves():
     priced = reprice(view)
     sf = fake_sf()
     result, save = hold(priced, sf)
-    assert result.booking_id == "TRV-SF1" and result.pnr == "ZWHLZG" and result.label is None  # live, not "UAT test data"
+    assert result.booking_id == "TRV-SF1" and result.pnr == "ZWHLZG" and result.label is None
     body = sf.reservation.await_args.args[0]
     passenger = body["passengers"][0]
     assert passenger["nic"] == "3520112345671" and passenger["nationality"] == "PK" and passenger["title"] == "mr" and passenger["gender"] == "male"

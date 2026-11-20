@@ -10,7 +10,7 @@ from app.db import supplier_bookings
 from app.services import admin_bookings
 
 
-def test_hold_is_saved_as_uat_test_data_with_an_audit_entry(database):
+def test_hold_is_saved_as_an_ordinary_booking_with_an_audit_entry(database):
     connection, metadata, _ = database
     connection.execute(metadata.tables["users"].insert().values(id="11111111-1111-4111-8111-111111111111", cognito_issuer="https://t.invalid", cognito_sub="s"))
     reference = supplier_bookings.save_hold(
@@ -19,13 +19,13 @@ def test_hold_is_saved_as_uat_test_data_with_an_audit_entry(database):
         actor_user_id="11111111-1111-4111-8111-111111111111", audit={"pnr": "63B55C"},
     )
     row = connection.execute(text("SELECT booking_status, payment_status, issuance_status, import_source, supplier_ref FROM bookings WHERE reference=:r"), {"r": reference}).one()
-    assert tuple(row) == ("held", "unpaid", "not_issued", "southair_uat", "TICKET-REF-SECRET")
+    assert tuple(row) == ("held", "unpaid", "not_issued", None, "TICKET-REF-SECRET")
     event = connection.execute(text("SELECT action, details->>'label' FROM booking_events")).one()
-    assert tuple(event) == ("hold_created", "UAT test data")
+    assert tuple(event) == ("hold_created", None)
 
     rows = store.list_dashboard_bookings()
     detail = admin_bookings.build_detail(admin_bookings.find_booking(rows, reference), NONE).model_dump_json()
-    assert '"sample_label":"UAT test data"' in detail and "TICKET-REF-SECRET" not in detail and "45770" not in detail
+    assert '"sample":false' in detail and "UAT" not in detail and "TICKET-REF-SECRET" not in detail and "45770" not in detail
 
 
 def test_issuance_can_be_unknown(database):

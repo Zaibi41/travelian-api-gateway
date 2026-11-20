@@ -88,7 +88,7 @@ def keys(value):
 def test_list_carries_source_sample_label_and_newest_first(monkeypatch):
     body = client(monkeypatch).get("/v1/admin/bookings").json()
     assert body["source"] == "gateway_bookings"
-    assert body["contains_sample_data"] is True and body["sample_label"] == "Sample data"
+    assert body["contains_sample_data"] is True and body["sample_label"] == "Imported"
     assert [i["booking_id"] for i in body["items"]] == ["TRV-1", "TRV-2", "TRV-3", "TRV-4", "TRV-5", "TRV-6", "TRV-8", "TRV-9"]
     assert [i["sample"] for i in body["items"]] == [False] * 5 + [True] + [False] * 2
     assert body["items"][0]["amount"] == {"amount_minor": 1_000_000, "currency": "PKR"}
@@ -194,7 +194,7 @@ def test_detail_for_super_admin_has_fare_cost_margin_and_supplier_payment(monkey
 def test_detail_sample_label_404_and_retired(monkeypatch):
     api = client(monkeypatch)
     sample = api.get("/v1/admin/bookings/TRV-6").json()
-    assert sample["sample"] is True and sample["sample_label"] == "Sample data"
+    assert sample["sample"] is True and sample["sample_label"] == "Imported"
     assert api.get("/v1/admin/bookings/NOPE").status_code == 404
     assert api.get("/v1/admin/bookings/TRV-7").status_code == 404  # retired product
 
@@ -423,3 +423,12 @@ def test_issue_result_carries_no_supplier_fields(monkeypatch):
     response = client(monkeypatch, viewer=ISSUER).post("/v1/admin/bookings/TRV-2/issuance/issue")
     assert response.json() == {"result": "issued", "issuance_status": "issued", "message": "Ticket issued.",
                                "tickets": [{"position": 0, "ticket_number": "2147483647001"}]}
+
+
+
+def test_southair_holds_are_not_labelled_as_test_data():
+    """Issue #79: Southair holds stored while Southair ran on its test host are ordinary bookings for staff."""
+    from app.services.admin_bookings import data_label, is_sample
+    held, imported = booking(1, import_source="southair_uat"), booking(2, import_source="legacy_test_csv")
+    assert (is_sample(held), data_label(held)) == (False, None)
+    assert (is_sample(imported), data_label(imported)) == (True, "Imported")

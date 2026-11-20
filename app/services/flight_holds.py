@@ -2,7 +2,7 @@
 
 Order: fresh reprice -> refuse unless it equals the confirmed total -> booking -> the supplier's
 booking record (pnr_info) must show the same total -> save PNR, ticket_ref (server-only), time_limit
-and that total in `bookings` as UAT test data, with an audit entry. The total, the per-passenger costs
+and that total in `bookings`, with an audit entry. The total, the per-passenger costs
 and the below-cost check all use that one cost. An unverified total saves nothing (total_unverified).
 Never retried automatically. There is no cancel call: the hold lapses at time_limit.
 """
@@ -30,7 +30,7 @@ from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairError, configured_client
 
 logger = logging.getLogger(__name__)
-REMARKS = "Travelian UAT test booking"
+REMARKS = "Travelian booking"
 
 
 #: The public website's identity (app.services.public_booking): it may hold a fare for a guest, never act as staff.

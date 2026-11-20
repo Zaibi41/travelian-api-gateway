@@ -74,7 +74,7 @@ def is_test_name(name: str | None) -> bool:
     return bool(name) and re.search(r"(?<![a-z])test(?![a-z])", name, re.IGNORECASE) is not None
 
 
-TEST_BOOKING = "This is a test booking (a passenger is named TEST, or it is marked as a test), so it can't be issued."
+TEST_BOOKING = "This booking is set to \"Do not issue\" (a traveler is named \"Test\", or staff marked it), so it can't be issued."
 
 
 def load(reference: str) -> Target:

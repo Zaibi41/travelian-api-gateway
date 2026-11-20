@@ -51,8 +51,13 @@ class BookingListQuery:
     offset: int = 0
 
 
+# Southair holds were stored with this source while Southair ran on its test host; they are real bookings, not imports.
+SOUTHAIR_HOLD_SOURCE = "southair_uat"
+
+
 def is_sample(booking: BookingRow) -> bool:
-    return booking.import_source is not None
+    """A row from a one-time import (labelled "Imported" for staff). Southair holds are ordinary bookings (issue #79)."""
+    return booking.import_source is not None and booking.import_source != SOUTHAIR_HOLD_SOURCE
 
 
 def payment_status(booking: BookingRow) -> str:
@@ -66,9 +71,7 @@ def issuance_status(booking: BookingRow) -> str:
 
 
 def data_label(booking: BookingRow) -> str | None:
-    if booking.import_source is None:
-        return None
-    return "UAT test data" if booking.import_source == "southair_uat" else "Sample data"
+    return "Imported" if is_sample(booking) else None
 
 
 def customer_or_agency(booking: BookingRow) -> str | None:

@@ -1,4 +1,4 @@
-"""Customer emails: who gets what, the SES sandbox refusal is recorded (admin shows "Email not sent"), once per kind."""
+"""Customer emails: who gets what, an SES refusal is recorded (admin shows "Email not sent"), once per kind."""
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -59,7 +59,7 @@ def test_ses_sandbox_refusal_is_recorded_for_the_admin(wired, monkeypatch):
     monkeypatch.setattr(ce.settings, "notify_email_enabled", True)
     monkeypatch.setattr(boto3, "client", lambda *a, **k: FakeSes())
     ok, why = ce.deliver("TRV-1", "payment_received")
-    assert not ok and "isn't verified (SES sandbox" in why
+    assert not ok and "isn't approved yet" in why and "sandbox" not in why.lower()
     assert recorded[-1][:3] == ("b1", "payment_received", False)
     event = lambda action, kind, reason=None, at=NOW: SimpleNamespace(action=action, details={"email": kind, "reason": reason}, created_at=at)
     problems = ce.email_problems([event("customer_email_not_sent", "payment_received", why), event("customer_email_not_sent", "booking_held", "x"),
@@ -81,7 +81,7 @@ def test_ses_access_denied_is_explained_without_ses_detail(wired, monkeypatch):
     monkeypatch.setattr(ce.settings, "notify_email_enabled", True)
     monkeypatch.setattr(boto3, "client", lambda *a, **k: FakeSes())
     ok, why = ce.deliver("TRV-1", "payment_received")
-    assert not ok and "sandbox mode" in why and "production access" in why
+    assert not ok and "AccessDenied" in why and "approves full sending" in why and "sandbox" not in why.lower()
     assert "ali@example.invalid" not in why and "arn:" not in why
 
 

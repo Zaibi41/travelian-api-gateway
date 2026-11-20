@@ -203,6 +203,6 @@ class HoldView(BaseModel):
     selling_total: FlightMoney
     supplier_cost: FlightMoney | None = Field(None, description="The airline's cost total. Only with the cost and margin permission.")
     profit: FlightMoney | None = Field(None, description="selling_total - supplier_cost. Only with the cost and margin permission.")
-    label: Literal["UAT test data"] | None = Field("UAT test data", description="Southair UAT holds only; a live SooperFare hold has no label.")
+    label: str | None = Field(None, description="Not used: holds carry no label (issue #79).")
     warnings: list[str] = Field(default_factory=list, description="Not errors: e.g. passport valid for under 6 months on an international route.")
     saved_people: list[SaveOutcomeView] = Field(default_factory=list, description="What happened to the saved customer and travelers (never blocks the hold).")
