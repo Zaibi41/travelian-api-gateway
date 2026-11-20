@@ -121,7 +121,28 @@ def save_request(*, provider: str, currency: str, selling_total_minor: int, supp
 
 # A staff re-hold (app.services.flight_fallback.staff_rehold): who asked, and the changed selling total they accepted
 # (None: the same total only). Set for the one call; the automatic re-hold after a card payment never changes the price.
-STAFF_REHOLD: ContextVar[tuple[str | None, int | None] | None] = ContextVar("staff_rehold", default=None)
+# The third value: the supplier reference staff saw (the new hold is saved only if the booking still has it).
+STAFF_REHOLD: ContextVar[tuple[str | None, int | None, str | None] | None] = ContextVar("staff_rehold", default=None)
+REHOLD_LOCK_MINUTES = 5
+
+
+def claim_rehold(reference: str, supplier_ref: str) -> bool:
+    """One staff re-hold at a time per booking: set the lock if the booking still has this supplier reference and no
+    lock younger than REHOLD_LOCK_MINUTES (a lock left by a crash expires). False: another re-hold is running, or the
+    booking changed meanwhile."""
+    with agencies.application_engine().begin() as connection:
+        return connection.execute(text(
+            "UPDATE bookings SET supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
+            " || jsonb_build_object('rehold_lock', CAST(now() AS text))"
+            " WHERE reference = :r AND supplier_ref = :ref AND (supplier_response ->> 'rehold_lock' IS NULL"
+            " OR CAST(supplier_response ->> 'rehold_lock' AS timestamptz) < now() - make_interval(mins => :m)) RETURNING id"),
+            {"r": reference, "ref": supplier_ref, "m": REHOLD_LOCK_MINUTES}).first() is not None
+
+
+def release_rehold(reference: str) -> None:
+    with agencies.application_engine().begin() as connection:
+        connection.execute(text("UPDATE bookings SET supplier_response = supplier_response - 'rehold_lock' WHERE reference = :r"),
+                           {"r": reference})
 REHOLD_STATUSES = ("held", "pending_payment", "payment_received", "expired", "paid_not_ticketed")
 
 
@@ -134,10 +155,10 @@ def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, 
 
     with agencies.application_engine().begin() as connection:
         row = connection.execute(text(
-            "SELECT id, pnr, provider_id, booking_status, issuance_status, total_minor FROM bookings WHERE reference = :r FOR UPDATE"),
+            "SELECT id, pnr, provider_id, booking_status, issuance_status, total_minor, supplier_ref FROM bookings WHERE reference = :r FOR UPDATE"),
             {"r": reference}).one_or_none()
-        actor, accepted = STAFF_REHOLD.get() or (None, None)
-        if (row is None or row.booking_status not in REHOLD_STATUSES or row.issuance_status != "not_issued"
+        actor, accepted, expected_ref = STAFF_REHOLD.get() or (None, None, None)
+        if (row is None or (expected_ref is not None and row.supplier_ref != expected_ref) or row.booking_status not in REHOLD_STATUSES or row.issuance_status != "not_issued"
                 or (row.provider_id or "southair") != provider
                 or (row.total_minor != selling_total_minor and accepted != selling_total_minor)):
             raise ValueError("The booking can't take a new hold.")
