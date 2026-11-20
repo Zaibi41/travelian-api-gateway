@@ -288,6 +288,18 @@ class PublicBookingView(BaseModel):
     travelers: list[str] = Field(default_factory=list, description="Names only.")
     final_pnr: str | None = Field(None, description="The airline booking reference once ticketed.")
     tickets: list[str] = Field(default_factory=list, description="Ticket numbers once issued.")
+    card_fee: "CardFeeView | None" = Field(None, description="When card / 1Link payment is possible: the fee on the amount due and the total "
+                                                              "PayFast will charge. Calculated by the gateway (travelian#74).")
+    chosen_account_id: str | None = Field(None, description="The receiving account the customer chose for bank transfer / JazzCash.")
+
+
+class CardFeeView(BaseModel):
+    percent: str = Field(description='e.g. "3%"')
+    fee: PublicMoney
+    total: PublicMoney = Field(description="Amount due plus the fee: what the card is charged.")
+
+
+PublicBookingView.model_rebuild()
 
 
 class PublicBookingCreated(BaseModel):
@@ -304,6 +316,7 @@ def _now() -> datetime:
 
 class BankAccountView(BaseModel):
     """The account customers pay into, in full (D40): masking never applies to Travelian's receiving account."""
+    id: str | None = Field(None, description="Send it back as the chosen account (travelian#76).")
     bank_name: str | None = None
     account_title: str | None = None
     account_number: str | None = None
@@ -363,7 +376,7 @@ def bank_accounts() -> list[BankAccountView]:
     from app.services import assets
 
     # Only accounts a customer can actually pay into: a title plus the full number, IBAN or a QR image.
-    return [BankAccountView(bank_name=a.bank_name, account_title=a.account_title, account_number=a.account_number, iban=a.iban,
+    return [BankAccountView(id=getattr(a, "id", None), bank_name=a.bank_name, account_title=a.account_title, account_number=a.account_number, iban=a.iban,
                             qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
             for a in payment_accounts.list_accounts()
             if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
@@ -374,7 +387,7 @@ def jazzcash_accounts() -> list[BankAccountView]:
     from app.db import payment_accounts
     from app.services import assets
 
-    return [BankAccountView(bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number,
+    return [BankAccountView(id=getattr(a, "id", None), bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number,
                             qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
             for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
 
@@ -622,9 +635,35 @@ async def _other_view(row: dict) -> PublicBookingView:
 
 
 async def booking_view(reference: str) -> PublicBookingView:
+    view, product = await _booking_view(reference)
+    return await run_in_threadpool(with_payment_details, view, product)
+
+
+def card_fee_for(due_minor: int, product: str, currency: str) -> CardFeeView | None:
+    """The card fee on an amount due, from Finance settings (gateway-side only)."""
+    from app.db import finance
+    from app.services import card_fee
+
+    if due_minor <= 0 or currency != "PKR":
+        return None
+    quote = card_fee.quote(due_minor, product, finance.get_settings())
+    return CardFeeView(percent=quote.percent_label, fee=PublicMoney(amount_minor=quote.fee_minor, currency=currency),
+                       total=PublicMoney(amount_minor=quote.total_minor, currency=currency))
+
+
+def with_payment_details(view: PublicBookingView, product: str) -> PublicBookingView:
+    from app.db import payment_slips
+
+    if view.can_pay:
+        view.card_fee = card_fee_for(view.total.amount_minor - view.paid.amount_minor, product, view.total.currency)
+    view.chosen_account_id = payment_slips.chosen_account(view.reference)
+    return view
+
+
+async def _booking_view(reference: str) -> tuple[PublicBookingView, str]:
     row = await run_in_threadpool(public_bookings.summary, reference)
     if row is not None and row["product"] != "group":
-        return await _other_view(row)
+        return await _other_view(row), row["product"]
     now = _now()
     booking = await run_in_threadpool(store.expire_if_over, reference, now, frozenset(group_holds.NO_RELEASE_SOURCES))
     people = await run_in_threadpool(booking_people.read, reference)
@@ -646,7 +685,7 @@ async def booking_view(reference: str) -> PublicBookingView:
         airline=first.get("airline_name") or first.get("airline"), route=first.get("sector"),
         legs=legs, travelers=travelers,
         final_pnr=booking.final_pnr if status == "issued" else None, tickets=tickets,
-    )
+    ), "group"
 
 
 async def open_booking(reference: str, token: str) -> PublicBookingView:
@@ -761,17 +800,20 @@ async def start_payment(reference: str, token: str) -> CheckoutView:
     due = view.total.amount_minor - view.paid.amount_minor
     if due <= 0 or view.total.currency != "PKR":
         raise PublicError(409, "Nothing is due on this booking.", "not_payable")
+    # travelian#74: the card fee is added here, by the gateway, and PayFast is charged and verified against the total.
+    fee = view.card_fee.fee.amount_minor if view.card_fee else 0
+    charge = due + fee
     people = await run_in_threadpool(booking_people.read, reference)
     customer = people.customer if people else None
     basket_id = payfast.new_basket_id(reference)
     try:
-        payfast_token = await payfast.access_token(basket_id, due, "PKR")
+        payfast_token = await payfast.access_token(basket_id, charge, "PKR")
     except payfast.PayFastError as error:
         raise PublicError(503, error.message, "payments_unavailable") from None
-    await run_in_threadpool(public_bookings.create_attempt, reference, basket_id, due, "PKR")
+    await run_in_threadpool(lambda: public_bookings.create_attempt(reference, basket_id, charge, "PKR", card_fee_minor=fee))
     return_url = f"{settings.public_site_url}/my-bookings?ref={quote(reference)}"
     form = payfast.checkout_form(
-        token=payfast_token, basket_id=basket_id, amount_minor=due, currency="PKR",
+        token=payfast_token, basket_id=basket_id, amount_minor=charge, currency="PKR",
         description=f"Travelian booking {reference}", mobile=getattr(customer, "phone", "") or "",
         email=getattr(customer, "email", "") or "", success_url=return_url, failure_url=return_url,
         notify_url=f"{settings.public_api_url}/v1/public/payments/payfast/notify", order_date=_now(),

@@ -155,6 +155,21 @@ class BookingPayment(BaseModel):
     recorded_by_user_id: str | None = None
     recorded_by_role: str | None = None
     recorded_at: datetime
+    card_fee: BookingMoney | None = Field(None, description="Card fee the customer paid on top of this payment (travelian#74).")
+
+
+class BookingSlip(BaseModel):
+    """A customer's payment slip (gateway#56). The file opens through /v1/admin/finance/slips/{id}/link."""
+
+    id: str
+    method: Literal["bank_transfer", "jazzcash"]
+    account_label: str | None = None
+    amount: BookingMoney
+    payer_reference: str | None = None
+    content_type: str
+    status: Literal["awaiting_check", "confirmed", "rejected"]
+    submitted_at: datetime
+    rejection_reason: str | None = None
 
 
 class PaymentAccount(BaseModel):
@@ -373,6 +388,8 @@ class BookingDetail(BaseModel):
     itinerary: list[BookingSegment] | None = Field(None, description="The Itinerary tab: the flights as held, in travel order. Omitted when not recorded (bookings held before 14 Nov 2026).")
     audit: list[BookingAuditEntry] | None = Field(None, description="The Audit tab. Omitted when there are no events.")
     payments: list[BookingPayment] | None = Field(None, description="The Payments tab. Omitted when no payment is recorded.")
+    chosen_account: str | None = Field(None, description="The receiving account the customer chose at checkout (travelian#76).")
+    payment_slips: list[BookingSlip] | None = Field(None, description="Customer payment slips. Omitted when none.")
     amount_paid: BookingMoney | None = Field(None, description="Sum of recorded payments.")
     amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")

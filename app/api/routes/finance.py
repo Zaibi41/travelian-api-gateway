@@ -7,7 +7,7 @@ granted; agency and customer roles get 403. Nothing here moves money or calls a 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -216,3 +216,196 @@ async def mark_refund_paid(refund_id: str, body: MarkRefundPaidRequest, viewer: 
                                                                                   paid_at=body.paid_at)))
     except store.FinanceRefused as error:
         raise refused(error) from None
+
+
+# ------------------------------------------------------------------------------------------------ Finance > Payments (#69)
+from fastapi.responses import Response  # noqa: E402
+
+from app.core.field_visibility import RECORD_PAYMENTS, require_back_office  # noqa: E402
+from app.db import finance_payments, payment_slips  # noqa: E402
+from app.schemas.finance import (  # noqa: E402
+    ConfirmSlipRequest, FinancePaymentList, FinancePaymentRow, PaymentDayTotal, PaymentSettings, RefundDue, RefundsDueView, RejectSlipRequest,
+    SlipLink, SlipView, UpdatePaymentSettings,
+)
+from app.services import card_fee, payment_proof  # noqa: E402
+
+STATUS_PATTERN = "^(awaiting_check|confirmed|rejected)$"
+METHOD_PATTERN = "^(bank_transfer|jazzcash|1link|payfast)$"
+
+
+def _payment_query(date_from, date_to, method, status, account_id, q) -> finance_payments.PaymentQuery:
+    start, end = day_range(date_from, date_to)
+    return finance_payments.PaymentQuery(start, end, method, status, account_id, q)
+
+
+def _row(r: dict) -> FinancePaymentRow:
+    c = r["currency"]
+    return FinancePaymentRow(
+        kind=r["kind"], id=r["id"], booking_reference=r["booking_reference"], pnr=r["pnr"], product=r["product"], is_test=bool(r["is_test"]),
+        customer_name=r["customer_name"], method=r["method"], account_id=r["account_id"], account_label=r["account_label"],
+        chosen_account_id=r["chosen_account_id"], amount=money(r["amount_minor"], c), card_fee=money(r["card_fee_minor"], c),
+        payment_fee=money(r["payment_fee_minor"], c) if r["fee_recorded"] else None, payer_reference=r["payer_reference"],
+        status=r["status"], at=r["at"], slip_id=r["slip_id"], rejection_reason=r["rejection_reason"])
+
+
+@router.get("/payments", response_model=FinancePaymentList)
+async def list_payments(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                        date_from: date | None = None, date_to: date | None = None,
+                        method: str | None = Query(None, pattern=METHOD_PATTERN), status: str | None = Query(None, pattern=STATUS_PATTERN),
+                        account_id: str | None = Query(None, max_length=36), q: str | None = Query(None, max_length=80),
+                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)) -> FinancePaymentList:
+    """Every payment across bookings (and slips awaiting a check or rejected), newest first, with totals per day and method
+    (confirmed money only). Dates are whole days in Pakistan time; default All."""
+    query = _payment_query(date_from, date_to, method, status, account_id, q)
+    page = await run_in_threadpool(finance_payments.list_payments, query, limit, offset)
+    return FinancePaymentList(
+        payments=[_row(r) for r in page.rows], total=page.total, confirmed=money(page.confirmed_minor, "PKR"), confirmed_count=page.confirmed_count,
+        awaiting=money(page.awaiting_minor, "PKR"), awaiting_count=page.awaiting_count,
+        daily_totals=[PaymentDayTotal(day=d.day, method=d.method, count=d.count, amount=money(d.amount_minor, "PKR"),
+                                      card_fee=money(d.card_fee_minor, "PKR")) for d in page.days])
+
+
+def rupees(minor: int | None) -> str:
+    """Integer paisa as a rupee string with 2 decimals (CSV); exact, no floats."""
+    if minor is None:
+        return ""
+    sign, value = ("-", -minor) if minor < 0 else ("", minor)
+    return f"{sign}{value // 100}.{value % 100:02d}"
+
+
+METHOD_LABEL = {"bank_transfer": "Bank transfer", "jazzcash": "JazzCash", "1link": "1Link", "payfast": "Card (PayFast)"}
+STATUS_LABEL = {"awaiting_check": "Awaiting check", "confirmed": "Confirmed", "rejected": "Rejected"}
+
+
+def csv_text(header: list[str], rows: list[list[Any]]) -> str:
+    import csv
+    import io
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(header)
+    for row in rows:
+        # A cell starting with = + - @ could run as a formula in Excel: prefix it with a quote (money cells are numbers).
+        writer.writerow([f"'{v}" if isinstance(v, str) and v[:1] in "=+@" else v for v in row])
+    return out.getvalue()
+
+
+@router.get("/payments.csv", response_class=Response, responses={200: {"content": {"text/csv": {}}}})
+async def export_payments(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                          date_from: date | None = None, date_to: date | None = None,
+                          method: str | None = Query(None, pattern=METHOD_PATTERN), status: str | None = Query(None, pattern=STATUS_PATTERN),
+                          account_id: str | None = Query(None, max_length=36), q: str | None = Query(None, max_length=80)) -> Response:
+    """The same list as /payments with the same filters, as CSV (amounts in rupees with paisa). Audited as an export."""
+    query = _payment_query(date_from, date_to, method, status, account_id, q)
+    rows = await run_in_threadpool(finance_payments.export_rows, query)
+    body = csv_text(
+        ["Date (PKT)", "Booking", "PNR", "Customer", "Method", "Account", "Amount (Rs)", "Card fee (Rs)", "Payment fee (Rs)", "Reference",
+         "Status", "Test booking"],
+        [[r["at"].astimezone(PKT).strftime("%Y-%m-%d %H:%M"), r["booking_reference"], r["pnr"] or "", r["customer_name"] or "",
+          METHOD_LABEL.get(r["method"], r["method"]), r["account_label"] or "", rupees(r["amount_minor"]), rupees(r["card_fee_minor"]),
+          rupees(r["payment_fee_minor"]) if r["fee_recorded"] else "Not recorded", r["payer_reference"] or "", STATUS_LABEL[r["status"]],
+          "Yes" if r["is_test"] else ""] for r in rows])
+
+    def log() -> None:
+        with store.agencies.application_engine().begin() as connection:
+            store.audit(connection, actor(viewer), "payments_exported", "export", None,
+                        after={"rows": len(rows), "date_from": date_from, "date_to": date_to, "method": method, "status": status})
+    await run_in_threadpool(log)
+    name = f"travelian-payments-{date_from or 'all'}-{date_to or 'all'}.csv"
+    return Response(body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+def _slip_view(s: payment_slips.Slip) -> SlipView:
+    return SlipView(id=s.id, booking_reference=s.booking_reference, method=s.method, account_id=s.account_id, account_label=s.account_label,
+                    amount=money(s.amount_minor, s.currency), payer_reference=s.payer_reference, content_type=s.content_type, status=s.status,
+                    submitted_via=s.submitted_via, submitted_at=s.submitted_at, reviewed_by_user_id=s.reviewed_by_user_id,
+                    reviewed_at=s.reviewed_at, rejection_reason=s.rejection_reason, payment_id=s.payment_id)
+
+
+def _slip_refused(error: payment_slips.SlipRefused | payment_proof.ProofError) -> HTTPException:
+    return HTTPException(error.status, error.message)
+
+
+async def require_slip_viewer(viewer: Annotated[BackOfficeUser, Depends(require_back_office)]) -> BackOfficeUser:
+    """Slips: Finance, or staff who may record payments (the booking's Payments tab)."""
+    if not (viewer.can(FINANCE) or viewer.can(RECORD_PAYMENTS)):
+        raise HTTPException(403, "Payment slips need the Finance or record payments permission.")
+    return viewer
+
+
+@router.get("/slips/{slip_id}", response_model=SlipView, responses={404: {}})
+async def get_slip(slip_id: str, viewer: Annotated[BackOfficeUser, Depends(require_slip_viewer)]) -> SlipView:
+    try:
+        return _slip_view(await run_in_threadpool(payment_slips.get, slip_id))
+    except payment_slips.SlipRefused as error:
+        raise _slip_refused(error) from None
+
+
+@router.get("/slips/{slip_id}/link", response_model=SlipLink, responses={404: {}, 503: {}})
+async def slip_link(slip_id: str, viewer: Annotated[BackOfficeUser, Depends(require_slip_viewer)]) -> SlipLink:
+    """A signed link to the private slip file, valid for 5 minutes."""
+    try:
+        slip = await run_in_threadpool(payment_slips.get, slip_id)
+        url = await run_in_threadpool(payment_proof.signed_link, slip.asset_key)
+    except (payment_slips.SlipRefused, payment_proof.ProofError) as error:
+        raise _slip_refused(error) from None
+    return SlipLink(url=url, content_type=slip.content_type, expires_in_seconds=payment_proof.LINK_SECONDS)
+
+
+@router.post("/slips/{slip_id}/confirm", response_model=SlipView, responses={404: {}, 409: {}, 422: {}})
+async def confirm_slip(slip_id: str, body: ConfirmSlipRequest, viewer: Annotated[BackOfficeUser, Depends(require_slip_viewer)]) -> SlipView:
+    """The money arrived: record the payment (amount, account and reference as received) and confirm the slip. Audited."""
+    try:
+        return _slip_view(await run_in_threadpool(lambda: payment_slips.confirm(
+            slip_id, actor(viewer), amount_minor=body.amount_minor, account_id=body.account_id, payer_reference=body.payer_reference,
+            received_at=body.received_at)))
+    except payment_slips.SlipRefused as error:
+        raise _slip_refused(error) from None
+
+
+@router.post("/slips/{slip_id}/reject", response_model=SlipView, responses={404: {}, 409: {}, 422: {}})
+async def reject_slip(slip_id: str, body: RejectSlipRequest, viewer: Annotated[BackOfficeUser, Depends(require_slip_viewer)]) -> SlipView:
+    """The money didn't arrive (or the slip is wrong): reject it with a reason. Nothing is recorded as paid. Audited."""
+    try:
+        return _slip_view(await run_in_threadpool(payment_slips.reject, slip_id, actor(viewer), body.reason))
+    except payment_slips.SlipRefused as error:
+        raise _slip_refused(error) from None
+
+
+@router.get("/refunds-due", response_model=RefundsDueView)
+async def refunds_due(viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> RefundsDueView:
+    """Paid bookings that can't be travelled on with no refund recorded yet, and refunds requested or approved."""
+    owed = await run_in_threadpool(finance_payments.refunds_due)
+    requested, _ = await run_in_threadpool(lambda: store.list_refunds("requested", 500, 0))
+    approved, _ = await run_in_threadpool(lambda: store.list_refunds("approved", 500, 0))
+    return RefundsDueView(
+        owed=[RefundDue(booking_reference=r["booking_reference"], pnr=r["pnr"], product=r["product"], booking_status=r["booking_status"],
+                        is_test=bool(r["is_test"]), customer_name=r["customer_name"], reason=r["reason"], paid=money(r["paid_minor"], r["currency"]),
+                        refundable=money(r["refundable_minor"], r["currency"])) for r in owed],
+        open=[refund_view(r) for r in sorted(requested + approved, key=lambda r: r.requested_at)])
+
+
+def _payment_settings(stored: dict) -> PaymentSettings:
+    config = card_fee.settings_from(stored)
+    return PaymentSettings(card_fee_bps=config["card_fee_bps"], card_fee_on_group=config["card_fee_on_group"])
+
+
+@router.get("/settings/payments", response_model=PaymentSettings)
+async def payment_settings(viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> PaymentSettings:
+    return _payment_settings(await run_in_threadpool(store.get_settings))
+
+
+@router.put("/settings/payments", response_model=PaymentSettings, responses={422: {}})
+async def update_payment_settings(body: UpdatePaymentSettings, viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> PaymentSettings:
+    """Change the card fee rate or whether it applies to group fares. Each change is audited; new checkouts use it."""
+    stored: dict = {}
+    for key in ("card_fee_bps", "card_fee_on_group"):
+        value = getattr(body, key)
+        if value is None:
+            continue
+        try:
+            card_fee.validate(key, value)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        stored = await run_in_threadpool(store.set_setting, key, value, actor(viewer), body.reason)
+    return _payment_settings(stored or await run_in_threadpool(store.get_settings))

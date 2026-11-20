@@ -684,6 +684,18 @@
             ],
             "title": "Iban"
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Send it back as the chosen account (travelian#76).",
+            "title": "Id"
+          },
           "qr_download_url": {
             "anyOf": [
               {
@@ -860,6 +872,18 @@
             "title": "Can Set Selling Price",
             "type": "boolean"
           },
+          "chosen_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The receiving account the customer chose at checkout (travelian#76).",
+            "title": "Chosen Account"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -999,6 +1023,21 @@
             ],
             "description": "The Passengers tab. Omitted when no travelers were saved.",
             "title": "Passengers"
+          },
+          "payment_slips": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BookingSlip"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer payment slips. Omitted when none.",
+            "title": "Payment Slips"
           },
           "payments": {
             "anyOf": [
@@ -1739,6 +1778,17 @@
           "amount": {
             "$ref": "#/components/schemas/BookingMoney"
           },
+          "card_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Card fee the customer paid on top of this payment (travelian#74)."
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -2229,6 +2279,87 @@
         "title": "BookingSegment",
         "type": "object"
       },
+      "BookingSlip": {
+        "description": "A customer's payment slip (gateway#56). The file opens through /v1/admin/finance/slips/{id}/link.",
+        "properties": {
+          "account_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Label"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "payer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payer Reference"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "status": {
+            "enum": [
+              "awaiting_check",
+              "confirmed",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "method",
+          "amount",
+          "content_type",
+          "status",
+          "submitted_at"
+        ],
+        "title": "BookingSlip",
+        "type": "object"
+      },
       "BookingStatuses": {
         "properties": {
           "booking": {
@@ -2376,6 +2507,29 @@
         "title": "CalendarQuery",
         "type": "object"
       },
+      "CardFeeView": {
+        "properties": {
+          "fee": {
+            "$ref": "#/components/schemas/PublicMoney"
+          },
+          "percent": {
+            "description": "e.g. \"3%\"",
+            "title": "Percent",
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/PublicMoney",
+            "description": "Amount due plus the fee: what the card is charged."
+          }
+        },
+        "required": [
+          "percent",
+          "fee",
+          "total"
+        ],
+        "title": "CardFeeView",
+        "type": "object"
+      },
       "CheckoutView": {
         "properties": {
           "action": {
@@ -2401,6 +2555,73 @@
           "sandbox"
         ],
         "title": "CheckoutView",
+        "type": "object"
+      },
+      "ChooseAccountRequest": {
+        "properties": {
+          "account_id": {
+            "maxLength": 36,
+            "title": "Account Id",
+            "type": "string"
+          },
+          "contact": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "My Bookings: the email or phone the booking was made with.",
+            "title": "Contact"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "ChooseAccountRequest",
+        "type": "object"
+      },
+      "ConfirmSlipRequest": {
+        "properties": {
+          "account_id": {
+            "description": "The receiving account it arrived in.",
+            "maxLength": 36,
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_minor": {
+            "description": "What actually arrived (paisa).",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "payer_reference": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payer Reference"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "account_id",
+          "received_at"
+        ],
+        "title": "ConfirmSlipRequest",
         "type": "object"
       },
       "CurrencyAmount": {
@@ -3123,6 +3344,228 @@
           "finance"
         ],
         "title": "FinanceAccess",
+        "type": "object"
+      },
+      "FinancePaymentList": {
+        "properties": {
+          "awaiting": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "awaiting_count": {
+            "title": "Awaiting Count",
+            "type": "integer"
+          },
+          "confirmed": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "confirmed_count": {
+            "title": "Confirmed Count",
+            "type": "integer"
+          },
+          "daily_totals": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentDayTotal"
+            },
+            "title": "Daily Totals",
+            "type": "array"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/FinancePaymentRow"
+            },
+            "title": "Payments",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "payments",
+          "total",
+          "confirmed",
+          "confirmed_count",
+          "awaiting",
+          "awaiting_count",
+          "daily_totals"
+        ],
+        "title": "FinancePaymentList",
+        "type": "object"
+      },
+      "FinancePaymentRow": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "account_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Label"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "at": {
+            "description": "Received (payment) or submitted (slip).",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "card_fee": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Card fee the customer paid on top (travelian#74)."
+          },
+          "chosen_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The account the customer chose at checkout.",
+            "title": "Chosen Account Id"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_test": {
+            "default": false,
+            "title": "Is Test",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "payment: money recorded; slip: a customer's slip still awaiting a check, or rejected.",
+            "enum": [
+              "payment",
+              "slip"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "payer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payer Reference"
+          },
+          "payment_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the payment cost Travelian. Null = not recorded yet."
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "slip_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slip Id"
+          },
+          "status": {
+            "enum": [
+              "awaiting_check",
+              "confirmed",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "booking_reference",
+          "product",
+          "method",
+          "amount",
+          "card_fee",
+          "status",
+          "at"
+        ],
+        "title": "FinancePaymentRow",
         "type": "object"
       },
       "FlightCalendar": {
@@ -7604,6 +8047,44 @@
         "title": "PaymentAccountList",
         "type": "object"
       },
+      "PaymentDayTotal": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "card_fee": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast"
+            ],
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "method",
+          "count",
+          "amount",
+          "card_fee"
+        ],
+        "title": "PaymentDayTotal",
+        "type": "object"
+      },
       "PaymentFeeView": {
         "properties": {
           "amount": {
@@ -7721,6 +8202,31 @@
           "jazzcash"
         ],
         "title": "PaymentMethodsView",
+        "type": "object"
+      },
+      "PaymentSettings": {
+        "properties": {
+          "card_fee_bps": {
+            "description": "Card / 1Link fee in basis points (300 = 3%).",
+            "title": "Card Fee Bps",
+            "type": "integer"
+          },
+          "card_fee_on_group": {
+            "title": "Card Fee On Group",
+            "type": "boolean"
+          },
+          "card_fee_refunded": {
+            "default": false,
+            "description": "Always false: the fee is not refunded (owner, 20 Nov 2026).",
+            "title": "Card Fee Refunded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "card_fee_bps",
+          "card_fee_on_group"
+        ],
+        "title": "PaymentSettings",
         "type": "object"
       },
       "ProductResults": {
@@ -7918,6 +8424,29 @@
             "description": "Online payment can be started now.",
             "title": "Can Pay",
             "type": "boolean"
+          },
+          "card_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CardFeeView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When card / 1Link payment is possible: the fee on the amount due and the total PayFast will charge. Calculated by the gateway (travelian#74)."
+          },
+          "chosen_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The receiving account the customer chose for bank transfer / JazzCash.",
+            "title": "Chosen Account Id"
           },
           "final_pnr": {
             "anyOf": [
@@ -8514,6 +9043,76 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "RefundDue": {
+        "properties": {
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "booking_status": {
+            "title": "Booking Status",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "is_test": {
+            "default": false,
+            "title": "Is Test",
+            "type": "boolean"
+          },
+          "paid": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the booking couldn't be travelled on (e.g. hold_expired), when recorded.",
+            "title": "Reason"
+          },
+          "refundable": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "booking_reference",
+          "product",
+          "booking_status",
+          "paid",
+          "refundable"
+        ],
+        "title": "RefundDue",
+        "type": "object"
+      },
       "RefundList": {
         "properties": {
           "refunds": {
@@ -8703,6 +9302,32 @@
         "title": "RefundView",
         "type": "object"
       },
+      "RefundsDueView": {
+        "properties": {
+          "open": {
+            "description": "Refunds requested or approved, not paid yet.",
+            "items": {
+              "$ref": "#/components/schemas/RefundView"
+            },
+            "title": "Open",
+            "type": "array"
+          },
+          "owed": {
+            "description": "Paid bookings with no refund recorded yet.",
+            "items": {
+              "$ref": "#/components/schemas/RefundDue"
+            },
+            "title": "Owed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "owed",
+          "open"
+        ],
+        "title": "RefundsDueView",
+        "type": "object"
+      },
       "ReholdBody": {
         "description": "Re-hold at SooperFare.",
         "properties": {
@@ -8750,6 +9375,21 @@
           "reason"
         ],
         "title": "RejectRefundRequest",
+        "type": "object"
+      },
+      "RejectSlipRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectSlipRequest",
         "type": "object"
       },
       "ReportBucket": {
@@ -10223,6 +10863,326 @@
         "title": "SiteConfig",
         "type": "object"
       },
+      "SlipLink": {
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Signed link to the private file; expires.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "content_type",
+          "expires_in_seconds"
+        ],
+        "title": "SlipLink",
+        "type": "object"
+      },
+      "SlipSubmitRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "amount_minor": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "asset_key": {
+            "maxLength": 300,
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "contact": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "My Bookings: the email or phone the booking was made with.",
+            "title": "Contact"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "payer_reference": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payer Reference"
+          },
+          "via": {
+            "default": "checkout",
+            "enum": [
+              "checkout",
+              "my_bookings"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "amount_minor",
+          "asset_key"
+        ],
+        "title": "SlipSubmitRequest",
+        "type": "object"
+      },
+      "SlipSubmitted": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "awaiting_check",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ],
+        "title": "SlipSubmitted",
+        "type": "object"
+      },
+      "SlipUploadRequest": {
+        "properties": {
+          "contact": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "My Bookings: the email or phone the booking was made with.",
+            "title": "Contact"
+          },
+          "content_type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "application/pdf"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_type"
+        ],
+        "title": "SlipUploadRequest",
+        "type": "object"
+      },
+      "SlipUploadView": {
+        "properties": {
+          "asset_key": {
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "asset_key",
+          "max_bytes"
+        ],
+        "title": "SlipUploadView",
+        "type": "object"
+      },
+      "SlipView": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "account_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Label"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "payer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payer Reference"
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By User Id"
+          },
+          "status": {
+            "enum": [
+              "awaiting_check",
+              "confirmed",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "submitted_via": {
+            "enum": [
+              "checkout",
+              "my_bookings"
+            ],
+            "title": "Submitted Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "booking_reference",
+          "method",
+          "amount",
+          "content_type",
+          "status",
+          "submitted_via",
+          "submitted_at"
+        ],
+        "title": "SlipView",
+        "type": "object"
+      },
       "SupplierBookingView": {
         "description": "The supplier's own booking (supplier-names permission only): its ids and, after a cancel request, what it says.",
         "properties": {
@@ -10492,6 +11452,48 @@
           "expires_in"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "UpdatePaymentSettings": {
+        "properties": {
+          "card_fee_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Fee Bps"
+          },
+          "card_fee_on_group": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Fee On Group"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "UpdatePaymentSettings",
         "type": "object"
       },
       "UpdateReceivingAccountRequest": {
@@ -14755,6 +15757,319 @@
         ]
       }
     },
+    "/v1/admin/finance/payments": {
+      "get": {
+        "description": "Every payment across bookings (and slips awaiting a check or rejected), newest first, with totals per day and method\n(confirmed money only). Dates are whole days in Pakistan time; default All.",
+        "operationId": "list_payments_v1_admin_finance_payments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "method",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(bank_transfer|jazzcash|1link|payfast)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(awaiting_check|confirmed|rejected)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancePaymentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Payments",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/payments.csv": {
+      "get": {
+        "description": "The same list as /payments with the same filters, as CSV (amounts in rupees with paisa). Audited as an export.",
+        "operationId": "export_payments_v1_admin_finance_payments_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "method",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(bank_transfer|jazzcash|1link|payfast)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(awaiting_check|confirmed|rejected)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Payments",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
     "/v1/admin/finance/payments/{payment_id}/fees": {
       "post": {
         "description": "Record what a payment cost Travelian (e.g. the PayFast fee from its statement), or correct it. Audited.",
@@ -14904,6 +16219,39 @@
           }
         ],
         "summary": "List Refunds",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/refunds-due": {
+      "get": {
+        "description": "Paid bookings that can't be travelled on with no refund recorded yet, and refunds requested or approved.",
+        "operationId": "refunds_due_v1_admin_finance_refunds_due_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundsDueView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refunds Due",
         "tags": [
           "admin finance"
         ]
@@ -15102,6 +16450,321 @@
           }
         ],
         "summary": "Reject Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/settings/payments": {
+      "get": {
+        "operationId": "payment_settings_v1_admin_finance_settings_payments_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Payment Settings",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "put": {
+        "description": "Change the card fee rate or whether it applies to group fares. Each change is audited; new checkouts use it.",
+        "operationId": "update_payment_settings_v1_admin_finance_settings_payments_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePaymentSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Payment Settings",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/slips/{slip_id}": {
+      "get": {
+        "operationId": "get_slip_v1_admin_finance_slips__slip_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slip_id",
+            "required": true,
+            "schema": {
+              "title": "Slip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Slip",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/slips/{slip_id}/confirm": {
+      "post": {
+        "description": "The money arrived: record the payment (amount, account and reference as received) and confirm the slip. Audited.",
+        "operationId": "confirm_slip_v1_admin_finance_slips__slip_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slip_id",
+            "required": true,
+            "schema": {
+              "title": "Slip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmSlipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm Slip",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/slips/{slip_id}/link": {
+      "get": {
+        "description": "A signed link to the private slip file, valid for 5 minutes.",
+        "operationId": "slip_link_v1_admin_finance_slips__slip_id__link_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slip_id",
+            "required": true,
+            "schema": {
+              "title": "Slip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Slip Link",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/slips/{slip_id}/reject": {
+      "post": {
+        "description": "The money didn't arrive (or the slip is wrong): reject it with a reason. Nothing is recorded as paid. Audited.",
+        "operationId": "reject_slip_v1_admin_finance_slips__slip_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slip_id",
+            "required": true,
+            "schema": {
+              "title": "Slip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectSlipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Slip",
         "tags": [
           "admin finance"
         ]
@@ -20973,6 +22636,212 @@
           }
         },
         "summary": "Get Booking",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}/chosen-account": {
+      "post": {
+        "description": "Remember which receiving account the customer chose (staff see it on the booking's Payments tab).",
+        "operationId": "choose_account_v1_public_bookings__reference__chosen_account_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Booking-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChooseAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Choose Account",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}/payment-slips": {
+      "post": {
+        "description": "Save the uploaded slip as \"awaiting check\" and alert staff. The payment counts only after staff confirm it.",
+        "operationId": "submit_slip_v1_public_bookings__reference__payment_slips_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Booking-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlipSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipSubmitted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit Slip",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}/payment-slips/upload": {
+      "post": {
+        "description": "A one-time signed upload (10 minutes) for the slip file: JPG, PNG, WebP or PDF, at most 5 MB, private.",
+        "operationId": "sign_slip_upload_v1_public_bookings__reference__payment_slips_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Booking-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlipUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlipUploadView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Sign Slip Upload",
         "tags": [
           "public website"
         ]

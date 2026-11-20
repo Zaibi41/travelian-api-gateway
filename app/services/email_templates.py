@@ -83,6 +83,7 @@ class Booking:
     flight: str | None = None           # "Z8259"
     hold_expires_at: datetime | None = None
     paid_minor: int | None = None
+    card_fee_minor: int = 0  # card fee paid on top of the fare (travelian#74)
     tickets: list[tuple[str, str]] = field(default_factory=list)   # (passenger, ticket number)
     customer_name: str | None = None    # "Mr Mohammad Hafeez" for the greeting
     view_url: str | None = None         # signed link that opens this booking (read-only); Find my booking when absent
@@ -227,6 +228,8 @@ def _summary(booking: Booking, status: str, tone: str, *, total_label: str = "To
     rows.append(("Status", _badge(status, tone)))
     if booking.paid_minor is not None:
         rows.append(("Paid", _e(money(booking.paid_minor, booking.currency))))
+    if booking.card_fee_minor:
+        rows.append(("Card fee paid", _e(money(booking.card_fee_minor, booking.currency))))
     return _section_title("Booking summary") + _rows(rows, total=(total_label, _e(money(booking.amount_minor, booking.currency))),
                                                      mono={"Booking reference", "Airline PNR"})
 
@@ -341,6 +344,8 @@ def _text_summary(booking: Booking, status: str) -> list[str]:
     lines.append(f"Status: {status}")
     if booking.paid_minor is not None:
         lines.append(f"Paid: {money(booking.paid_minor, booking.currency)}")
+    if booking.card_fee_minor:
+        lines.append(f"Card fee paid: {money(booking.card_fee_minor, booking.currency)}")
     lines.append(f"Total: {money(booking.amount_minor, booking.currency)}")
     return lines
 

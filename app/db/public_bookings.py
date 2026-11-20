@@ -78,16 +78,18 @@ class Attempt:
     transaction_id: str | None
 
 
-def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: str) -> Attempt:
+def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: str, card_fee_minor: int = 0) -> Attempt:
+    """amount_minor is what PayFast is charged: the amount due plus card_fee_minor (travelian#74)."""
     with agencies.application_engine().begin() as connection:
         booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
         attempt_id = str(uuid4())
         connection.execute(
-            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency) VALUES (:id, :b, :basket, :a, :c)"),
-            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency},
+            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor)"
+                 " VALUES (:id, :b, :basket, :a, :c, :fee)"),
+            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor},
         )
         _event(connection, booking_id, None, "online_payment_started",
-               {"provider": "payfast", "basket_id": basket_id, "amount_minor": amount_minor, "currency": currency})
+               {"provider": "payfast", "basket_id": basket_id, "amount_minor": amount_minor, "card_fee_minor": card_fee_minor, "currency": currency})
     return Attempt(attempt_id, booking_id, reference, basket_id, amount_minor, currency, "initiated", None)
 
 
@@ -130,11 +132,16 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
         connection.execute(text("UPDATE payfast_attempts SET status = 'paid', err_code = :e, transaction_id = :t, updated_at = now() WHERE id = :id"),
                            {"e": err_code[:8], "t": transaction_id, "id": row["id"]})
         payment_id = str(uuid4())
+        # The card fee was charged on top of the fare: the payment counts only the fare part toward the booking total,
+        # and keeps the fee apart (travelian#74).
+        card_fee = row["card_fee_minor"] or 0
+        fare_paid = row["amount_minor"] - card_fee
         connection.execute(
             text("INSERT INTO booking_payments (id, booking_id, amount_minor, currency, method, received_into, account_id, reference,"
-                 " received_at, recorded_by_user_id) VALUES (:id, :b, :amount, :currency, 'payfast', :into, NULL, :ref, :at, NULL)"),
-            {"id": payment_id, "b": row["booking_id"], "amount": row["amount_minor"], "currency": row["currency"],
-             "into": PAYFAST_LABEL, "ref": (transaction_id or basket_id)[:64], "at": now},
+                 " received_at, recorded_by_user_id, card_fee_minor)"
+                 " VALUES (:id, :b, :amount, :currency, 'payfast', :into, NULL, :ref, :at, NULL, :fee)"),
+            {"id": payment_id, "b": row["booking_id"], "amount": fare_paid, "currency": row["currency"],
+             "into": PAYFAST_LABEL, "ref": (transaction_id or basket_id)[:64], "at": now, "fee": card_fee},
         )
         paid_total = connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"),
                                        {"b": row["booking_id"]})
@@ -147,7 +154,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
         if paid_total > row["total_minor"]:
             review.append("overpaid")
         _event(connection, row["booking_id"], None, "payment_recorded", {
-            "amount_minor": row["amount_minor"], "currency": row["currency"], "method": "payfast", "received_into": PAYFAST_LABEL,
+            "amount_minor": fare_paid, "card_fee_minor": card_fee, "currency": row["currency"], "method": "payfast", "received_into": PAYFAST_LABEL,
             "payer_reference": transaction_id or basket_id, "payment_status": status, "source": source, "needs_review": review,
         })
     return Outcome(row["reference"], "paid", status, row["product"])
