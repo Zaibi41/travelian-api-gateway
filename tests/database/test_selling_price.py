@@ -38,7 +38,7 @@ def _booking(connection, reference, total, cost, travelers=2, status="held"):
                        {"id": booking_id, "r": reference, "s": status, "t": total, "c": cost})
     for position in range(travelers):
         connection.execute(sa.text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name, date_of_birth, id_type)"
-                                   " VALUES (:id, :b, :p, 'ADT', 'MR', 'Test', 'Traveler', '1990-01-01', 'PSPT')"),
+                                   " VALUES (:id, :b, :p, 'ADT', 'MR', 'Sample', 'Traveler', '1990-01-01', 'PSPT')"),
                            {"id": f"{booking_id[:-2]}{position:02d}", "b": booking_id, "p": position})
     return booking_id
 

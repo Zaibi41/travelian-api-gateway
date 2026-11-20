@@ -176,7 +176,7 @@ def test_card_ticketing_off_is_paid_issuance_pending_with_a_red_alert(website_ho
     details = alert["details"]
     assert details["urgent"] is True and details["amount"] == "Rs 467" and details["payfast_transaction_id"] == "PF-778899"
     assert details["supplier"] == "Southair" and details["pnr"] == "63B55C" and details["hold_status"].startswith("active")
-    assert details["passenger"] == "MR Test Passenger, MISS Baby Passenger" and "switched off" in details["reason"]
+    assert details["passenger"] == "MR Sample Passenger, MISS Baby Passenger" and "switched off" in details["reason"]
     assert "Confirm with supplier, issue the ticket, and share it with the customer." in details["note"]
 
 
@@ -486,7 +486,35 @@ def test_red_alert_email_is_ready_and_logs_when_skipped(website_hold, caplog):
     assert message["Subject"]["Data"] == f"URGENT: Payment received, ticket NOT issued — {reference}"
     body = message["Body"]["Text"]["Data"]
     for line in ("Amount received: Rs 467", "PayFast transaction ID: PF-1", "Supplier: Southair", "PNR: 63B55C", "Hold status: active",
-                 "Hold expires:", "Passengers: MR Test Passenger, MISS Baby Passenger", "Route:", "Travel date:", "Reason: test",
+                 "Hold expires:", "Passengers: MR Sample Passenger, MISS Baby Passenger", "Route:", "Travel date:", "Reason: test",
                  "Booked and payment received. Confirm with supplier, issue the ticket, and share it with the customer."):
         assert line in body, line
     assert any("MessageRejected" in r.getMessage() and "isn't verified" in r.getMessage() for r in caplog.records)
+
+
+def test_staff_rehold_of_an_expired_booking_at_an_accepted_new_price(website_hold):
+    """Staff re-hold (Re-hold at SooperFare) of an expired, paid booking at a new price they accepted: the booking is held
+    again under the new PNR, its total is the new price and the payment status follows (paid -> part paid)."""
+    from app.db import booking_payments, supplier_bookings
+
+    connection, reference = website_hold
+    booking_id = connection.scalar(sa.text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
+    connection.execute(sa.text("UPDATE bookings SET provider_id = 'sooperfare', supplier_ref = 'uuid-1', booking_status = 'expired',"
+                               " payment_status = 'paid' WHERE id = :b"), {"b": booking_id})
+    connection.execute(sa.text("INSERT INTO booking_payments (id, booking_id, amount_minor, currency, method, received_into, received_at,"
+                               " recorded_at, reference) VALUES ('p1', :b, :t, 'PKR', 'bank_transfer', 'UBL', now(), now(), 'TRX1')"),
+                       {"b": booking_id, "t": TOTAL})
+    later = datetime.now(timezone.utc) + timedelta(hours=5)
+    values = dict(provider="sooperfare", pnr="NEWPNR", supplier_ref="uuid-2", hold_expires_at=later, supplier_total_minor=45_000,
+                  selling_total_minor=TOTAL + 5_000, supplier_response={"booking": "x"})
+    with pytest.raises(ValueError):  # a new price nobody accepted
+        supplier_bookings.replace_hold(reference, **values)
+    token = supplier_bookings.STAFF_REHOLD.set((None, TOTAL + 5_000))
+    try:
+        supplier_bookings.replace_hold(reference, **values)
+    finally:
+        supplier_bookings.STAFF_REHOLD.reset(token)
+    row = connection.execute(sa.text("SELECT pnr, booking_status, total_minor, payment_status FROM bookings WHERE id = :b"), {"b": booking_id}).one()
+    assert tuple(row) == ("NEWPNR", "held", TOTAL + 5_000, booking_payments.payment_status(TOTAL, TOTAL + 5_000))
+    sellings = connection.scalars(sa.text("SELECT selling_minor FROM booking_travelers WHERE booking_id = :b"), {"b": booking_id}).all()
+    assert sum(s or 0 for s in sellings) in (0, TOTAL + 5_000)

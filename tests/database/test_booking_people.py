@@ -18,8 +18,9 @@ from app.services import admin_bookings
 
 ACTOR = "11111111-1111-4111-8111-111111111111"
 CUSTOMER = CustomerRecord(first_name="Test", last_name="Customer", phone_code="92", phone="3001234567", email="ops@example.invalid")
+# Fixture travelers are "Sample", not "Test": a passenger named TEST makes a test booking, which is never issued.
 TRAVELERS = [
-    TravelerRecord(passenger_type="ADT", title="MR", first_name="Test", last_name="Passenger", date_of_birth=date(1990, 1, 31),
+    TravelerRecord(passenger_type="ADT", title="MR", first_name="Sample", last_name="Passenger", date_of_birth=date(1990, 1, 31),
                    id_type="PSPT", document_number="AB1234567", document_country="PAK", nationality="PAK", document_expiry=date(2030, 5, 1)),
     TravelerRecord(passenger_type="INF", title="MISS", first_name="Baby", last_name="Passenger", date_of_birth=date(2025, 6, 1),
                    id_type="PSPT", infant_of_position=0),
@@ -64,7 +65,7 @@ def test_list_detail_passengers_and_audit_show_full_identity_for_every_role(data
     detail = admin_bookings.build_detail(row, ROLES[role], booking_people.read(reference), today=date(2026, 11, 9))
     body = detail.model_dump_json()
     assert "passengers" not in detail.sections_not_available and "audit" not in detail.sections_not_available
-    assert [p.first_name for p in detail.passengers] == ["Test", "Baby"]
+    assert [p.first_name for p in detail.passengers] == ["Sample", "Baby"]
     adult, infant = detail.passengers
     assert (adult.document_number, str(adult.date_of_birth)) == ("AB1234567", "1990-01-31")
     assert (str(adult.document_expiry), adult.document_validity) == ("2030-05-01", "valid")

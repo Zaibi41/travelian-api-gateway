@@ -31,7 +31,7 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, SupplierBookingView,
+    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
@@ -107,6 +107,7 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
         supplier = None
     if supplier:
         supplier["can_cancel"] = supplier["can_cancel"] and viewer.can(ISSUE_TICKETS)
+        supplier["can_rehold"] = supplier["can_rehold"] and viewer.can(ISSUE_TICKETS)
         detail.supplier_booking = SupplierBookingView(**supplier)
     return detail
 
@@ -125,6 +126,30 @@ async def cancel_at_supplier(viewer: Viewer, booking_id: Annotated[str, Path(max
 async def check_at_supplier(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
     """Read-only: what SooperFare shows for this booking now; marks it Cancelled once SooperFare confirms a requested cancel."""
     return await _supplier_action(viewer, booking_id, sooperfare_bookings.check)
+
+
+@router.post("/{booking_id}/supplier-rehold", response_model=ReholdResult,
+             responses={403: {"description": "Needs the issue tickets and supplier names permissions."},
+                        409: {"description": "Not re-holdable (still held at SooperFare, issued, not SooperFare), or price_changed: "
+                                           "the body has new_total and old_total; send accept_total_minor to hold at the new price."},
+                        502: {"description": "SooperFare couldn't be checked or didn't hold it; nothing was booked."}})
+async def rehold_at_supplier(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)], body: ReholdBody | None = None):
+    """Re-hold at SooperFare: the same flights and fare again for a booking whose hold is gone (expired, or paid but not
+    ticketed), with the saved travelers. Same selling total only, unless staff accept the new total shown in a 409
+    price_changed. Only after SooperFare's own record shows the old reservation is no longer active. Logged in the audit trail."""
+    if not viewer.can(ISSUE_TICKETS) or not viewer.visibility.supplier_names:
+        raise HTTPException(403, "Re-holding at the supplier needs the issue tickets and supplier names permissions.")
+    from fastapi.responses import JSONResponse
+
+    from app.services import flight_fallback
+
+    try:
+        what = await flight_fallback.staff_rehold(booking_id, viewer.user_id, (body or ReholdBody()).accept_total_minor)
+    except issuance_store.IssuanceRefused as error:
+        return JSONResponse({"detail": error.message, "code": "not_found"}, status_code=error.status)  # type: ignore[return-value]
+    except flight_fallback.Rehold as error:
+        return JSONResponse({"detail": error.message, "code": error.code, **error.extra}, status_code=error.status)  # type: ignore[return-value]
+    return ReholdResult(message=what)
 
 
 @router.get("/{booking_id}/supplier-confirm-preview", responses={404: {"description": "No SooperFare reservation."}})
@@ -148,7 +173,8 @@ async def _supplier_action(viewer, booking_id: str, action) -> SupplierBookingVi
 
         return JSONResponse({"detail": error.message, "code": error.code}, status_code=error.status)  # type: ignore[return-value]
     view = await run_in_threadpool(sooperfare_bookings.view, booking_id, True)
-    return SupplierBookingView(**{**view, "can_cancel": view["can_cancel"] and viewer.can(ISSUE_TICKETS)})  # type: ignore[arg-type]
+    return SupplierBookingView(**{**view, "can_cancel": view["can_cancel"] and viewer.can(ISSUE_TICKETS),
+                                  "can_rehold": view["can_rehold"] and viewer.can(ISSUE_TICKETS)})  # type: ignore[arg-type]
 
 
 @router.get(

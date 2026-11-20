@@ -121,3 +121,81 @@ def test_admin_alerts_are_urgent_and_supplier_names_only_for_allowed_viewers():
             app.dependency_overrides.clear()
         assert [item["urgent"] for item in items] == [True, False]
         assert items[0]["details"].get("supplier") == supplier
+
+
+# ---------- staff "Re-hold at SooperFare" ----------
+
+def _expired(status="expired", issuance="not_issued", expires=NOW - timedelta(hours=1)):
+    return store.Target(id="b1", reference="TRV-S-1", pnr="GKY7WM", provider="sooperfare", product="flight", booking_status=status,
+                        issuance_status=issuance, hold_expires_at=expires, currency="PKR", total_minor=2_468_500,
+                        supplier_cost_minor=2_400_000, supplier_ref="uuid-1", paid_minor=2_468_500, traveler_types=[(0, "ADT")])
+
+
+def _staff_rehold(target, listing, rehold_result=(True, "held again: new PNR NEWPNR"), accept=None):
+    rehold = AsyncMock(side_effect=rehold_result) if isinstance(rehold_result, Exception) else AsyncMock(return_value=rehold_result)
+    with patch.object(store, "load", lambda reference: target), patch.object(flight_fallback, "_now", lambda: NOW), \
+         patch.object(flight_fallback, "rehold", rehold), patch.object(flight_fallback, "_audit", lambda *a: None):
+        try:
+            return asyncio.run(flight_fallback.staff_rehold("TRV-S-1", "u1", accept, sooperfare_factory=sooperfare(listing))), rehold
+        except flight_fallback.Rehold as error:
+            return error, rehold
+
+
+EXPIRED = {"data": [{"uuid": "uuid-1", "booking": {"reservation_status": "expired"}}]}
+ACTIVE = {"data": [{"uuid": "uuid-1", "booking": {"reservation_status": "active"}}]}
+
+
+@pytest.mark.parametrize("status", ["expired", "paid_not_ticketed"])
+def test_staff_rehold_holds_again_once_sooperfare_shows_the_old_hold_gone(status):
+    result, rehold = _staff_rehold(_expired(status), EXPIRED)
+    assert result == "held again: new PNR NEWPNR"
+    assert rehold.await_args.kwargs["staff"] is True and rehold.await_args.kwargs["accept_total_minor"] is None
+
+
+@pytest.mark.parametrize("target, listing, code", [
+    (_expired("held", expires=NOW + timedelta(hours=1)), ACTIVE, "still_held"),      # still held: issue it
+    (_expired(), ACTIVE, "still_active"),                                             # time up but SooperFare says active
+    (_expired(issuance="unknown"), EXPIRED, "issuance_started"),
+    (_expired("cancelled"), EXPIRED, "not_reholdable"),
+    (store.Target(**{**_expired().__dict__, "provider": "southair"}), EXPIRED, "not_sooperfare"),
+    (_expired(), RuntimeError("down"), None),                                       # can't check -> nothing held
+])
+def test_staff_rehold_refuses_before_any_new_hold(target, listing, code):
+    from app.vendors.flights.sooperfare.client import SooperfareError
+
+    if isinstance(listing, Exception):
+        listing, code = SooperfareError("timeout", "x"), "not_checked"
+    error, rehold = _staff_rehold(target, listing)
+    assert isinstance(error, flight_fallback.Rehold) and error.code == code
+    rehold.assert_not_awaited()
+
+
+def test_staff_rehold_shows_a_new_price_and_holds_only_when_accepted():
+    error, _ = _staff_rehold(_expired(), EXPIRED, flight_fallback.PriceChanged(2_510_000, 2_468_500, "PKR"))
+    assert error.status == 409 and error.code == "price_changed" and error.extra["new_total"]["amount_minor"] == 2_510_000
+    assert "25,100" in error.message and "Nothing was held" in error.message
+    result, rehold = _staff_rehold(_expired(), EXPIRED, accept=2_510_000)
+    assert result.startswith("held again") and rehold.await_args.kwargs["accept_total_minor"] == 2_510_000
+
+
+def test_staff_rehold_failure_says_what_happened():
+    error, _ = _staff_rehold(_expired(), EXPIRED, (False, "the same flights and fare aren't offered any more"))
+    assert error.status == 502 and "aren't offered" in error.message and "Nothing was booked" in error.message
+
+
+def test_rehold_for_staff_raises_a_changed_price_and_holds_at_an_accepted_one():
+    with pytest.raises(flight_fallback.PriceChanged):
+        _rehold_staff({}, 52_000)
+    (held, _), hold = _rehold_staff({}, 52_000, accept=52_000)
+    assert held and hold.await_args.args[0].confirmed_total.amount_minor == 52_000
+
+
+def _rehold_staff(offered, price, accept=None):
+    """_rehold() with rehold() called the way staff_rehold calls it."""
+    original = flight_fallback.rehold
+
+    async def staff_call(reference, *args, **kwargs):
+        return await original(reference, staff=True, accept_total_minor=accept)
+
+    with patch.object(flight_fallback, "rehold", staff_call):
+        return _rehold(offered, price)

@@ -101,8 +101,18 @@ def _booking_row(reference: str) -> dict:
                                             " WHERE reference = :r"), {"r": reference}).mappings().one())
 
 
-async def rehold(reference: str, client_factory=None, sooperfare_factory=None) -> tuple[bool, str]:
-    """Hold the same fare again for this booking. (held?, what happened, for staff)."""
+class PriceChanged(Exception):
+    """The same fare now has another selling price: staff see it and decide (staff_rehold with accept_total_minor)."""
+
+    def __init__(self, new_total_minor: int, old_total_minor: int, currency: str):
+        super().__init__("price changed")
+        self.new_total_minor, self.old_total_minor, self.currency = new_total_minor, old_total_minor, currency
+
+
+async def rehold(reference: str, client_factory=None, sooperfare_factory=None, accept_total_minor: int | None = None,
+                 staff: bool = False) -> tuple[bool, str]:
+    """Hold the same fare again for this booking. (held?, what happened, for staff).
+    staff: a changed price raises PriceChanged instead of failing; accept_total_minor holds at that (accepted) new price."""
     from app.db import booking_people
     from app.schemas.live_flights import FlightMoney, HoldContact, HoldPassenger, HoldRequest
     from app.services import flight_holds, live_flights
@@ -122,8 +132,13 @@ async def rehold(reference: str, client_factory=None, sooperfare_factory=None) -
             return False, "the same flights and fare aren't offered any more"
         priced = await live_flights.reprice(view.search_id, fare_ids, WEBSITE_SEARCH_VIEWER, client_factory=client_factory,  # type: ignore[arg-type]
                                             sooperfare_factory=sooperfare_factory)
-        if priced.selling_total.amount_minor != row["total_minor"] or priced.selling_total.currency != row["currency"]:
-            return False, (f"the fare now costs {live_flights.money_text(priced.selling_total.amount_minor, priced.selling_total.currency)} "
+        new_total = priced.selling_total.amount_minor
+        if priced.selling_total.currency != row["currency"]:
+            return False, f"the fare is now priced in {priced.selling_total.currency}, not {row['currency']}"
+        if new_total != row["total_minor"] and new_total != accept_total_minor:
+            if staff:
+                raise PriceChanged(new_total, row["total_minor"], row["currency"])
+            return False, (f"the fare now costs {live_flights.money_text(new_total, row['currency'])} "
                            f"instead of the {live_flights.money_text(row['total_minor'], row['currency'])} paid")
         adults = [t.position for t in people.travelers if t.passenger_type == "ADT"]
         passengers = [HoldPassenger(
@@ -133,20 +148,93 @@ async def rehold(reference: str, client_factory=None, sooperfare_factory=None) -
             travels_with=adults.index(t.infant_of_position) if t.passenger_type == "INF" and t.infant_of_position in adults else None,
         ) for t in people.travelers]
         customer = people.customer
-        request = HoldRequest(quote_id=priced.quote_id, confirmed_total=FlightMoney(amount_minor=row["total_minor"], currency=row["currency"]),
+        request = HoldRequest(quote_id=priced.quote_id, confirmed_total=FlightMoney(amount_minor=new_total, currency=row["currency"]),
                               contact=HoldContact(first_name=customer.first_name, last_name=customer.last_name, email=customer.email,
                                                   phone_code=customer.phone_code, phone=customer.phone, save_for_next_time=False),
                               passengers=passengers, accept_price_change=True)
         held = await flight_holds.hold(request, WEBSITE_SEARCH_VIEWER, client_factory=client_factory, sooperfare_factory=sooperfare_factory,
                                        into=reference)
     except flight_holds.HoldError as error:
-        return False, f"the supplier didn't hold it again ({error.code})"
+        return False, f"the supplier didn't hold it again: {error.message}"
     except live_flights.RepriceError as error:
-        return False, f"the fare couldn't be priced again ({error.code})"
+        return False, f"the fare couldn't be priced again: {error.message}"
+    except PriceChanged:
+        raise
     except Exception as error:  # noqa: BLE001 - recorded; staff take over
         logger.warning("Re-hold failed", extra={"reference": reference, "error_type": type(error).__name__})
         return False, "the re-hold couldn't be completed"
     return True, f"held again: new PNR {held.pnr}, expires {held.time_limit:%d %b %Y %H:%M} UTC"
+
+
+class Rehold(Exception):
+    """A staff re-hold that was refused or failed: status, plain words, code."""
+
+    def __init__(self, status: int, message: str, code: str, **extra):
+        super().__init__(message)
+        self.status, self.message, self.code, self.extra = status, message, code, extra
+
+
+REHOLD_PROVIDERS = ("sooperfare",)
+
+
+def _audit(reference: str, actor: str | None, action: str, details: dict) -> None:
+    from sqlalchemy import text
+
+    from app.db import agencies
+    from app.db.supplier_bookings import _event
+
+    with agencies.application_engine().begin() as connection:
+        booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
+        if booking_id:
+            _event(connection, booking_id, actor, action, details)
+
+
+async def staff_rehold(reference: str, actor: str | None, accept_total_minor: int | None = None, sooperfare_factory=None) -> str:
+    """Staff "Re-hold at SooperFare": a new hold of the same flights and fare for a booking whose hold is gone (expired, or
+    paid but not ticketed). Only once SooperFare's own record shows the old reservation is no longer active (never two
+    holds for the same people). Same selling total, or the new one the staff member saw and accepted (accept_total_minor);
+    any other change raises Rehold 409 price_changed with the new total. Returns the new hold in plain words."""
+    from app.db import supplier_bookings
+
+    target = await run_in_threadpool(store.load, reference)
+    if target.provider not in REHOLD_PROVIDERS or target.product != "flight" or not target.supplier_ref:
+        raise Rehold(409, "Only a SooperFare flight booking can be re-held here.", "not_sooperfare")
+    if target.issuance_status != "not_issued":
+        raise Rehold(409, "This booking is already issued, or issuing is in progress or unclear. Nothing was held.", "issuance_started")
+    if target.booking_status not in supplier_bookings.REHOLD_STATUSES:
+        raise Rehold(409, f"A {target.booking_status.replace('_', ' ')} booking can't be re-held.", "not_reholdable")
+    now = _now()
+    from app.vendors.flights.sooperfare.client import SooperfareClient, SooperfareError
+
+    try:
+        listing = await (sooperfare_factory or SooperfareClient)().booking_list()
+    except SooperfareError:
+        raise Rehold(502, "SooperFare's booking list couldn't be read, so the old hold can't be checked. Nothing was held; try again.",
+                     "not_checked") from None
+    items = listing.get("data") if isinstance(listing, dict) and isinstance(listing.get("data"), list) else []
+    record = next((item.get("booking") for item in items if isinstance(item, dict) and item.get("uuid") == target.supplier_ref), None)
+    status = str(record.get("reservation_status") or "") if isinstance(record, dict) else ""
+    if status == "active" and target.hold_expires_at is not None and target.hold_expires_at > now:
+        raise Rehold(409, f"SooperFare still holds this booking (PNR {target.pnr}). Issue it, or cancel it first. Nothing was held.", "still_held")
+    if status == "active":
+        raise Rehold(409, f"SooperFare still lists PNR {target.pnr} as active although its time is up. Check with SooperFare before "
+                          "holding again, so the travelers aren't booked twice. Nothing was held.", "still_active")
+    token = supplier_bookings.STAFF_REHOLD.set((actor, accept_total_minor))
+    try:
+        held, what = await rehold(reference, sooperfare_factory=sooperfare_factory, accept_total_minor=accept_total_minor, staff=True)
+    except PriceChanged as change:
+        from app.services import live_flights
+
+        raise Rehold(409, f"The same fare now costs {live_flights.money_text(change.new_total_minor, change.currency)} instead of "
+                          f"{live_flights.money_text(change.old_total_minor, change.currency)}. Nothing was held. Accept the new price to hold it.",
+                     "price_changed", new_total={"amount_minor": change.new_total_minor, "currency": change.currency},
+                     old_total={"amount_minor": change.old_total_minor, "currency": change.currency}) from None
+    finally:
+        supplier_bookings.STAFF_REHOLD.reset(token)
+    await run_in_threadpool(_audit, reference, actor, "rehold_by_staff" if held else "rehold_by_staff_failed", {"result": what})
+    if not held:
+        raise Rehold(502, f"Not held again: {what}. Nothing was booked.", "rehold_failed")
+    return what
 
 
 # ---------- 3. red alerts ----------

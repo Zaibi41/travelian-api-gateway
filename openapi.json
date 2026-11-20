@@ -8007,6 +8007,40 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "ReholdBody": {
+        "description": "Re-hold at SooperFare.",
+        "properties": {
+          "accept_total_minor": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new selling total (minor units) staff saw and accepted, after a 409 price_changed. Leave out to hold only at the same total.",
+            "title": "Accept Total Minor"
+          }
+        },
+        "title": "ReholdBody",
+        "type": "object"
+      },
+      "ReholdResult": {
+        "properties": {
+          "message": {
+            "description": "The new hold in plain words: new PNR and when it expires.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ReholdResult",
+        "type": "object"
+      },
       "ReportBucket": {
         "properties": {
           "bookings": {
@@ -9412,6 +9446,12 @@
           "can_cancel": {
             "default": false,
             "title": "Can Cancel",
+            "type": "boolean"
+          },
+          "can_rehold": {
+            "default": false,
+            "description": "Re-hold at SooperFare is offered: the hold is gone (expired, or paid but not ticketed), nothing is issued, and the viewer may issue tickets.",
+            "title": "Can Rehold",
             "type": "boolean"
           },
           "cancel_at": {
@@ -12250,6 +12290,84 @@
           }
         ],
         "summary": "Supplier Confirm Preview",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/supplier-rehold": {
+      "post": {
+        "description": "Re-hold at SooperFare: the same flights and fare again for a booking whose hold is gone (expired, or paid but not\nticketed), with the saved travelers. Same selling total only, unless staff accept the new total shown in a 409\nprice_changed. Only after SooperFare's own record shows the old reservation is no longer active. Logged in the audit trail.",
+        "operationId": "rehold_at_supplier_v1_admin_bookings__booking_id__supplier_rehold_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReholdBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReholdResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue tickets and supplier names permissions."
+          },
+          "409": {
+            "description": "Not re-holdable (still held at SooperFare, issued, not SooperFare), or price_changed: the body has new_total and old_total; send accept_total_minor to hold at the new price."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare couldn't be checked or didn't hold it; nothing was booked."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rehold At Supplier",
         "tags": [
           "admin bookings"
         ]
