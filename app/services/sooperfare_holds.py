@@ -79,7 +79,7 @@ def reservation_passengers(request: HoldRequest, slots: list[dict]) -> tuple[lis
                      "dob": passenger.date_of_birth.isoformat() if passenger.date_of_birth else None,
                      "nationality": _alpha2(passenger.nationality)}
         if title is None:
-            errors.append((["passengers", index, "title"], "Choose Mr, Mrs, Miss or Master."))
+            errors.append((["passengers", index, "title"], "Choose Mr, Mrs, Ms, Mstr or Miss."))
         if row["nationality"] is None:
             errors.append((["passengers", index, "nationality"], "Choose the nationality."))
         if passenger.id_type == "NATI" and passenger.document_number:

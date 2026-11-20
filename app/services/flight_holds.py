@@ -111,9 +111,9 @@ def _supplier_passengers(request: HoldRequest, travel: date) -> list[dict[str, s
         if passenger.type == "ADT" and age < 12 or passenger.type == "CHD" and not 2 <= age < 12 or passenger.type == "INF" and age >= 2:
             raise HoldError(422, f"{passenger.first_name}'s date of birth doesn't match the passenger type.")
         if passenger.type == "INF" and passenger.title not in ("MASTER", "MISS"):
-            raise HoldError(422, "Infants take the title MASTER or MISS.")
+            raise HoldError(422, "Infants take the title Mstr or Miss.")
         if passenger.type == "ADT" and passenger.title == "MASTER":
-            raise HoldError(422, "Adults take the title MR, MRS or MISS.")
+            raise HoldError(422, "Adults take the title Mr, Mrs, Ms or Miss.")
         row = {
             "type": passenger.type, "first_name": passenger.first_name.strip(), "last_name": passenger.last_name.strip(),
             "date_of_birth": passenger.date_of_birth.isoformat(), "name_title": passenger.title, "id_type": passenger.id_type,

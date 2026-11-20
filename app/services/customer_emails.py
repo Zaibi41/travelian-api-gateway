@@ -22,6 +22,7 @@ from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
+from app.core.titles import title_text
 from app.db import agencies
 from app.db.public_bookings import new_token, token_hash
 from app.db.supplier_bookings import _event
@@ -94,7 +95,7 @@ def _facts(reference: str) -> dict[str, Any] | None:
             return None
         travelers = connection.execute(text("SELECT title, first_name, last_name, ticket_number FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
                                        {"b": row["id"]}).all()
-    return {**dict(row), "travelers": [(" ".join(filter(None, (tr.title, tr.first_name, tr.last_name))), tr.ticket_number) for tr in travelers]}
+    return {**dict(row), "travelers": [(" ".join(filter(None, (title_text(tr.title), tr.first_name, tr.last_name))), tr.ticket_number) for tr in travelers]}
 
 
 def _when(local: str | None) -> str | None:
