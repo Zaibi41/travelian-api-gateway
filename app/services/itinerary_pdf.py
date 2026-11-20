@@ -200,6 +200,7 @@ class Itinerary:
     customer: str | None = None
     terms: list[str] = field(default_factory=list)  # only terms the booking actually carries; none are invented
     fare_note: str | None = None  # shown next to the fare, e.g. "Non-refundable · Non-changeable" (group bookings that carry it)
+    show_fare: bool = True  # False (issue #18): a print without fare: no FARE column, no Total / Paid / Due
 
     @property
     def state(self) -> str:
@@ -268,7 +269,7 @@ def _booked_by(doc: Itinerary, width: float) -> Table:
 
 def _travelers(doc: Itinerary, width: float) -> Table:
     issued = doc.state == "issued"
-    head = ["SR", "NAME", "TYPE", "PASSPORT"] + (["TICKET NO."] if issued else []) + ["FARE"]
+    head = ["SR", "NAME", "TYPE", "PASSPORT"] + (["TICKET NO."] if issued else []) + (["FARE"] if doc.show_fare else [])
     count = len(head)
     rows = [[_p(h, size=7.5, bold=True, color=colors.white, align=TA_RIGHT if h == "FARE" else TA_LEFT) for h in head]]
     for index, traveler in enumerate(doc.travelers, start=1):
@@ -277,16 +278,18 @@ def _travelers(doc: Itinerary, width: float) -> Table:
                _p(traveler.passport or "-")]
         if issued:
             row.append(_p(traveler.ticket_number or "-"))
-        row.append(_p(money(traveler.fare_minor, doc.currency), align=TA_RIGHT))
+        if doc.show_fare:
+            row.append(_p(money(traveler.fare_minor, doc.currency), align=TA_RIGHT))
         rows.append(row)
     if not doc.travelers:
         rows.append([_p(""), _p("Travelers not recorded", color=MUTED)] + [_p("")] * (count - 2))
     last_traveler = len(rows) - 1
     paid = doc.paid_minor or 0
-    for label, value, strong in (("Total", money(doc.total_minor, doc.currency), True), ("Paid", money(paid, doc.currency), False),
-                                 ("Due", money(max((doc.total_minor or 0) - paid, 0), doc.currency), True)):
+    totals = (("Total", money(doc.total_minor, doc.currency), True), ("Paid", money(paid, doc.currency), False),
+              ("Due", money(max((doc.total_minor or 0) - paid, 0), doc.currency), True)) if doc.show_fare else ()
+    for label, value, strong in totals:
         rows.append([""] * (count - 2) + [_p(label, bold=strong, align=TA_RIGHT), _p(value, size=10 if strong else 9, bold=strong, color=NAVY, align=TA_RIGHT)])
-    shares = [0.05, 0.33, 0.09, 0.17] + ([0.19] if issued else []) + [0.17]
+    shares = [0.05, 0.33, 0.09, 0.17] + ([0.19] if issued else []) + ([0.17] if doc.show_fare else [])
     table = Table(rows, colWidths=[width * share / sum(shares) for share in shares], repeatRows=1)
     table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), NAVY), ("ROWBACKGROUNDS", (0, 1), (-1, last_traveler), [colors.white, SOFT]),
                                ("BOX", (0, 0), (-1, last_traveler), 0.8, LINE), ("LINEABOVE", (count - 2, len(rows) - 1), (-1, len(rows) - 1), 0.8, NAVY),

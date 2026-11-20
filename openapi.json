@@ -11933,6 +11933,18 @@
               "title": "Format",
               "type": "string"
             }
+          },
+          {
+            "description": "false: print without fare (no fare column, no Total / Paid / Due), issue #18.",
+            "in": "query",
+            "name": "fare",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "false: print without fare (no fare column, no Total / Paid / Due), issue #18.",
+              "title": "Fare",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
