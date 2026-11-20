@@ -325,6 +325,10 @@ def _sooperfare_client(factory=None):
         raise IssuanceRefused(503, "SooperFare isn't set up on the server. Nothing was sent.", "not_configured") from None
 
 
+def _money(minor: int | None, currency: str) -> str:
+    return "unknown" if minor is None else f"{'Rs' if currency == 'PKR' else currency} {minor / 100:,.0f}"
+
+
 CHECK_SOOPERFARE = "Don't issue again: press Check with supplier, or check the booking in SooperFare's portal."
 
 
@@ -345,6 +349,29 @@ async def _issue_sooperfare(reference: str, viewer: BackOfficeUser, factory=None
     target = await run_in_threadpool(store.claim, reference, viewer.user_id, _now(), settings.ticketing_deadline_margin_seconds)
     previous = target.issuance_status
     body = request["body"]
+
+    async def abort(message: str, code: str, **details) -> None:
+        await run_in_threadpool(store.release, target, viewer.user_id, previous, "issuance_aborted", {"reason_code": code, **details})
+        raise IssuanceRefused(409 if code != "sooperfare_check_failed" else 502, f"{message} Nothing was sent to SooperFare.", code)
+
+    # Before sending (the confirm charges Travelian's balance): the request matches the locked booking, and SooperFare's
+    # own record shows it on hold, unpaid, not issued, at the supplier cost stored on the booking.
+    if body["booking_ref_id"] != target.supplier_ref or body["txn_ref_id"] != target.reference or target.supplier_cost_minor is None \
+            or round(target.supplier_cost_minor / 100, 2) != body["amount"] or body["currency"] != target.currency:
+        await abort("The booking changed while issuing started. Reload and try again.", "booking_changed")
+    before = await _read_sooperfare(client, reference, waits=(0,))
+    if before is None:
+        await abort("SooperFare's booking list couldn't be read, or doesn't list this booking.", "sooperfare_check_failed")
+    if before.get("is_issued") or before.get("is_paid"):
+        await abort("SooperFare already shows this booking as paid or issued. Press Check with supplier instead of issuing.",
+                    "sooperfare_already_paid", **_sf_summary(before))
+    if before.get("reservation_status") != "active" or before.get("is_cancelled"):
+        await abort(f"SooperFare shows the booking as {before.get('reservation_status') or 'not on hold'}, not on hold.",
+                    "sooperfare_not_held", **_sf_summary(before))
+    if before.get("billable_minor") != target.supplier_cost_minor:
+        await abort(f"SooperFare's price for this booking ({_money(before.get('billable_minor'), target.currency)}) differs from the cost "
+                    f"recorded ({_money(target.supplier_cost_minor, target.currency)}). Check the fare with SooperFare before issuing.",
+                    "supplier_cost_changed_at_sooperfare", **_sf_summary(before))
     sent_at = _now().isoformat()
     try:
         answer = await client.confirm(body["booking_ref_id"], body["txn_ref_id"], body["amount"], body["currency"], body["remarks"])
@@ -400,14 +427,17 @@ async def _verify_sooperfare(reference: str, viewer: BackOfficeUser, target: sto
                                 {"outcome": "issued", "supplier": "sooperfare", "pnr_status": state.get("reservation_status")},
                                 None, (previous,))
         return Outcome("issued", "issued", "SooperFare shows the ticket as issued. The PNR and ticket numbers are recorded.", tickets)
-    if not state.get("is_issued") and not state.get("is_paid") and state.get("reservation_status") == "active":
-        if previous == "unknown":
-            await run_in_threadpool(store.resolve_not_issued, target, viewer.user_id, "issuance_verified",
-                                    {"outcome": "not_issued", "supplier": "sooperfare", **summary})
-        else:
-            await run_in_threadpool(store.log_check, target, viewer.user_id, {"outcome": "not_issued", "supplier": "sooperfare", **summary})
-        return Outcome("not_issued", "not_issued" if previous == "unknown" else previous,
-                       "SooperFare shows the booking still on hold: not paid and not issued. It's safe to issue again.")
+    untouched = not state.get("is_issued") and not state.get("is_paid") and state.get("reservation_status") == "active"
+    if untouched and previous != "unknown":  # after a plain refusal (nothing was accepted): safe
+        await run_in_threadpool(store.log_check, target, viewer.user_id, {"outcome": "not_issued", "supplier": "sooperfare", **summary})
+        return Outcome("not_issued", previous, "SooperFare shows the booking still on hold: not paid and not issued. It's safe to issue again.")
+    if untouched:
+        # A confirm reached SooperFare (or may have): its list can lag, so "still on hold" here never re-opens issuing by itself.
+        # Staff check SooperFare's portal and resolve it with a reason (Mark as not issued), so nobody confirms twice.
+        await run_in_threadpool(store.log_check, target, viewer.user_id, {"outcome": "unclear_after_confirm", "supplier": "sooperfare", **summary})
+        return Outcome("unknown", "unknown", "SooperFare's list still shows the booking on hold (not paid, not issued), but a confirm was sent, "
+                                             "so it may still be processing. Check SooperFare's portal. If it really wasn't issued, use Mark as "
+                                             "not issued with a reason; then you can issue again.")
     if previous != "unknown":
         await run_in_threadpool(store.mark_unknown, target, viewer.user_id,
                                 {"reason_code": "sooperfare_unclear_on_check", "supplier": "sooperfare", **summary}, (previous,))
