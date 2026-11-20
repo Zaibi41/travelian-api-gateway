@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from app.core.config import settings
+from app.services.baggage import from_southair
 from app.vendors.flights.southair import normalize
 
 from tests.southair.fixtures import HASH_LIVE, NLD, live_uat_search_data
@@ -25,19 +26,21 @@ def test_normalizes_times_stops_duration_price_and_baggage():
     assert (flight.duration_minutes, flight.stops, flight.stop_cities) == (130, 0, [])
     fares = {fare.code: fare for fare in flight.fares}
     assert {code: fare.adult_total.value for code, fare in fares.items()} == {"EB": 13330, "EV": 14924, "EP": 16518}
-    assert {code: fare.baggage for code, fare in fares.items()} == {"EB": "No checked baggage", "EV": "20KG", "EP": "30KG"}
+    assert {code: fare.baggage.short() for code, fare in fares.items()} == {"EB": "No checked bag", "EV": "20 kg checked", "EP": "30 kg checked"}
     assert all(fare.meal is None and fare.refund is None and fare.time_limit is None for fare in fares.values())
     assert {code: fare.fare_hash for code, fare in fares.items()} == HASH_LIVE  # kept server-side
 
 
 @pytest.mark.parametrize("raw,shown", [
-    ("Nill Baggage", "No checked baggage"), ("Nil Baggage", "No checked baggage"), ("NIL", "No checked baggage"),
-    ("No Baggage", "No checked baggage"), ("0KG", "No checked baggage"), ("0 KG", "No checked baggage"),
-    ("None", "No checked baggage"), ("No checked baggage", "No checked baggage"),
-    ("20KG", "20KG"), ("30KG", "30KG"), ("1 PC 23KG", "1 PC 23KG"), ("Nil cabin bag only", "Nil cabin bag only"), (None, None),
+    ("Nill Baggage", "No checked bag"), ("Nil Baggage", "No checked bag"), ("NIL", "No checked bag"),
+    ("No Baggage", "No checked bag"), ("0KG", "No checked bag"), ("0 KG", "No checked bag"),
+    ("None", "No checked bag"), ("No checked baggage", "No checked bag"),
+    ("20KG", "20 kg checked"), ("30KG", "30 kg checked"), ("1 PC 23KG", "1×23 kg checked"), ("2PC", "2 pc checked"),
+    ("Nil cabin bag only", "No checked bag"), ("SUBJECT TO SUPPLIER RULES", "Baggage: check with airline"), (None, "Baggage: check with airline"),
 ])
 def test_baggage_mapping(raw, shown):
-    assert normalize.baggage_text(raw) == shown
+    """Southair sends only the checked allowance; no hand carry is assumed (#36)."""
+    assert from_southair(raw).short() == shown
 
 
 @pytest.mark.parametrize("value,minutes", [(130, 130), ("130", 130), ("01h 00m", 60), ("2h", 120), ("", None), ("abc", None)])
@@ -66,7 +69,7 @@ def test_every_role_gets_times_and_baggage_but_no_raw_supplier_field_or_token(ro
     assert response.status_code == 200
     (flight,) = response.json()["journeys"][0]["flights"]
     assert (flight["departure_local"], flight["arrival_local"], flight["duration_minutes"], flight["stops"]) == ("2026-11-19T00:25", "2026-11-19T02:35", 130, 0)
-    assert [(fare["name"], fare["baggage"]) for fare in flight["fares"]] == [("EB", "No checked baggage"), ("EV", "20KG"), ("EP", "30KG")]
+    assert [(fare["name"], fare["baggage"]) for fare in flight["fares"]] == [("EB", "No checked bag"), ("EV", "20 kg checked"), ("EP", "30 kg checked")]
     assert all("meal" not in fare and "refund" not in fare and "time_limit" not in fare for fare in flight["fares"])
     body = response.json()
     # Opaque IDs are random: check every value except the IDs for raw supplier fields.

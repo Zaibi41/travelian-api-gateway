@@ -19,7 +19,7 @@ from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
     CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
 )
-from app.services import group_terms
+from app.services import baggage, group_terms
 from app.services.group_ticketing_status import ticketing_status
 from app.services.pricing import cost_unknown
 from app.schemas.admin_bookings import (
@@ -305,7 +305,9 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
             for t in people.travelers
         ]
     if booking.itinerary:
-        detail.itinerary = [BookingSegment.model_validate(segment) for segment in booking.itinerary]
+        detail.itinerary = [BookingSegment.model_validate({**segment, "baggage": baggage.of_segment(segment).short(),
+                                                           "baggage_detail": baggage.of_segment(segment).detail()})
+                            for segment in booking.itinerary if isinstance(segment, dict)]
     if people and people.events:
         from app.services.group_holds import fare_terms_view  # late: group_holds imports this module's helpers
         detail.fare_terms = fare_terms_view(group_terms.acknowledgement(people.events))

@@ -81,7 +81,7 @@ def test_search_merges_sooperfare_when_southair_fails_and_keeps_its_ids_inside()
     assert [f.flight_number for f in outbound.flights] == ["PA400", "PA406"]
     value = outbound.flights[0].fares[0]
     assert value.name == "Value" and value.selling_price.amount_minor == 2251100 and value.supplier_cost.amount_minor == 2205000
-    assert value.supplier == "sooperfare" and value.baggage == "No checked baggage, 7 kg hand carry"
+    assert value.supplier == "sooperfare" and value.baggage == "7 kg" and value.baggage_detail == "7 kg hand carry only, no checked bag"
     assert {p.name: p.status for p in view.providers} == {"southair": "failed", "sooperfare": "responded"}
     text = view.model_dump_json()
     assert "defd968f" not in text and "Value|EV|1" not in text and "KHILHEPAPA400" not in text  # SooperFare refs stay server side

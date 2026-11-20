@@ -26,6 +26,7 @@ from app.core.titles import title_text
 from app.db import agencies
 from app.db.public_bookings import new_token, token_hash
 from app.db.supplier_bookings import _event
+from app.services import baggage
 from app.services import email_templates as t
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,16 @@ def _when(local: str | None) -> str | None:
         return str(local)[:16].replace("T", " ")
 
 
+def baggage_of(legs: list[dict]) -> str | None:
+    """The booking's baggage in full words: one line when every flight has the same allowance, else per flight."""
+    shown = [(f"{leg.get('origin') or '?'}–{leg.get('destination') or '?'}", baggage.of_segment(leg).detail()) for leg in legs]
+    if not shown:
+        return None
+    if len({words for _, words in shown}) == 1:
+        return shown[0][1]
+    return "; ".join(f"{route}: {words}" for route, words in shown)
+
+
 def booking_from(facts: dict[str, Any], link: str | None) -> t.Booking:
     """The template's booking: no supplier, cost or internal fields (the template data has none)."""
     legs = [leg for leg in facts.get("itinerary") or [] if isinstance(leg, dict)]
@@ -116,7 +127,7 @@ def booking_from(facts: dict[str, Any], link: str | None) -> t.Booking:
     flight = " / ".join(filter(None, (leg.get("flight_number") for leg in legs))) or None
     customer = " ".join(filter(None, (facts.get("c_first"), facts.get("c_last")))) or None
     return t.Booking(reference=facts["reference"], passengers=[name for name, _ in facts["travelers"]], amount_minor=facts["total_minor"] or 0,
-                     currency=facts["currency"] or "PKR", pnr=facts.get("pnr"), route=route, travel_date=_when(legs[0].get("departure_local")) if legs else None,
+                     currency=facts["currency"] or "PKR", pnr=facts.get("pnr"), route=route, baggage=baggage_of(legs), travel_date=_when(legs[0].get("departure_local")) if legs else None,
                      airline=airline, flight=flight, hold_expires_at=facts.get("hold_expires_at"), paid_minor=facts.get("paid_minor") or None,
                      tickets=[(name, number) for name, number in facts["travelers"] if number], customer_name=customer, view_url=link)
 

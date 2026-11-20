@@ -19,6 +19,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.services.baggage import Baggage, from_southair
+
 _AMOUNT = re.compile(r"^\s*(-?\d[\d,]*(?:\.\d+)?)\s*([A-Z]{3})?\s*$")
 _DURATION = re.compile(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?", re.I)
 
@@ -53,7 +55,7 @@ class Fare:
     meal: str | None = None
     refund: str | None = None
     time_limit: str | None = None
-    baggage: str | None = None
+    baggage: Baggage = field(default_factory=Baggage)
 
 
 @dataclass(frozen=True)
@@ -111,15 +113,8 @@ def _minutes(value: Any) -> int | None:
 
 #: HIGHLIGHT feature codes -> the feature names used below.
 _FEATURE_CODES = {"checkin_baggage": "baggage"}
-#: Supplier wording for "no checked bag" -> what we show. Anything else passes through.
-_NO_CHECKED_BAGGAGE = re.compile(r"^\s*(nil+|no(ne)?|0\s*(kg|pc|pcs)?)(\s+(checked|checkin|check-in))?(\s+baggage)?\s*$", re.I)
-
-
-def baggage_text(value: str | None) -> str | None:
-    """Supplier checked-baggage text for display: "Nill Baggage" -> "No checked baggage"."""
-    if value is None:
-        return None
-    return "No checked baggage" if _NO_CHECKED_BAGGAGE.match(value) else value
+#: FEATURES titles that carry the hand-carry allowance, when a fare has one.
+_HAND_CARRY_TITLES = ("hand carry", "hand baggage", "cabin baggage", "carry on")
 
 
 def _utc_minutes(start: Any, end: Any) -> int | None:
@@ -174,7 +169,7 @@ def _fare(code: str, raw: Any, uat_shape: bool) -> Fare | None:
     return Fare(
         code=str(code)[:16], fare_hash=fare_hash.strip(), adult_total=total,
         meal=features.get("meal"), refund=features.get("refund"), time_limit=features.get("time limit"),
-        baggage=baggage_text(features.get("baggage")),
+        baggage=from_southair(features.get("baggage"), next((features[t] for t in _HAND_CARRY_TITLES if features.get(t)), None)),
     )
 
 

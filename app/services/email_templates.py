@@ -68,6 +68,7 @@ class Booking:
     currency: str = "PKR"
     pnr: str | None = None
     route: str | None = None            # "KHI → ISB"
+    baggage: str | None = None          # "7 kg hand carry + 20 kg checked" (app.services.baggage, full words)
     travel_date: str | None = None      # "10 Dec 2026, 21:30"
     airline: str | None = None          # the airline the customer flies (not the supplier)
     flight: str | None = None           # "Z8259"
@@ -211,6 +212,8 @@ def _summary(booking: Booking, status: str, tone: str, *, total_label: str = "To
         rows.append(("Route", _e(booking.route)))
     if booking.travel_date:
         rows.append(("Travel date", _e(booking.travel_date)))
+    if booking.baggage:
+        rows.append(("Baggage", _e(booking.baggage)))
     rows.append(("Passengers" if len(booking.passengers) > 1 else "Passenger", "<br>".join(_e(p) for p in booking.passengers) or "—"))
     rows.append(("Status", _badge(status, tone)))
     if booking.paid_minor is not None:
@@ -323,6 +326,8 @@ def _text_summary(booking: Booking, status: str) -> list[str]:
         lines.append(f"Route: {booking.route}")
     if booking.travel_date:
         lines.append(f"Travel date: {booking.travel_date}")
+    if booking.baggage:
+        lines.append(f"Baggage: {booking.baggage}")
     lines.append(("Passengers: " if len(booking.passengers) > 1 else "Passenger: ") + (", ".join(booking.passengers) or "—"))
     lines.append(f"Status: {status}")
     if booking.paid_minor is not None:

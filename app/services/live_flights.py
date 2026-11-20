@@ -22,7 +22,7 @@ from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import FareView, FlightMoney, FlightSearchView, FlightView, JourneyView, ProviderStatus
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairError, SouthairNotConfigured, configured_client
-from app.services import restricted_airlines
+from app.services import baggage, restricted_airlines
 from app.vendors.flights.sooperfare import client as sooperfare
 from app.vendors.flights.sooperfare import normalize as sf_normalize
 
@@ -142,7 +142,8 @@ def fare_currency(total: normalize.Amount | None, fallback: str | None) -> str |
 
 
 def _fare_view(fare_id: str, fare: normalize.Fare, viewer: BackOfficeUser, fallback_currency: str | None) -> FareView:
-    view = FareView(id=fare_id, name=fare.code, meal=fare.meal, baggage=fare.baggage, refund=fare.refund, time_limit=fare.time_limit)
+    view = FareView(id=fare_id, name=fare.code, meal=fare.meal, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(),
+                    refund=fare.refund, time_limit=fare.time_limit)
     currency = fare_currency(fare.adult_total, fallback_currency)
     if fare.adult_total and currency:
         cost = to_minor(fare.adult_total.value)
@@ -163,7 +164,7 @@ def segment(direction: str, leg: normalize.Leg, flight: normalize.Flight, fare: 
         "airline_code": flight.airline_code, "airline_name": flight.airline_name, "flight_number": flight.flight_number,
         "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
         "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
-        "fare_name": fare.code, "baggage": fare.baggage, "meal": fare.meal,
+        "fare_name": fare.code, "baggage": fare.baggage.short(), "baggage_parts": baggage.to_dict(fare.baggage), "meal": fare.meal,
     }
 
 
@@ -233,13 +234,13 @@ def _sf_segment(direction: str, flight: sf_normalize.Flight, fare: sf_normalize.
         "airline_code": flight.airline_code, "airline_name": flight.airline_name, "flight_number": flight.flight_number,
         "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
         "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
-        "fare_name": fare.name, "baggage": fare.baggage, "meal": None,
+        "fare_name": fare.name, "baggage": fare.baggage.short(), "baggage_parts": baggage.to_dict(fare.baggage), "meal": None,
         "operating_codes": sorted({s["operating"] for s in flight.segments if s.get("operating")}),
     }
 
 
 def _sf_fare_view(fare_id: str, fare: sf_normalize.Fare, viewer: BackOfficeUser, adults: int = 1) -> FareView:
-    view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage, refund=fare.refund)
+    view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(), refund=fare.refund)
     each = fare.adult_each_minor
     if each is not None:
         selling = sell(each)

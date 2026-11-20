@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.baggage import Baggage, from_sooperfare
+
 TYPES = {"adult": "ADT", "child": "CHD", "infant": "INF"}
 
 
@@ -25,7 +27,7 @@ class Fare:
     currency: str
     #: Total supplier price per passenger type for this flight, in minor units: {"ADT": (count, total_minor)}.
     per_type: dict[str, tuple[int, int]]
-    baggage: str | None = None
+    baggage: Baggage = field(default_factory=Baggage)
     refund: str | None = None
     change: str | None = None
 
@@ -83,18 +85,6 @@ def _local(value: Any) -> str | None:
     return text[:16] if len(text) >= 16 else None  # "2026-12-10T08:00:00+05:00" -> "2026-12-10T08:00" (local time)
 
 
-def _baggage(policies: list[dict]) -> str | None:
-    checked = next((p for p in policies if p.get("type") == "checked" and p.get("traveler_type", "adult") == "adult"), None)
-    carry = next((p for p in policies if p.get("type") == "carry" and p.get("traveler_type", "adult") == "adult"), None)
-    parts = []
-    if checked is not None:
-        weight = checked.get("weight_limit") or 0
-        parts.append(f"{weight} kg checked" if weight else "No checked baggage")
-    if carry is not None and carry.get("weight_limit"):
-        parts.append(f"{carry['weight_limit']} kg hand carry")
-    return ", ".join(parts) or None
-
-
 def _policy(policies: list[dict], kind: str, currency: str) -> str | None:
     rows = [p for p in policies if p.get("type") == kind and p.get("traveler_type", "adult") == "adult"]
     if not rows:
@@ -115,7 +105,7 @@ def parse_fare(raw: dict) -> Fare | None:
         return None  # no reference or no adult price: not offered
     policies = raw.get("fare_policies") or []
     return Fare(ref_id=str(raw["ref_id"]), signature=str(raw["signature"]), name=str(raw.get("name") or raw.get("class") or "Fare").strip(),
-                currency=currency, per_type=per_type, baggage=_baggage(raw.get("baggage_policies") or []),
+                currency=currency, per_type=per_type, baggage=from_sooperfare(raw.get("baggage_policies")),
                 refund=_policy(policies, "refund", currency) or ("Refundable (airline fees apply)" if raw.get("is_refundable") else "Non-refundable"),
                 change=_policy(policies, "exchange", currency))
 

@@ -28,6 +28,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.core.titles import title_text
+from app.services import baggage
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
@@ -324,7 +325,7 @@ def _leg(doc: Itinerary, segment: dict, width: float) -> KeepTogether:
     side = ([logo, Spacer(1, 2)] if logo else []) + [_p(airline or "Airline not recorded", size=9.5, bold=True, color=NAVY)]
     if flight:
         side.append(_p(f"Flight {flight}", size=9, bold=True, color=TEAL))
-    for label, value in (("Cabin", segment.get("cabin")), ("Baggage", segment.get("baggage") or "Baggage info not available"),
+    for label, value in (("Cabin", segment.get("cabin")), ("Baggage", baggage.of_segment(segment).short()),
                          ("Meal", meal(segment.get("meal"))), ("Status", status)):
         if value:
             side.append(_line(label, str(value)))

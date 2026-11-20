@@ -1,0 +1,511 @@
+{
+ "_note": "Shared baggage cases (#36). Same file in travelian-api-gateway tests/baggage_cases.json and travelian src/lib/baggage-cases.json; keep them identical.",
+ "cases": [
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 0
+   },
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 20
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 23
+   },
+   "short": "7+23 kg",
+   "detail": "7 kg hand carry + 23 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 30
+   },
+   "short": "7+30 kg",
+   "detail": "7 kg hand carry + 30 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 40
+   },
+   "short": "7+40 kg",
+   "detail": "7 kg hand carry + 40 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "checked_kg": 46
+   },
+   "short": "7+46 kg",
+   "detail": "7 kg hand carry + 46 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 10,
+    "checked_kg": 20
+   },
+   "short": "10+20 kg",
+   "detail": "10 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "pieces": 1
+   },
+   "short": "7 kg + 1 pc",
+   "detail": "7 kg hand carry + 1 checked piece"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "pieces": 1,
+    "piece_kg": 23
+   },
+   "short": "7+1×23 kg",
+   "detail": "7 kg hand carry + 1 checked piece of up to 23 kg"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7,
+    "pieces": 2,
+    "piece_kg": 23
+   },
+   "short": "7+2×23 kg",
+   "detail": "7 kg hand carry + 2 checked pieces of up to 23 kg each"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "checked_kg": 20
+   },
+   "short": "20 kg checked",
+   "detail": "20 kg checked; hand carry: check with airline"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "checked_kg": 0
+   },
+   "short": "No checked bag",
+   "detail": "No checked bag; hand carry: check with airline"
+  },
+  {
+   "source": "parts",
+   "input": {
+    "hand_kg": 7
+   },
+   "short": "7 kg hand carry",
+   "detail": "7 kg hand carry; checked baggage: check with airline"
+  },
+  {
+   "source": "parts",
+   "input": {},
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "20KG"
+   },
+   "short": "20 kg checked",
+   "detail": "20 kg checked; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "30 KG"
+   },
+   "short": "30 kg checked",
+   "detail": "30 kg checked; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "Nill Baggage"
+   },
+   "short": "No checked bag",
+   "detail": "No checked bag; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "NIL"
+   },
+   "short": "No checked bag",
+   "detail": "No checked bag; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "0KG"
+   },
+   "short": "No checked bag",
+   "detail": "No checked bag; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "1PC"
+   },
+   "short": "1 pc checked",
+   "detail": "1 checked piece; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "2PC 23KG"
+   },
+   "short": "2×23 kg checked",
+   "detail": "2 checked pieces of up to 23 kg each; hand carry: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "20KG",
+    "hand_carry": "7KG"
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": "Subject to supplier rules"
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "southair",
+   "input": {
+    "checked": null
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 0,
+      "weight_unit": "kg",
+      "pieces": 0,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 20,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 23,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7+23 kg",
+   "detail": "7 kg hand carry + 23 kg checked"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 40,
+      "weight_unit": "kg",
+      "pieces": 2,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7+40 kg",
+   "detail": "7 kg hand carry + 40 kg checked"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 46,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7+46 kg",
+   "detail": "7 kg hand carry + 46 kg checked"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 10,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": 30,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "10+30 kg",
+   "detail": "10 kg hand carry + 30 kg checked"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": [
+     {
+      "type": "carry",
+      "weight_limit": 7,
+      "weight_unit": "kg",
+      "pieces": 1,
+      "traveler_type": "adult"
+     },
+     {
+      "type": "checked",
+      "weight_limit": null,
+      "weight_unit": "kg",
+      "pieces": 2,
+      "traveler_type": "adult"
+     }
+    ]
+   },
+   "short": "7 kg + 2 pc",
+   "detail": "7 kg hand carry + 2 checked pieces"
+  },
+  {
+   "source": "sooperfare",
+   "input": {
+    "policies": []
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": "20",
+    "hand_carry": "7"
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": 30,
+    "hand_carry": "10"
+   },
+   "short": "10+30 kg",
+   "detail": "10 kg hand carry + 30 kg checked"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": "20 KG",
+    "hand_carry": null
+   },
+   "short": "20 kg checked",
+   "detail": "20 kg checked; hand carry: check with airline"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": "0",
+    "hand_carry": "7"
+   },
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": "1PC",
+    "hand_carry": "7"
+   },
+   "short": "7 kg + 1 pc",
+   "detail": "7 kg hand carry + 1 checked piece"
+  },
+  {
+   "source": "group",
+   "input": {
+    "checked": null,
+    "hand_carry": null
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "20 kg checked, 7 kg hand carry"
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "No checked baggage, 7 kg hand carry"
+   },
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "No checked baggage"
+   },
+   "short": "No checked bag",
+   "detail": "No checked bag; hand carry: check with airline"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "7+20 kg"
+   },
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "7+1×23 kg"
+   },
+   "short": "7+1×23 kg",
+   "detail": "7 kg hand carry + 1 checked piece of up to 23 kg"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "7 kg + 1 pc"
+   },
+   "short": "7 kg + 1 pc",
+   "detail": "7 kg hand carry + 1 checked piece"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "20KG"
+   },
+   "short": "20 kg checked",
+   "detail": "20 kg checked; hand carry: check with airline"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "Baggage info not available"
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": "undefined"
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  },
+  {
+   "source": "text",
+   "input": {
+    "text": ""
+   },
+   "short": "Baggage: check with airline",
+   "detail": "Baggage: check with airline"
+  }
+ ]
+}

@@ -22,7 +22,7 @@ def test_one_way_airblue_options_fares_and_prices():
     value = flight.fares[0]
     assert (value.name, value.signature, value.currency) == ("Value", "Value|EV|1", "PKR")
     assert value.per_type == {"ADT": (1, 2205000)} and value.adult_each_minor == 2205000
-    assert value.baggage == "No checked baggage, 7 kg hand carry"
+    assert value.baggage.short() == "7 kg" and value.baggage.detail() == "7 kg hand carry only, no checked bag"
     assert value.change and value.change.startswith("<0 hours before departure: Rs 8,000")
 
 
