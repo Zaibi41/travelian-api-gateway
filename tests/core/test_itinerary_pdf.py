@@ -142,3 +142,19 @@ def test_group_pdf_carries_non_refundable_next_to_the_fare_and_the_full_line_in_
 def test_a_booking_without_the_stored_term_has_no_terms_box(monkeypatch, tmp_path):
     text = pdf_text(get(monkeypatch, "TRV-41", who=people(traveler(0, "Ali"))).content, tmp_path)
     assert "Non-refundable" not in text and "TERMS" not in text
+
+
+def test_print_without_fare_has_no_money_at_all(monkeypatch, tmp_path):
+    """Issue #18: the same itinerary / e-ticket, without the fare column and Total / Paid / Due."""
+    who = people(traveler(0, "Ali", ticket="2147483647001"), traveler(1, "Sana", ticket="2147483647002"), paid=17_600_000)
+    api = client(monkeypatch, rows=[FLIGHT_HOLD, GROUP_PAID, ISSUED, GROUP_ONE_WAY, GROUP_TICKETED], viewer=SUPER_ADMIN)
+    monkeypatch.setattr(booking_people, "read", lambda ref: who)
+    response = api.get("/v1/admin/bookings/TRV-43/itinerary.pdf?fare=false")
+    assert response.status_code == 200 and response.headers["content-disposition"] == 'attachment; filename="TRV-43-no-fare.pdf"'
+    text = pdf_text(response.content, tmp_path)
+    assert "E-TICKET & ITINERARY" in text and "2147483647001" in text and "Mr Ali Raza" in text
+    assert "Rs " not in text and "FARE" not in text and "Total" not in text and "Due" not in text
+    with_fare = pdf_text(api.get("/v1/admin/bookings/TRV-43/itinerary.pdf").content, tmp_path)
+    assert "Rs 88,000" in with_fare and "Total" in with_fare
+    png = api.get("/v1/admin/bookings/TRV-43/itinerary.pdf?fare=false&format=png")
+    assert png.headers["content-disposition"] == 'attachment; filename="TRV-43-itinerary-no-fare.png"'

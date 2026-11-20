@@ -184,7 +184,8 @@ async def _supplier_action(viewer, booking_id: str, action) -> SupplierBookingVi
                409: {"description": "A group booking that isn't Ticketed yet (final PNR and every ticket number)."}},
 )
 async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)],
-                        format: Annotated[Literal["pdf", "png"], Query(description="pdf (default) or png: the same document as one image.")] = "pdf"):
+                        format: Annotated[Literal["pdf", "png"], Query(description="pdf (default) or png: the same document as one image.")] = "pdf",
+                        fare: Annotated[bool, Query(description="false: print without fare (no fare column, no Total / Paid / Due), issue #18.")] = True):
     """The booking's itinerary / e-ticket as a PDF (Flights and Group Ticketing; app/services/itinerary_pdf.py): status
     banner, Booked by / Contact (Travelian), travelers with fare, Total, Paid and Due (selling price), every flight
     outbound then return. Never a supplier name, group id, cost or profit; full passport numbers. A group booking prints
@@ -216,17 +217,18 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         booking_status=booking.status, issuance_status=booking.ticket_status, payment_status=booking.payment_status,
         created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, currency=booking.currency, total_minor=booking.total_minor,
         paid_minor=paid, travelers=travelers, segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)],
-        customer=customer,
+        customer=customer, show_fare=fare,
     )
     if group_terms.acknowledgement(getattr(people, "events", None)) is not None:
         # The booking carries the stored group fare terms: the tag next to the fare and the full line in the terms box.
         document.fare_note, document.terms = group_terms.TAG, [group_terms.TERM]
     content = await run_in_threadpool(itinerary_pdf_service.render, document, _now())
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", booking.booking_id)
-    media, filename = "application/pdf", f"{safe}.pdf"
+    suffix = "" if fare else "-no-fare"
+    media, filename = "application/pdf", f"{safe}{suffix}.pdf"
     if format == "png":
         content = await run_in_threadpool(itinerary_pdf_service.to_png, content)
-        media, filename = "image/png", f"{safe}-itinerary.png"
+        media, filename = "image/png", f"{safe}-itinerary{suffix}.png"
     return Response(content, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"',
                                                                      "Cache-Control": "no-store"})
 
