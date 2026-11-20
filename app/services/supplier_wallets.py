@@ -67,13 +67,13 @@ async def _low_balance_alert(wallet: store.Wallet) -> None:
     """Notifications (always) and email (when set up). Never raises."""
     from app.services import notifications
 
-    money = notifications._money
-    title = f"Low supplier balance: {wallet.name}"
-    lines = [f"{wallet.name} balance{' (calculated)' if wallet.mode == 'calculated' else ''}: {money(wallet.balance_minor, wallet.currency)}",
-             f"Alert below: {money(wallet.threshold_minor, wallet.currency)}", "Top up before issuing more tickets (Finance > Wallets)."]
+    # Notifications are seen by all back-office staff: no supplier name or amounts here (field visibility). Finance
+    # opens Finance > Wallets for the figures.
+    title = "Low supplier balance: check Finance > Wallets"
+    lines = ["A supplier balance dropped below its alert level.", "Top up before issuing more tickets (Finance > Wallets)."]
     try:
         notification_id = await run_in_threadpool(notifications._record, "low_supplier_balance", None, title,
-                                                   {"supplier": wallet.name, "balance": lines[0], "threshold": lines[1], "urgent": True})
+                                                   {"provider_id": wallet.provider_id, "urgent": True})
     except Exception:  # noqa: BLE001
         logger.error("Low balance alert not recorded", exc_info=True)
         return

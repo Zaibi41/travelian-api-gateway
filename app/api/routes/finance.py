@@ -69,7 +69,7 @@ async def audit_log(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
     views = []
     for entry in entries:
         view = AuditEntryView(**entry.__dict__)
-        if entry.entity_type in COST_ENTITIES and not viewer.visibility.cost_and_margin:
+        if hides_cost(entry.entity_type, entry.entity_id) and not viewer.visibility.cost_and_margin:
             view.before = view.after = None
         views.append(view)
     return AuditLogPage(entries=views, total=total)
@@ -115,7 +115,12 @@ def profit_view(data: store.BookingFinance) -> ProfitView:
 
 
 #: Audit entries whose before/after carry supplier cost; sent only with the cost and margin permission.
-COST_ENTITIES = {"supplier_charge"}
+COST_ENTITIES = {"supplier_charge", "supplier_wallet"}
+
+
+def hides_cost(entity_type: str, entity_id: str | None) -> bool:
+    """Audit entries whose before/after carry supplier cost or balances (incl. low-balance alert levels)."""
+    return entity_type in COST_ENTITIES or (entity_type == "finance_setting" and (entity_id or "").startswith("low_balance_"))
 
 
 async def _booking_view(reference: str, viewer: BackOfficeUser) -> BookingFinanceView:
