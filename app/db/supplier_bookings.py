@@ -123,27 +123,31 @@ def save_request(*, provider: str, currency: str, selling_total_minor: int, supp
 # (None: the same total only). Set for the one call; the automatic re-hold after a card payment never changes the price.
 # The third value: the supplier reference staff saw (the new hold is saved only if the booking still has it).
 STAFF_REHOLD: ContextVar[tuple[str | None, int | None, str | None] | None] = ContextVar("staff_rehold", default=None)
-REHOLD_LOCK_MINUTES = 5
-
-
-def claim_rehold(reference: str, supplier_ref: str) -> bool:
-    """One staff re-hold at a time per booking: set the lock if the booking still has this supplier reference and no
-    lock younger than REHOLD_LOCK_MINUTES (a lock left by a crash expires). False: another re-hold is running, or the
-    booking changed meanwhile."""
-    with agencies.application_engine().begin() as connection:
-        return connection.execute(text(
-            "UPDATE bookings SET supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
-            " || jsonb_build_object('rehold_lock', CAST(now() AS text))"
-            " WHERE reference = :r AND supplier_ref = :ref AND (supplier_response ->> 'rehold_lock' IS NULL"
-            " OR CAST(supplier_response ->> 'rehold_lock' AS timestamptz) < now() - make_interval(mins => :m)) RETURNING id"),
-            {"r": reference, "ref": supplier_ref, "m": REHOLD_LOCK_MINUTES}).first() is not None
-
-
-def release_rehold(reference: str) -> None:
-    with agencies.application_engine().begin() as connection:
-        connection.execute(text("UPDATE bookings SET supplier_response = supplier_response - 'rehold_lock' WHERE reference = :r"),
-                           {"r": reference})
 REHOLD_STATUSES = ("held", "pending_payment", "payment_received", "expired", "paid_not_ticketed")
+REHOLD_LOCK_MINUTES = 10  # longer than a whole re-hold (search, quote, reservation, booking list) with every supplier timeout
+
+
+def claim_rehold(reference: str, supplier_ref: str) -> str | None:
+    """One staff re-hold at a time per booking: set a lock (a fresh random token) if the booking still has this supplier
+    reference and no lock younger than REHOLD_LOCK_MINUTES (a lock left by a crash expires). Returns the token, or None
+    when another re-hold is running or the booking changed meanwhile."""
+    token = secrets.token_hex(16)
+    with agencies.application_engine().begin() as connection:
+        claimed = connection.execute(text(
+            "UPDATE bookings SET supplier_response = COALESCE(supplier_response, '{}'::jsonb)"
+            " || jsonb_build_object('rehold_lock', jsonb_build_object('token', CAST(:t AS text), 'at', CAST(now() AS text)))"
+            " WHERE reference = :r AND supplier_ref = :ref AND (supplier_response -> 'rehold_lock' IS NULL"
+            " OR jsonb_typeof(supplier_response -> 'rehold_lock') <> 'object'"
+            " OR CAST(supplier_response #>> '{rehold_lock,at}' AS timestamptz) < now() - make_interval(mins => :m)) RETURNING id"),
+            {"r": reference, "ref": supplier_ref, "m": REHOLD_LOCK_MINUTES, "t": token}).first()
+    return token if claimed else None
+
+
+def release_rehold(reference: str, token: str) -> None:
+    """Remove the lock only if it is still ours (an expired lock may have been taken by another re-hold since)."""
+    with agencies.application_engine().begin() as connection:
+        connection.execute(text("UPDATE bookings SET supplier_response = supplier_response - 'rehold_lock'"
+                                " WHERE reference = :r AND supplier_response #>> '{rehold_lock,token}' = :t"), {"r": reference, "t": token})
 
 
 def replace_hold(reference: str, *, provider: str, pnr: str, supplier_ref: str, hold_expires_at: datetime | None,
