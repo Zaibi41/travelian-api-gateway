@@ -250,7 +250,7 @@ def test_flight_selling_below_the_new_cost_is_blocked(flights):
 # ---------- Flights: airline price change at ticketing ----------
 
 def ticketing(new_total, accepted=None, viewer=None):
-    target = MagicMock(id="b-1", reference="TRV-AB12CD", pnr="63B55C", provider="southair", currency="PKR", total_minor=48_000, supplier_cost_minor=45_770,
+    target = MagicMock(test_booking=False, id="b-1", reference="TRV-AB12CD", pnr="63B55C", provider="southair", currency="PKR", total_minor=48_000, supplier_cost_minor=45_770,
                        supplier_ref="REF", issuance_status="requested", traveler_types=[(0, "ADT")])
     client = MagicMock()
     client.pnr_info = AsyncMock(return_value=pnr_info(total=new_total, tickets=(None,)))

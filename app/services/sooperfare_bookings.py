@@ -73,6 +73,36 @@ def _save(record: Record, actor: str | None, action: str, details: dict[str, Any
         _event(connection, record.id, actor, action, details)
 
 
+TRAVELER_TYPE = {"adult": "ADT", "child": "CHD", "infant": "INF"}
+
+
+def _tickets(booking: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Each passenger's ticket, in SooperFare's order: (ADT/CHD/INF, ticket number or None).
+    Read from booking.providers[].legs[].passengers[] (ticket_number, passenger.traveler_type), as booking/list answered
+    on 19 Nov 2026 (docs/SOOPERFARE_API_RESPONSES.md). A passenger listed on several legs (a return trip) is one traveler:
+    the legs' different numbers are joined with "/" (one number when they are the same); a leg without a number leaves
+    that traveler without a ticket, so nothing is recorded as issued from a partial answer."""
+    travelers: list[list] = []  # [type, numbers, missing]
+    for provider in booking.get("providers") or []:
+        for leg in (provider or {}).get("legs") or []:
+            for index, row in enumerate((leg or {}).get("passengers") or []):
+                person = row.get("passenger") if isinstance(row, dict) and isinstance(row.get("passenger"), dict) else {}
+                kind = TRAVELER_TYPE.get(str(person.get("traveler_type") or "").lower(), "?")
+                number = str(row.get("ticket_number") or "").strip().upper() if isinstance(row, dict) else ""
+                if index >= len(travelers):
+                    travelers.append([kind, [], False])
+                if number:
+                    if number not in travelers[index][1]:
+                        travelers[index][1].append(number)
+                else:
+                    travelers[index][2] = True
+    out: list[tuple[str, str | None]] = []
+    for kind, numbers, missing in travelers:
+        joined = "/".join(numbers)
+        out.append((kind, None if missing or not numbers or len(joined) > 32 else joined))
+    return out
+
+
 def _sooperfare_record(listing: dict[str, Any], booking_ref: str) -> dict[str, Any] | None:
     for item in listing.get("data") or []:
         if isinstance(item, dict) and item.get("uuid") == booking_ref:
@@ -80,7 +110,9 @@ def _sooperfare_record(listing: dict[str, Any], booking_ref: str) -> dict[str, A
             flags = item.get("additional") if isinstance(item.get("additional"), dict) else {}
             return {"reservation_status": booking.get("reservation_status"), "is_cancelled": bool(flags.get("is_cancelled")),
                     "is_paid": bool(flags.get("is_paid")), "is_issued": bool(flags.get("is_issued")), "expiry_at": booking.get("expiry_at"),
-                    "order_ref_id": booking.get("order_ref_id")}
+                    "order_ref_id": booking.get("order_ref_id"), "pnr": next((str(p.get("pnr")) for p in booking.get("providers") or []
+                                                                             if isinstance(p, dict) and p.get("pnr")), None),
+                    "tickets": _tickets(booking)}
     return None
 
 

@@ -29,6 +29,27 @@ or only for issued bookings? is `booking/void` meant for unpaid reservations?).
 `/v1/booking/confirm` was **not** called (it issues and charges the balance). Its body, from SooperFare's collection:
 `booking_ref_id, txn_ref_id, amount, currency, remarks`.
 
+## `POST /v1/booking/confirm` (issuing): waiting for the first real issue
+
+Built in gateway#45; **not called yet**. The owner issues the first real booking from the admin (booking, Payments tab,
+*2 · Issue the ticket*). Its request and SooperFare's answer are saved on that booking (`supplier_response.ticketing`:
+`confirm.request`, `confirm.answer`, `booking_list`) and will be copied here, with secrets and personal data removed.
+
+What the gateway sends (one call, never retried), for a held, fully paid booking that isn't a TEST booking:
+
+```json
+{"booking_ref_id": "<SooperFare data.uuid from the reservation>", "txn_ref_id": "<Travelian reference, e.g. TRV-XXXXXX>",
+ "amount": 24070.0, "currency": "PKR", "remarks": "Travelian booking TRV-XXXXXX, PNR XXXXXX"}
+```
+
+Then `POST /v1/booking/list` (re-read after 0, 3 and 6 s): **Ticket issued** only when `additional.is_issued` is true and
+every passenger in `booking.providers[].legs[].passengers[]` has a `ticket_number` (matched to our travelers by type and
+order). Anything else leaves the booking *unknown*, so staff use *Check with supplier* (read-only) and nobody confirms twice.
+
+### First real confirm
+
+_To be filled in after the first real issue._
+
 ## Calls in order
 
 ### 1. `GET /v1/airline/availability` at 2026-11-19T16:23:40Z (1687 ms, ok)
