@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from html import escape
 
+from app.core.config import settings
+
 # ---------- brand (from the website: src/index.css, admin-tokens.css, site-config.ts) ----------
 
 NAVY = "#00245D"          # brand navy: headings, header text, buttons
@@ -32,8 +34,6 @@ FONT = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 DISPLAY = "'Plus Jakarta Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 MONO = "'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace"
 
-SITE = "https://travelian.pk"
-LOGO = "https://www.travelian.pk/travelian-logo-wordmark.png"
 PHONE = "+92 324 4440014"
 WHATSAPP = "https://wa.me/923244440014"
 EMAIL = "info@travelian.pk"
@@ -41,6 +41,15 @@ ADDRESS = "589-J2, Johar Town, Lahore"
 SOCIAL = (("Facebook", "https://www.facebook.com/Travelian.pk/"), ("Instagram", "https://www.instagram.com/travelian.pk/"),
           ("YouTube", "https://www.youtube.com/@Travelianpk"), ("TikTok", "https://www.tiktok.com/@travelian.pk"))
 PKT = timezone(timedelta(hours=5))
+
+
+def _site() -> str:
+    """The public website's origin (PUBLIC_SITE_URL), read when a message is built so tests and config changes apply."""
+    return settings.public_site_url.rstrip("/")
+
+
+def _logo() -> str:
+    return f"{_site()}/travelian-logo-wordmark.png"
 
 TONES = {  # status strip: background, text
     "info": (NAVY, "#FFFFFF"), "waiting": (AMBER_BG, AMBER_INK), "done": (TEAL, "#FFFFFF"), "urgent": (RED, "#FFFFFF"),
@@ -281,7 +290,7 @@ def _layout(*, reference: str, status: str, tone: str, preheader: str, body: str
 <table role="presentation" class="card" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#FFFFFF;border:1px solid {LINE};border-radius:12px;overflow:hidden;">
   <tr><td class="pad" style="padding:22px 32px;border-bottom:1px solid {LINE};">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td style="vertical-align:middle;"><a href="{SITE}" style="text-decoration:none;"><img src="{LOGO}" width="148" height="42" alt="Travelian" style="display:block;width:148px;height:auto;border:0;"></a></td>
+      <td style="vertical-align:middle;"><a href="{_site()}" style="text-decoration:none;"><img src="{_logo()}" width="148" height="42" alt="Travelian" style="display:block;width:148px;height:auto;border:0;"></a></td>
       <td style="vertical-align:middle;text-align:right;font-family:{FONT};">
         <span style="display:block;font-size:11px;color:{MUTED};">Booking ref</span>
         <span style="display:block;font-family:{MONO};font-size:16px;font-weight:700;color:{NAVY};">{_e(reference)}</span>
@@ -294,7 +303,7 @@ def _layout(*, reference: str, status: str, tone: str, preheader: str, body: str
     <p style="margin:0 0 6px;font-family:{DISPLAY};font-size:14px;font-weight:700;color:{NAVY};">Travelian</p>
     <p style="margin:0;">Call <a href="tel:+923244440014" style="color:{BLUE};text-decoration:none;">{PHONE}</a> &nbsp;·&nbsp;
       WhatsApp <a href="{_e(_whatsapp(reference))}" style="color:{BLUE};text-decoration:none;">{PHONE}</a></p>
-    <p style="margin:0;"><a href="mailto:{EMAIL}" style="color:{BLUE};text-decoration:none;">{EMAIL}</a> &nbsp;·&nbsp; <a href="{SITE}" style="color:{BLUE};text-decoration:none;">www.travelian.pk</a></p>
+    <p style="margin:0;"><a href="mailto:{EMAIL}" style="color:{BLUE};text-decoration:none;">{EMAIL}</a> &nbsp;·&nbsp; <a href="{_site()}" style="color:{BLUE};text-decoration:none;">www.travelian.pk</a></p>
     <p style="margin:0 0 10px;">{ADDRESS}</p>
     <p style="margin:0 0 10px;">{socials}</p>
     <p style="margin:0;font-size:12px;">{_e(footer_note)}</p>
@@ -356,17 +365,17 @@ def _greeting(booking: Booking) -> str:
 
 def _manage(booking: Booking) -> str:
     """The booking's signed link (opens it directly); Find my booking when there is none."""
-    return booking.view_url or f"{SITE}/find-booking"
+    return booking.view_url or f"{_site()}/find-booking"
 
 
 def _fallback(booking: Booking) -> str:
     """Under every button: the way in that always works."""
-    return _p(f"Link not working? Go to <a href=\"{SITE}/find-booking\" style=\"color:{BLUE};\">travelian.pk/find-booking</a> and enter "
+    return _p(f"Link not working? Go to <a href=\"{_site()}/find-booking\" style=\"color:{BLUE};\">travelian.pk/find-booking</a> and enter "
               f"<strong>{_e(booking.reference)}</strong> with your email or phone number.", size=12, color=MUTED, margin="-10px 0 18px")
 
 
 def _fallback_text(booking: Booking) -> str:
-    return f"Link not working? Go to {SITE}/find-booking and enter {booking.reference} with your email or phone number."
+    return f"Link not working? Go to {_site()}/find-booking and enter {booking.reference} with your email or phone number."
 
 
 def _whatsapp(reference: str) -> str:
@@ -544,7 +553,7 @@ def paid_not_ticketed(booking: Booking) -> Email:
 # ---------- staff templates ----------
 
 def _admin_link(reference: str) -> str:
-    return f"{SITE}/admin/bookings/{reference}/payments"
+    return f"{_site()}/admin/bookings/{reference}/payments"
 
 
 def _staff_rows(alert: StaffAlert) -> list[tuple[str, str]]:
