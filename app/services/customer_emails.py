@@ -194,11 +194,16 @@ def ses_send(to: str, email: t.Email) -> tuple[bool, str]:
         return False, f"failed ({code or type(error).__name__})"
 
 
-def _record(booking_id: str, kind: str, sent: bool, reason: str, to: str | None) -> None:
-    masked = None if not to else (to[0] + "***" + to[to.index("@"):] if "@" in to else "***")
+def _masked(to: str | None) -> str | None:
+    return None if not to else (to[0] + "***" + to[to.index("@"):] if "@" in to else "***")
+
+
+def _record(booking_id: str, kind: str, sent: bool, reason: str, to: str | None, method: str | None = None,
+            actor: str | None = None) -> None:
     with agencies.application_engine().begin() as connection:
-        _event(connection, booking_id, None, "customer_email_sent" if sent else "customer_email_not_sent",
-               {"email": kind, "to": masked, **({} if sent else {"reason": reason})})
+        _event(connection, booking_id, actor, "customer_email_sent" if sent else "customer_email_not_sent",
+               {"email": kind, "to": _masked(to), **({"method": method} if method and kind == "payment_received" else {}),
+                **({"resent": True} if actor else {}), **({} if sent else {"reason": reason})})
 
 
 def _already_sent(booking_id: str, kind: str | tuple[str, ...]) -> bool:
@@ -209,20 +214,21 @@ def _already_sent(booking_id: str, kind: str | tuple[str, ...]) -> bool:
             {"b": booking_id, "k": kinds}))
 
 
-def deliver(reference: str, kind: str, *, method: str = "card") -> tuple[bool, str]:
-    """Build and send one customer email for a booking (once per kind), and record the outcome on it. Never raises."""
+def deliver(reference: str, kind: str, *, method: str = "card", resend_by: str | None = None) -> tuple[bool, str]:
+    """Build and send one customer email for a booking (once per kind), and record the outcome on it. Never raises.
+    `resend_by`: a staff user's id: send it again even if it went before (gateway#53, admin Resend email)."""
     try:
         facts = _facts(reference)
         if facts is None:
             return False, "booking not found"
-        if _already_sent(facts["id"], kind):
+        if not resend_by and _already_sent(facts["id"], kind):
             return False, "already sent"
         if kind == "hold_expired" and (facts.get("paid_minor") or not _already_sent(facts["id"], HOLD_KINDS)):
             # Only an unpaid hold the customer was emailed about (a paid one follows the paid-not-ticketed path).
             return False, "not needed"
         to = (facts.get("c_email") or "").strip()
         if not to:
-            _record(facts["id"], kind, False, "no customer email on the booking", None)
+            _record(facts["id"], kind, False, "no customer email on the booking", None, actor=resend_by)
             return False, "no customer email on the booking"
         try:
             link = view_url(create_link(facts["id"], facts.get("itinerary"), kind))
@@ -231,7 +237,7 @@ def deliver(reference: str, kind: str, *, method: str = "card") -> tuple[bool, s
             link = None
         email = render(kind, booking_from(facts, link), method=method)
         sent, why = ses_send(to, email)
-        _record(facts["id"], kind, sent, why, to)
+        _record(facts["id"], kind, sent, why, to, method, actor=resend_by)
         if not sent:
             logger.warning(f"Customer email not sent ({why})", extra={"reference": reference, "email_kind": kind})
         return sent, why
@@ -246,12 +252,73 @@ async def send(reference: str, kind: str, *, method: str = "card") -> None:
     await run_in_threadpool(deliver, reference, kind, method=method)
 
 
+_BLOCKED = ("Email blocked: AWS hasn't approved Travelian's email account for all addresses yet, so only approved addresses "
+            "receive email. Call or WhatsApp the customer.")
+
+
+def plain_reason(reason: str | None) -> str | None:
+    """A send failure in plain words for staff (gateway#53); old stored reasons read the same way."""
+    if not reason:
+        return None
+    low = reason.lower()
+    if "accessdenied" in low or "not verified" in low or "isn't verified" in low or "isn't approved yet" in low:
+        return _BLOCKED
+    if reason == "no customer email on the booking":
+        return "No email address on the booking. Add one or contact the customer by phone."
+    if low.startswith("failed ("):
+        return f"The email service didn't answer ({reason[8:].rstrip(')')}). Try Resend email."
+    return reason
+
+
+def _details(event) -> dict[str, Any]:
+    return event.details if isinstance(event.details, dict) else json.loads(event.details or "{}")
+
+
 def email_problems(events) -> list[dict[str, Any]]:
-    """For the admin: customer emails whose last attempt wasn't sent (template, when, why)."""
+    """For the admin: customer emails whose last attempt wasn't sent (which email, to whom (masked), when, why)."""
     latest: dict[str, Any] = {}
     for event in events:
         if event.action in ("customer_email_sent", "customer_email_not_sent"):
-            details = event.details if isinstance(event.details, dict) else json.loads(event.details or "{}")
-            latest[details.get("email") or "?"] = (event, details)
-    return [{"email": kind, "at": event.created_at, "reason": details.get("reason")}
+            details = _details(event)
+            latest[details.get("email") or details.get("kind") or "unknown"] = (event, details)
+    return [{"email": kind, "at": event.created_at, "to": details.get("to"), "reason": plain_reason(details.get("reason")),
+             "can_resend": kind in KINDS}
             for kind, (event, details) in latest.items() if event.action == "customer_email_not_sent"]
+
+
+class ResendRefused(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status, self.message = status, message
+
+
+def _attempts(booking_id: str, kind: str) -> list[dict[str, Any]]:
+    with agencies.application_engine().begin() as connection:
+        rows = connection.execute(text(
+            "SELECT details FROM booking_events WHERE booking_id = :b AND action IN ('customer_email_sent', 'customer_email_not_sent')"
+            " AND details ->> 'email' = :k ORDER BY created_at"), {"b": booking_id, "k": kind}).all()
+    return [row.details if isinstance(row.details, dict) else json.loads(row.details or "{}") for row in rows]
+
+
+def _last_payment_method(booking_id: str) -> str:
+    with agencies.application_engine().begin() as connection:
+        method = connection.scalar(text("SELECT method FROM booking_payments WHERE booking_id = :b ORDER BY received_at DESC LIMIT 1"),
+                                   {"b": booking_id})
+    return {"bank_transfer": "bank transfer", "jazzcash": "JazzCash", "1link": "1Link", "payfast": "card"}.get(method or "card", method or "card")
+
+
+def resend(reference: str, kind: str, actor_user_id: str) -> tuple[bool, str]:
+    """Admin Resend email (gateway#53): only an email this booking already had (sent or not), to the booking's customer
+    email now. Recorded with who resent it. Returns (sent, the reason in plain words)."""
+    if kind not in KINDS:
+        raise ResendRefused(422, "This email can't be resent.")
+    facts = _facts(reference)
+    if facts is None:
+        raise ResendRefused(404, "Booking not found.")
+    attempts = _attempts(facts["id"], kind)
+    if not attempts:
+        raise ResendRefused(409, "This email was never sent for this booking, so there is nothing to resend.")
+    method = next((a["method"] for a in reversed(attempts) if a.get("method")), None) or (
+        _last_payment_method(facts["id"]) if kind == "payment_received" else "card")
+    sent, why = deliver(reference, kind, method=method, resend_by=actor_user_id)
+    return sent, ("Email sent to the customer." if sent else plain_reason(why) or why)

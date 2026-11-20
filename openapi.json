@@ -2884,6 +2884,12 @@
             "title": "At",
             "type": "string"
           },
+          "can_resend": {
+            "default": false,
+            "description": "Resend email is offered (POST .../emails/{email}/resend).",
+            "title": "Can Resend",
+            "type": "boolean"
+          },
           "email": {
             "description": "Which email: booking_held, bank_transfer, payment_received, ticket_issued, ...",
             "title": "Email",
@@ -2898,7 +2904,20 @@
                 "type": "null"
               }
             ],
+            "description": "Why, in plain words for staff.",
             "title": "Reason"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The address it went to, masked (a***@gmail.com).",
+            "title": "To"
           }
         },
         "required": [
@@ -9711,6 +9730,25 @@
         "title": "RequiredDocument",
         "type": "object"
       },
+      "ResendEmailResult": {
+        "properties": {
+          "message": {
+            "description": "'Email sent to the customer.' or why not, in plain words.",
+            "title": "Message",
+            "type": "string"
+          },
+          "sent": {
+            "title": "Sent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent",
+          "message"
+        ],
+        "title": "ResendEmailResult",
+        "type": "object"
+      },
       "ResetPasswordRequest": {
         "additionalProperties": false,
         "properties": {
@@ -13675,6 +13713,70 @@
           }
         ],
         "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/emails/{email}/resend": {
+      "post": {
+        "description": "Send a customer email for this booking again (gateway#53), e.g. after SES refused it. Back office only; logged\non the booking with who resent it. Sending can still fail; the answer says why in plain words.",
+        "operationId": "resend_email_v1_admin_bookings__booking_id__emails__email__resend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Email",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResendEmailResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "That email was never sent for this booking."
+          },
+          "422": {
+            "description": "Not a customer email."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resend Email",
         "tags": [
           "admin bookings"
         ]

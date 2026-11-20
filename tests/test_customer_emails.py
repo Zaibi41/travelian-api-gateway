@@ -30,7 +30,7 @@ def wired(monkeypatch):
     monkeypatch.setattr(ce, "_facts", lambda reference: dict(FACTS))
     monkeypatch.setattr(ce, "_already_sent", lambda booking_id, kind: any(r[1] in ((kind,) if isinstance(kind, str) else kind) and r[2] for r in recorded))
     monkeypatch.setattr(ce, "create_link", lambda booking_id, itinerary, purpose: "tok123")
-    monkeypatch.setattr(ce, "_record", lambda booking_id, kind, ok, why, to: recorded.append((booking_id, kind, ok, why)))
+    monkeypatch.setattr(ce, "_record", lambda booking_id, kind, ok, why, to, method=None, actor=None: recorded.append((booking_id, kind, ok, why, actor)))
     return recorded, sent
 
 
@@ -64,7 +64,8 @@ def test_ses_sandbox_refusal_is_recorded_for_the_admin(wired, monkeypatch):
     event = lambda action, kind, reason=None, at=NOW: SimpleNamespace(action=action, details={"email": kind, "reason": reason}, created_at=at)
     problems = ce.email_problems([event("customer_email_not_sent", "payment_received", why), event("customer_email_not_sent", "booking_held", "x"),
                                   event("customer_email_sent", "booking_held", at=NOW + timedelta(minutes=1))])
-    assert problems == [{"email": "payment_received", "at": NOW, "reason": why}]       # a later success clears it
+    assert problems == [{"email": "payment_received", "at": NOW, "to": None, "reason": ce.plain_reason(why), "can_resend": True}]  # a later success clears it
+    assert problems[0]["reason"].startswith("Email blocked: AWS hasn't approved")
 
 
 def test_ses_access_denied_is_explained_without_ses_detail(wired, monkeypatch):
@@ -159,3 +160,54 @@ def test_every_kind_renders():
             assert email.subject and "TRV-1" in email.html and email.text
     finally:
         ce._accounts = monkey_accounts
+
+
+# ---------- gateway#53: plain reasons, Resend email ----------
+
+@pytest.mark.parametrize("stored,plain", [
+    ("refused by SES (AccessDenied): Travelian's AWS sending permission doesn't cover this address. SES is still in sandbox mode", "Email blocked:"),
+    ("refused by SES: the customer's address isn't verified (SES sandbox: only verified addresses receive email)", "Email blocked:"),
+    ("no customer email on the booking", "No email address on the booking."),
+    ("failed (Throttling)", "The email service didn't answer (Throttling). Try Resend email."),
+])
+def test_old_and_new_reasons_read_in_plain_words(stored, plain):
+    assert ce.plain_reason(stored).startswith(plain) and "sandbox" not in ce.plain_reason(stored).lower()
+
+
+def test_problems_show_who_it_went_to_and_old_events_without_a_kind():
+    events = [SimpleNamespace(action="customer_email_not_sent", details={"to": "a***@gmail.com", "reason": "failed (AccessDenied)"}, created_at=NOW),
+              SimpleNamespace(action="customer_email_not_sent", details={"email": "booking_held", "to": "a***@gmail.com", "reason": "failed (AccessDenied)"}, created_at=NOW)]
+    problems = ce.email_problems(events)
+    assert [(p["email"], p["to"], p["can_resend"]) for p in problems] == [("unknown", "a***@gmail.com", False), ("booking_held", "a***@gmail.com", True)]
+    assert problems[1]["reason"].startswith("Email blocked")
+
+
+def test_resend_sends_again_and_records_who(wired, monkeypatch):
+    recorded, sent = wired
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (sent.append((to, email)), (True, "sent"))[1])
+    monkeypatch.setattr(ce, "_attempts", lambda booking_id, kind: [{"email": kind}] if kind == "booking_held" else [])
+    assert ce.deliver("TRV-1", "booking_held")[0] is True
+    assert ce.resend("TRV-1", "booking_held", "u-staff") == (True, "Email sent to the customer.")
+    assert len(sent) == 2 and recorded[-1][-1] == "u-staff"
+
+
+def test_resend_refuses_an_email_the_booking_never_had(wired):
+    with pytest.raises(ce.ResendRefused) as error:
+        ce.resend("TRV-1", "nonsense", "u-staff")
+    assert error.value.status == 422
+    import types
+    ce_attempts = ce._attempts
+    try:
+        ce._attempts = lambda booking_id, kind: []
+        with pytest.raises(ce.ResendRefused) as error:
+            ce.resend("TRV-1", "ticket_issued", "u-staff")
+        assert error.value.status == 409 and "never sent" in error.value.message
+    finally:
+        ce._attempts = ce_attempts
+
+
+def test_resend_failure_says_why_in_plain_words(wired, monkeypatch):
+    monkeypatch.setattr(ce, "_attempts", lambda booking_id, kind: [{"email": kind, "method": "bank transfer"}])
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (False, "refused by the email service (AccessDenied): ..."))
+    sent, message = ce.resend("TRV-1", "payment_received", "u-staff")
+    assert not sent and message.startswith("Email blocked")

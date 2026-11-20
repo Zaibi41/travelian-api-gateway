@@ -31,7 +31,7 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
+    BookingDetail, BookingList, BookingMoney, ResendEmailResult, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
@@ -305,6 +305,25 @@ ISSUANCE_RESPONSES = {
     409: {"description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."},
     502: {"description": "The supplier couldn't be checked before sending. Nothing was issued."},
 }
+
+
+@router.post("/{booking_id}/emails/{email}/resend", response_model=ResendEmailResult,
+             responses={404: {"description": "No such booking."}, 409: {"description": "That email was never sent for this booking."},
+                        422: {"description": "Not a customer email."}})
+async def resend_email(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)], email: Annotated[str, Path(max_length=40)]):
+    """Send a customer email for this booking again (gateway#53), e.g. after SES refused it. Back office only; logged
+    on the booking with who resent it. Sending can still fail; the answer says why in plain words."""
+    from app.services import customer_emails
+
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    try:
+        sent, message = await run_in_threadpool(customer_emails.resend, booking.booking_id, email, viewer.user_id)
+    except customer_emails.ResendRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return ResendEmailResult(sent=sent, message=message)
 
 
 def _result(outcome: issuance_service.Outcome) -> IssuanceResult:
