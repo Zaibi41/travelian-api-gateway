@@ -217,7 +217,7 @@ async def itinerary_pdf(viewer: Viewer, booking_id: Annotated[str, Path(max_leng
         booking_status=booking.status, issuance_status=booking.ticket_status, payment_status=booking.payment_status,
         created_at=booking.created_at, hold_expires_at=booking.hold_expires_at, currency=booking.currency, total_minor=booking.total_minor,
         paid_minor=paid, travelers=travelers, segments=[segment for segment in (booking.itinerary or []) if isinstance(segment, dict)],
-        customer=customer, show_fare=fare,
+        customer=customer, show_fare=fare, card_fee_minor=sum(getattr(payment, "card_fee_minor", 0) for payment in people.payments) if people else 0,
     )
     if group_terms.acknowledgement(getattr(people, "events", None)) is not None:
         # The booking carries the stored group fare terms: the tag next to the fare and the full line in the terms box.

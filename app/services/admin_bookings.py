@@ -79,6 +79,27 @@ def customer_or_agency(booking: BookingRow) -> str | None:
     return booking.agency_name or booking.customer_name
 
 
+def _add_slips(detail, reference: str) -> None:
+    """The customer's chosen account and payment slips (travelian#76, gateway#56)."""
+    from app.db import payment_accounts, payment_slips
+    from app.schemas.admin_bookings import BookingSlip
+
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        chosen = payment_slips.chosen_account(reference)
+        slips = payment_slips.for_booking(reference)
+    except (HTTPException, SQLAlchemyError):  # supplementary: the booking still opens without them
+        return
+    if chosen:
+        detail.chosen_account = next((a.label for a in payment_accounts.list_accounts(True) if a.id == chosen), None)
+    if slips:
+        detail.payment_slips = [BookingSlip(id=s.id, method=s.method, account_label=s.account_label, amount=_money(s.amount_minor, s.currency),
+                                            payer_reference=s.payer_reference, content_type=s.content_type, status=s.status,
+                                            submitted_at=s.submitted_at, rejection_reason=s.rejection_reason) for s in slips]
+
+
 def _money(amount: int | None, currency: str | None) -> BookingMoney:
     return BookingMoney(amount_minor=amount or 0, currency=(currency or "PKR").upper())
 
@@ -290,9 +311,12 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         detail.payments = [
             BookingPayment(id=p.id, amount=_money(p.amount_minor, p.currency), method=p.method, received_into=p.received_into,
                            reference=p.reference, received_at=p.received_at, recorded_by_user_id=p.recorded_by_user_id,
-                           recorded_by_role=p.recorded_by_role, recorded_at=p.recorded_at)
+                           recorded_by_role=p.recorded_by_role, recorded_at=p.recorded_at,
+                           card_fee=_money(p.card_fee_minor, p.currency) if p.card_fee_minor else None)
             for p in people.payments
         ]
+    if people is not None:
+        _add_slips(detail, booking.booking_id)
     if people and people.customer:
         c = people.customer
         detail.customer = BookingCustomer(first_name=c.first_name, last_name=c.last_name, phone=f"+{c.phone_code} {c.phone}", email=c.email)

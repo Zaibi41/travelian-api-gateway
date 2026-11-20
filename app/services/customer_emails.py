@@ -90,6 +90,7 @@ def _facts(reference: str) -> dict[str, Any] | None:
         row = connection.execute(text(
             "SELECT b.id, b.reference, b.pnr, b.hold_expires_at, b.currency, b.total_minor, b.itinerary, b.product,"
             " (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) AS paid_minor,"
+            " (SELECT COALESCE(SUM(p.card_fee_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id)::bigint AS card_fee_minor,"
             " c.first_name AS c_first, c.last_name AS c_last, c.email AS c_email"
             " FROM bookings b LEFT JOIN booking_customers c ON c.booking_id = b.id WHERE b.reference = :r"), {"r": reference}).mappings().one_or_none()
         if row is None:
@@ -128,7 +129,7 @@ def booking_from(facts: dict[str, Any], link: str | None) -> t.Booking:
     customer = " ".join(filter(None, (facts.get("c_first"), facts.get("c_last")))) or None
     return t.Booking(reference=facts["reference"], passengers=[name for name, _ in facts["travelers"]], amount_minor=facts["total_minor"] or 0,
                      currency=facts["currency"] or "PKR", pnr=facts.get("pnr"), route=route, baggage=baggage_of(legs), travel_date=_when(legs[0].get("departure_local")) if legs else None,
-                     airline=airline, flight=flight, hold_expires_at=facts.get("hold_expires_at"), paid_minor=facts.get("paid_minor") or None,
+                     airline=airline, flight=flight, hold_expires_at=facts.get("hold_expires_at"), paid_minor=facts.get("paid_minor") or None, card_fee_minor=int(facts.get("card_fee_minor") or 0),
                      tickets=[(name, number) for name, number in facts["travelers"] if number], customer_name=customer, view_url=link)
 
 

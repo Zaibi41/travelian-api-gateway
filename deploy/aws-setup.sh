@@ -34,6 +34,7 @@ unset PAYFAST
 aws iam create-user --user-name "$USER"
 aws iam put-user-policy --user-name "$USER" --policy-name gateway-runtime --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[
   {\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET/site/*\",\"arn:aws:s3:::$BUCKET/payment-qr/*\",\"arn:aws:s3:::$BUCKET/payment-proof/*\"]},
+  {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET/payment-proof/*\"]},
   {\"Effect\":\"Allow\",\"Action\":[\"ses:SendEmail\",\"ses:SendRawEmail\"],\"Resource\":\"*\",\"Condition\":{\"StringLike\":{\"ses:FromAddress\":\"*@travelian.pk\"}}},
   {\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParameter\",\"ssm:GetParameters\"],\"Resource\":\"arn:aws:ssm:us-east-1:$ACCOUNT:parameter$PREFIX/*\"},
   {\"Effect\":\"Allow\",\"Action\":[\"kms:Decrypt\"],\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"kms:ViaService\":\"ssm.us-east-1.amazonaws.com\"}}}]}"

@@ -64,7 +64,7 @@ def test_customers_see_the_full_account_number_and_iban_to_pay_into():
          patch("app.api.routes.admin_uploads.site_assets", lambda: {}):
         body = client.get("/v1/public/payment-methods").json()
     assert body["bank_transfer"] is True
-    assert body["bank_accounts"] == [{"bank_name": "HBL", "account_title": "Travelian (Pvt) Ltd", "account_number": "0011 2345 6702",
+    assert body["bank_accounts"] == [{"id": "a1", "bank_name": "HBL", "account_title": "Travelian (Pvt) Ltd", "account_number": "0011 2345 6702",
                                       "iban": "PK36HABB0000001123456702",
                                       "qr_url": "https://assets.example/payment-qr/x.png", "qr_download_url": "/v1/public/payment-qr/a1"}]
 

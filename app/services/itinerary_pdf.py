@@ -202,6 +202,7 @@ class Itinerary:
     terms: list[str] = field(default_factory=list)  # only terms the booking actually carries; none are invented
     fare_note: str | None = None  # shown next to the fare, e.g. "Non-refundable · Non-changeable" (group bookings that carry it)
     show_fare: bool = True  # False (issue #18): a print without fare: no FARE column, no Total / Paid / Due
+    card_fee_minor: int = 0  # card fee paid on top of the fare (travelian#74); printed under Paid when not 0
 
     @property
     def state(self) -> str:
@@ -287,6 +288,7 @@ def _travelers(doc: Itinerary, width: float) -> Table:
     last_traveler = len(rows) - 1
     paid = doc.paid_minor or 0
     totals = (("Total", money(doc.total_minor, doc.currency), True), ("Paid", money(paid, doc.currency), False),
+              *((("Card fee paid", money(doc.card_fee_minor, doc.currency), False),) if doc.card_fee_minor else ()),
               ("Due", money(max((doc.total_minor or 0) - paid, 0), doc.currency), True)) if doc.show_fare else ()
     for label, value, strong in totals:
         rows.append([""] * (count - 2) + [_p(label, bold=strong, align=TA_RIGHT), _p(value, size=10 if strong else 9, bold=strong, color=NAVY, align=TA_RIGHT)])
