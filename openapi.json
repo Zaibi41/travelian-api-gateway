@@ -1,6 +1,27 @@
 {
   "components": {
     "schemas": {
+      "AddPaymentFeeRequest": {
+        "properties": {
+          "amount_minor": {
+            "description": "Paisa. Negative corrects an earlier fee.",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "reason"
+        ],
+        "title": "AddPaymentFeeRequest",
+        "type": "object"
+      },
       "AddReceivingAccountRequest": {
         "properties": {
           "account_number": {
@@ -87,6 +108,51 @@
           "label"
         ],
         "title": "AddReceivingAccountRequest",
+        "type": "object"
+      },
+      "AddSupplierChargeRequest": {
+        "properties": {
+          "amount_minor": {
+            "description": "Paisa. Negative corrects an earlier charge.",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "supplier_reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Reference"
+          },
+          "traveler_position": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traveler Position"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "reason"
+        ],
+        "title": "AddSupplierChargeRequest",
         "type": "object"
       },
       "AdminOverview": {
@@ -457,6 +523,118 @@
           "items"
         ],
         "title": "AttentionQueue",
+        "type": "object"
+      },
+      "AuditEntryView": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The actor's role, or 'system' for automatic entries.",
+            "title": "Actor Role"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "after": {
+            "title": "After"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "before": {
+            "title": "Before"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "action",
+          "entity_type"
+        ],
+        "title": "AuditEntryView",
+        "type": "object"
+      },
+      "AuditLogPage": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryView"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "total"
+        ],
+        "title": "AuditLogPage",
         "type": "object"
       },
       "BankAccountView": {
@@ -1126,6 +1304,52 @@
           "billable_price"
         ],
         "title": "BookingFare",
+        "type": "object"
+      },
+      "BookingFinanceView": {
+        "properties": {
+          "payment_fees": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentFeeView"
+            },
+            "title": "Payment Fees",
+            "type": "array"
+          },
+          "profit": {
+            "$ref": "#/components/schemas/ProfitView"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "refundable": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Received and not yet refunded (card fees excluded: they are not refunded)."
+          },
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/RefundView"
+            },
+            "title": "Refunds",
+            "type": "array"
+          },
+          "supplier_charges": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierChargeView"
+            },
+            "title": "Supplier Charges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference",
+          "profit",
+          "supplier_charges",
+          "payment_fees",
+          "refunds",
+          "refundable"
+        ],
+        "title": "BookingFinanceView",
         "type": "object"
       },
       "BookingGroupDetails": {
@@ -2877,6 +3101,20 @@
           "label"
         ],
         "title": "FilterOption",
+        "type": "object"
+      },
+      "FinanceAccess": {
+        "properties": {
+          "finance": {
+            "description": "The caller has the Finance permission (Super Admin always; staff when granted).",
+            "title": "Finance",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "finance"
+        ],
+        "title": "FinanceAccess",
         "type": "object"
       },
       "FlightCalendar": {
@@ -7042,6 +7280,27 @@
         "title": "LookupView",
         "type": "object"
       },
+      "MarkRefundPaidRequest": {
+        "properties": {
+          "paid_at": {
+            "format": "date-time",
+            "title": "Paid At",
+            "type": "string"
+          },
+          "payout_reference": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Payout Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payout_reference",
+          "paid_at"
+        ],
+        "title": "MarkRefundPaidRequest",
+        "type": "object"
+      },
       "MergeRequest": {
         "properties": {
           "merge_into_person_id": {
@@ -7339,6 +7598,66 @@
         "title": "PaymentAccountList",
         "type": "object"
       },
+      "PaymentFeeView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By User Id"
+          },
+          "source": {
+            "enum": [
+              "recorded",
+              "estimated",
+              "settlement"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "payment_id",
+          "amount",
+          "source",
+          "recorded_at"
+        ],
+        "title": "PaymentFeeView",
+        "type": "object"
+      },
       "PaymentMethodsView": {
         "properties": {
           "bank_accounts": {
@@ -7462,6 +7781,72 @@
           "total_sales"
         ],
         "title": "ProductResults",
+        "type": "object"
+      },
+      "ProfitView": {
+        "properties": {
+          "fees_charged": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Fees the customer paid on top of the fare (card fee)."
+          },
+          "missing": {
+            "description": "Parts not recorded yet; shown as 'Not recorded'.",
+            "items": {
+              "const": "payment_fees",
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "payment_fees": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null = 'Profit: not known' (no real supplier cost)."
+          },
+          "refunds": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "selling": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "supplier_charge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when not known."
+          },
+          "supplier_charge_basis": {
+            "enum": [
+              "recorded",
+              "quoted",
+              "not_known"
+            ],
+            "title": "Supplier Charge Basis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selling",
+          "fees_charged",
+          "supplier_charge_basis",
+          "payment_fees",
+          "refunds"
+        ],
+        "title": "ProfitView",
         "type": "object"
       },
       "ProviderStatus": {
@@ -8123,6 +8508,195 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "RefundList": {
+        "properties": {
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/RefundView"
+            },
+            "title": "Refunds",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "refunds",
+          "total"
+        ],
+        "title": "RefundList",
+        "type": "object"
+      },
+      "RefundView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By User Id"
+          },
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "paid_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid By User Id"
+          },
+          "payout_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout Reference"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
+          "rejected_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By User Id"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By User Id"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "approved",
+              "paid",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "booking_reference",
+          "amount",
+          "method",
+          "status",
+          "reason",
+          "requested_at"
+        ],
+        "title": "RefundView",
+        "type": "object"
+      },
       "ReholdBody": {
         "description": "Re-hold at SooperFare.",
         "properties": {
@@ -8155,6 +8729,21 @@
           "message"
         ],
         "title": "ReholdResult",
+        "type": "object"
+      },
+      "RejectRefundRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectRefundRequest",
         "type": "object"
       },
       "ReportBucket": {
@@ -8339,6 +8928,39 @@
           "booking_enabled"
         ],
         "title": "RepriceView",
+        "type": "object"
+      },
+      "RequestRefundRequest": {
+        "properties": {
+          "amount_minor": {
+            "description": "Paisa, at most what was received and not yet refunded.",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "method",
+          "reason"
+        ],
+        "title": "RequestRefundRequest",
         "type": "object"
       },
       "RequestView": {
@@ -9682,6 +10304,94 @@
           "booking_id"
         ],
         "title": "SupplierBookingView",
+        "type": "object"
+      },
+      "SupplierChargeView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By User Id"
+          },
+          "source": {
+            "enum": [
+              "issuance",
+              "manual",
+              "supplier_report"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "supplier_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Reference"
+          },
+          "traveler_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traveler Name"
+          },
+          "traveler_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traveler Position"
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "source",
+          "recorded_at"
+        ],
+        "title": "SupplierChargeView",
         "type": "object"
       },
       "SupplierPayment": {
@@ -13402,6 +14112,382 @@
         ]
       }
     },
+    "/v1/admin/finance/access": {
+      "get": {
+        "description": "Whether the caller may open Finance screens (the menu uses it; the gateway still checks every call).",
+        "operationId": "finance_access_v1_admin_finance_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinanceAccess"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not back office."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Finance Access",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/audit-log": {
+      "get": {
+        "description": "Every finance action, newest first. Read-only. Dates are whole days in Pakistan time.",
+        "operationId": "audit_log_v1_admin_finance_audit_log_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entity_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entity Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "booking_reference",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Booking Reference"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Audit Log",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/bookings/{reference}": {
+      "get": {
+        "description": "A booking's profit (selling + fees charged - supplier charge - payment fees - refunds), supplier charges, fees and refunds.",
+        "operationId": "booking_finance_v1_admin_finance_bookings__reference__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingFinanceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Booking not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Booking Finance",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/bookings/{reference}/refunds": {
+      "post": {
+        "description": "Record that a customer is owed a refund (status requested). Moves no money. Audited.",
+        "operationId": "request_refund_v1_admin_finance_bookings__reference__refunds_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestRefundRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Booking not found."
+          },
+          "409": {
+            "description": "More than can be refunded."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/bookings/{reference}/supplier-charges": {
+      "post": {
+        "description": "Record what the supplier actually charged (tickets issued in a supplier portal), or correct it with a negative amount. Audited.",
+        "operationId": "add_supplier_charge_v1_admin_finance_bookings__reference__supplier_charges_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSupplierChargeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingFinanceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Booking not found."
+          },
+          "409": {
+            "description": "Charges would go below zero."
+          },
+          "422": {
+            "description": "Amount zero, reason missing or unknown traveler."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Supplier Charge",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
     "/v1/admin/finance/payment-accounts": {
       "get": {
         "description": "Every receiving account, active and inactive, by method then name.",
@@ -13658,6 +14744,358 @@
           }
         ],
         "summary": "Deactivate Payment Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/payments/{payment_id}/fees": {
+      "post": {
+        "description": "Record what a payment cost Travelian (e.g. the PayFast fee from its statement), or correct it. Audited.",
+        "operationId": "add_payment_fee_v1_admin_finance_payments__payment_id__fees_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "title": "Payment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPaymentFeeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentFeeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Payment not found."
+          },
+          "409": {
+            "description": "Fees would go below zero."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Payment Fee",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/refunds": {
+      "get": {
+        "operationId": "list_refunds_v1_admin_finance_refunds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(requested|approved|paid|rejected)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Refunds",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/refunds/{refund_id}/approve": {
+      "post": {
+        "operationId": "approve_refund_v1_admin_finance_refunds__refund_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "refund_id",
+            "required": true,
+            "schema": {
+              "title": "Refund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Refund not found."
+          },
+          "409": {
+            "description": "Not in 'requested'."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/refunds/{refund_id}/paid": {
+      "post": {
+        "description": "Record a payout staff already made (bank, JazzCash or the PayFast portal). The gateway sends no money.",
+        "operationId": "mark_refund_paid_v1_admin_finance_refunds__refund_id__paid_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "refund_id",
+            "required": true,
+            "schema": {
+              "title": "Refund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRefundPaidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Refund not found."
+          },
+          "409": {
+            "description": "Not approved."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mark Refund Paid",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/refunds/{refund_id}/reject": {
+      "post": {
+        "operationId": "reject_refund_v1_admin_finance_refunds__refund_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "refund_id",
+            "required": true,
+            "schema": {
+              "title": "Refund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRefundRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Refund not found."
+          },
+          "409": {
+            "description": "Already paid or rejected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Refund",
         "tags": [
           "admin finance"
         ]

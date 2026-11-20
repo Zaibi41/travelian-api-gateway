@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies
+from app.db import agencies, finance
 from app.db.supplier_bookings import _event
 
 #: Statuses from which an approver may start issuing.
@@ -189,6 +189,7 @@ def mark_issued(target: Target, actor: str, tickets: dict[int, str], action: str
             connection.execute(text("UPDATE booking_travelers SET ticket_number = :t WHERE booking_id = :b AND position = :p"),
                                {"t": number, "b": target.id, "p": position})
         _event(connection, target.id, actor, action, {**details, "tickets": len(tickets)})
+        finance.record_issue_charges(connection, target.id, actor)  # travelian#91: the actual supplier charge per ticket
 
 
 #: Audit actions that end an issuing attempt or a check (newest one = what the admin shows as the last attempt).
