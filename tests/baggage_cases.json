@@ -128,56 +128,56 @@
    "input": {
     "checked": "20KG"
    },
-   "short": "20 kg checked",
-   "detail": "20 kg checked; hand carry: check with airline"
+   "short": "7+20 kg",
+   "detail": "7 kg hand carry + 20 kg checked"
   },
   {
    "source": "southair",
    "input": {
     "checked": "30 KG"
    },
-   "short": "30 kg checked",
-   "detail": "30 kg checked; hand carry: check with airline"
+   "short": "7+30 kg",
+   "detail": "7 kg hand carry + 30 kg checked"
   },
   {
    "source": "southair",
    "input": {
     "checked": "Nill Baggage"
    },
-   "short": "No checked bag",
-   "detail": "No checked bag; hand carry: check with airline"
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
   },
   {
    "source": "southair",
    "input": {
     "checked": "NIL"
    },
-   "short": "No checked bag",
-   "detail": "No checked bag; hand carry: check with airline"
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
   },
   {
    "source": "southair",
    "input": {
     "checked": "0KG"
    },
-   "short": "No checked bag",
-   "detail": "No checked bag; hand carry: check with airline"
+   "short": "7 kg",
+   "detail": "7 kg hand carry only, no checked bag"
   },
   {
    "source": "southair",
    "input": {
     "checked": "1PC"
    },
-   "short": "1 pc checked",
-   "detail": "1 checked piece; hand carry: check with airline"
+   "short": "7 kg + 1 pc",
+   "detail": "7 kg hand carry + 1 checked piece"
   },
   {
    "source": "southair",
    "input": {
     "checked": "2PC 23KG"
    },
-   "short": "2×23 kg checked",
-   "detail": "2 checked pieces of up to 23 kg each; hand carry: check with airline"
+   "short": "7+2×23 kg",
+   "detail": "7 kg hand carry + 2 checked pieces of up to 23 kg each"
   },
   {
    "source": "southair",

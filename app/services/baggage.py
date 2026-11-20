@@ -3,8 +3,8 @@ website's src/lib/baggage.ts follows the same rules (tests/baggage_cases.json is
 
 Short form, hand carry first:  "7 kg" (hand carry only) · "7+20 kg" · "7+1×23 kg" · "7 kg + 1 pc"
 Full words (tooltips, PDF, email): "7 kg hand carry + 20 kg checked" · "7 kg hand carry only, no checked bag"
-Unknown: "Baggage: check with airline". Never a raw supplier code, and never an assumed hand carry: when the supplier
-gives no hand-carry value, none is shown ("20 kg checked").
+Unknown: "Baggage: check with airline". Never a raw supplier code. A hand carry is never assumed, except Southair's
+7 kg (SOUTHAIR_HAND_CARRY_KG): other suppliers without a hand-carry value show "20 kg checked".
 
 Each supplier's raw data is read by its own function (Southair text, SooperFare baggage_policies, group checked and hand
 carry). ``parse_text`` also reads what earlier versions stored on bookings ("20 kg checked, 7 kg hand carry", "7+20 kg").
@@ -135,14 +135,21 @@ def parse_text(text: str | None) -> Baggage:
     return Baggage()
 
 
+#: Southair sends no hand-carry value; its fares include 7 kg hand carry (owner, 20 Nov 2026: "No baggage means 7 kg,
+#: 20 kg baggage means 7+20"). A hand-carry value on the fare, when sent, wins.
+SOUTHAIR_HAND_CARRY_KG = 7
+
+
 def from_southair(checked_text: str | None, hand_carry_text: str | None = None) -> Baggage:
-    """Southair sends only the checked allowance as text (HIGHLIGHT checkin_baggage); a hand-carry feature is read when
-    the fare has one."""
+    """Southair sends only the checked allowance as text (HIGHLIGHT checkin_baggage): "20KG" -> 7+20 kg, "Nill Baggage"
+    -> 7 kg. A hand-carry feature is read when the fare has one. Checked text we can't read stays unknown."""
     checked = parse_text(checked_text)
+    if not checked.known:
+        return Baggage()
     hand = parse_text(f"{hand_carry_text} hand carry") if hand_carry_text and _WEIGHT.match(hand_carry_text.strip()) \
         else parse_text(hand_carry_text) if hand_carry_text else Baggage()
-    return Baggage(hand_kg=checked.hand_kg if checked.hand_kg is not None else hand.hand_kg if hand.hand_kg is not None else hand.checked_kg,
-                   checked_kg=checked.checked_kg, pieces=checked.pieces, piece_kg=checked.piece_kg)
+    hand_kg = next((kg for kg in (checked.hand_kg, hand.hand_kg, hand.checked_kg) if kg), SOUTHAIR_HAND_CARRY_KG)
+    return Baggage(hand_kg=hand_kg, checked_kg=checked.checked_kg, pieces=checked.pieces, piece_kg=checked.piece_kg)
 
 
 def from_sooperfare(policies: list[dict] | None) -> Baggage:
