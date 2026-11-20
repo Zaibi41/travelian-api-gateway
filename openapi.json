@@ -1055,10 +1055,7 @@
           "sample_label": {
             "anyOf": [
               {
-                "enum": [
-                  "Sample data",
-                  "UAT test data"
-                ],
+                "const": "Imported",
                 "type": "string"
               },
               {
@@ -1454,8 +1451,8 @@
             "type": "integer"
           },
           "sample_label": {
-            "const": "Sample data",
-            "default": "Sample data",
+            "const": "Imported",
+            "default": "Imported",
             "title": "Sample Label",
             "type": "string"
           },
@@ -1641,17 +1638,14 @@
           "data_label": {
             "anyOf": [
               {
-                "enum": [
-                  "Sample data",
-                  "UAT test data"
-                ],
+                "const": "Imported",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Label for test rows.",
+            "description": "\"Imported\" for rows from a one-time import.",
             "title": "Data Label"
           },
           "expires_at": {
@@ -1700,7 +1694,7 @@
             "title": "Provider"
           },
           "sample": {
-            "description": "True for test rows (one-time import or supplier UAT).",
+            "description": "True for rows from a one-time import.",
             "title": "Sample",
             "type": "boolean"
           },
@@ -6332,15 +6326,13 @@
           "label": {
             "anyOf": [
               {
-                "const": "UAT test data",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "default": "UAT test data",
-            "description": "Southair UAT holds only; a live SooperFare hold has no label.",
+            "description": "Not used: holds carry no label (issue #79).",
             "title": "Label"
           },
           "pnr": {
@@ -20529,7 +20521,7 @@
     },
     "/v1/live-ticketing/flights/bookings": {
       "post": {
-        "description": "Hold only (no ticketing, no payment), when booking is turned on. Saved as UAT test data.",
+        "description": "Hold only (no ticketing, no payment), when booking is turned on.",
         "operationId": "hold_flight_v1_live_ticketing_flights_bookings_post",
         "requestBody": {
           "content": {

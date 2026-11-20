@@ -176,14 +176,14 @@ def ses_send(to: str, email: t.Email) -> tuple[bool, str]:
         code = getattr(error, "response", {}).get("Error", {}).get("Code") if hasattr(error, "response") else None
         detail = (getattr(error, "response", {}).get("Error", {}).get("Message") or "") if hasattr(error, "response") else ""
         if code == "MessageRejected" and "not verified" in detail.lower():
-            return False, "refused by SES: the customer's address isn't verified (SES sandbox: only verified addresses receive email)"
+            return False, "refused by the email service: this address isn't approved yet (until AWS approves full sending, only approved addresses receive email)"
         if code == "MessageRejected":
             return False, f"refused by SES (MessageRejected: {detail[:120]})"
         if code == "AccessDenied":
             # SES sandbox with a sending policy limited to verified identities: only those addresses may receive email.
             # SES's own message names the address and account, so it isn't kept.
-            return False, ("refused by SES (AccessDenied): Travelian's AWS sending permission doesn't cover this address. SES is "
-                           "still in sandbox mode, so only verified addresses receive email until AWS grants production access")
+            return False, ("refused by the email service (AccessDenied): Travelian's AWS sending permission doesn't cover this address. "
+                           "Until AWS approves full sending, only approved addresses receive email")
         return False, f"failed ({code or type(error).__name__})"
 
 

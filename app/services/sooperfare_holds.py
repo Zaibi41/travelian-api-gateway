@@ -225,7 +225,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
         await notifications.booking_event(
             "hold_created", reference=reference, passenger=flight_holds._lead_name(request), route=flight_holds._route(fresh),
             fare_minor=selling_total, currency=currency, pnr=pnr, hold_expires_at=expires_at)
-    view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at, label=None,  # a live SooperFare hold, not UAT data
+    view = HoldView(booking_id=reference, pnr=pnr, time_limit=expires_at, label=None,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:
         view.supplier_cost = FlightMoney(amount_minor=record_total, currency=currency)  # type: ignore[arg-type]

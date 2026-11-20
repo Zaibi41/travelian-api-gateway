@@ -21,7 +21,6 @@ from sqlalchemy import text
 
 from app.db import agencies
 
-UAT_SOURCE = "southair_uat"
 _REF_ALPHABET = string.ascii_uppercase + string.digits
 
 
@@ -200,9 +199,9 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
               selling_total_minor: int, supplier_total_minor: int, supplier_response: dict[str, Any],
               actor_user_id: str, audit: dict[str, Any],
               customer: CustomerRecord | None = None, travelers: list[TravelerRecord] | None = None,
-              itinerary: list[dict[str, Any]] | None = None, product: str = "flight", source: str | None = UAT_SOURCE,
+              itinerary: list[dict[str, Any]] | None = None, product: str = "flight", source: str | None = None,
               reference_prefix: str = "TRV-") -> str:
-    """Insert a held, unpaid, not-issued booking (Southair: UAT test data; Group Ticketing: product
+    """Insert a held, unpaid, not-issued booking (Southair and SooperFare flights; Group Ticketing: product
     'group', no import source), its customer and travelers, and the audit entry, in one
     transaction. Returns the reference."""
     with agencies.application_engine().begin() as connection:
@@ -222,5 +221,5 @@ def save_hold(*, provider: str, pnr: str, supplier_ref: str, hold_expires_at: da
         if customer is not None:
             _save_people(connection, booking_id, customer, travelers or [], selling_total_minor, supplier_total_minor)
         _event(connection, booking_id, actor_user_id, "hold_created",
-               {**audit, **({"label": "UAT test data"} if source == UAT_SOURCE else {}), "travelers": len(travelers or [])})
+               {**audit, "travelers": len(travelers or [])})
     return reference

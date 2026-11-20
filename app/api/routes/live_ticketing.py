@@ -56,7 +56,7 @@ async def reprice_flights(request: RepriceRequest, viewer: Viewer) -> RepriceVie
                422: {"description": "Passengers don't match."}, 502: {"description": "Supplier failed; nothing saved."}},
 )
 async def hold_flight(request: HoldRequest, viewer: Annotated[BackOfficeUser, Depends(require_back_office)]) -> HoldView:
-    """Hold only (no ticketing, no payment), when booking is turned on. Saved as UAT test data."""
+    """Hold only (no ticketing, no payment), when booking is turned on."""
     try:
         return await flight_holds.hold(request, viewer)
     except flight_holds.HoldError as error:

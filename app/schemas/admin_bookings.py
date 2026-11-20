@@ -27,10 +27,10 @@ Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
 
-DataLabel = Literal["Sample data", "UAT test data"]
+DataLabel = Literal["Imported"]
 
 SOURCE = "gateway_bookings"
-SAMPLE_LABEL = "Sample data"
+SAMPLE_LABEL = "Imported"  # issue #79: no "sample", "test" or "UAT" wording on staff screens
 
 
 class BookingListCards(BaseModel):
@@ -62,8 +62,8 @@ class BookingListItem(BaseModel):
     amount: BookingMoney
     created_at: datetime | None = None
     expires_at: datetime | None = None
-    sample: bool = Field(description="True for test rows (one-time import or supplier UAT).")
-    data_label: DataLabel | None = Field(None, description="Label for test rows.")
+    sample: bool = Field(description="True for rows from a one-time import.")
+    data_label: DataLabel | None = Field(None, description="\"Imported\" for rows from a one-time import.")
 
 
 class BookingListFilterOptions(BaseModel):
@@ -74,7 +74,7 @@ class BookingListFilterOptions(BaseModel):
 class BookingList(BaseModel):
     source: Literal["gateway_bookings"] = SOURCE
     contains_sample_data: bool
-    sample_label: Literal["Sample data"] = SAMPLE_LABEL
+    sample_label: Literal["Imported"] = SAMPLE_LABEL
     cards: BookingListCards
     filter_options: BookingListFilterOptions
     total: int

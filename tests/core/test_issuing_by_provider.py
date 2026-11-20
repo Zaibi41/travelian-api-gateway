@@ -154,7 +154,7 @@ def test_a_test_booking_is_refused_before_anything_is_sent():
          patch.object(store, "load", return_value=target("sooperfare", test=True)), patch.object(store, "claim") as claim:
         with pytest.raises(store.IssuanceRefused) as error:
             asyncio.run(issuance.issue("TRV-1", ADMIN, sooperfare_factory=lambda: sf))
-    assert error.value.status == 409 and error.value.code == "test_booking" and "test booking" in error.value.message
+    assert error.value.status == 409 and error.value.code == "test_booking" and "Do not issue" in error.value.message
     claim.assert_not_called()
     sf.confirm.assert_not_awaited()
 

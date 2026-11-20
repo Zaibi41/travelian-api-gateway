@@ -120,7 +120,7 @@ def test_fare_info_booking_and_pnr_use_documented_fields():
                     passengers=[{"type": "ADT", "first_name": "Test", "last_name": "Passenger", "date_of_birth": "1990-01-01",
                                  "name_title": "MR", "id_type": "PSPT", "passport_no": "AB1234567"},
                                 {"type": "INF", "first_name": "Baby", "last_name": "Passenger", "date_of_birth": "2025-06-01",
-                                 "name_title": "MISS", "id_type": "PSPT", "infant_link_id": "1"}], remarks="Travelian UAT test booking"))
+                                 "name_title": "MISS", "id_type": "PSPT", "infant_link_id": "1"}], remarks="Travelian booking"))
     form = supplier.calls[-1][1]
     assert form["nld"] == "NLD-1" and form["acceptance[0]"] == "H-OUT" and form["code1"] == "92"
     assert form["first_name[ADT][0]"] == "Test" and form["infant_link_id[INF][0]"] == "1" and "passport_no[INF][0]" not in form

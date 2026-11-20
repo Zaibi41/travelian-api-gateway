@@ -198,8 +198,8 @@ def build_summary(
 
     return DashboardSummary(
         generated_at=now,
-        # Any imported row anywhere in the table, regardless of filters.
-        contains_sample_data=any(booking.import_source for booking in bookings),
+        # Any imported row anywhere in the table, regardless of filters (Southair holds are not imports).
+        contains_sample_data=any(booking.import_source not in (None, "southair_uat") for booking in bookings),
         needs_action=NeedsAction(
             # The same classification as the Attention Queue: a card's number equals its rows there.
             pending_issuance=sum(attention_kind(booking, now, window) == "pending_issuance" for booking in selected),

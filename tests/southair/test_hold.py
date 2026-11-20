@@ -72,12 +72,12 @@ def test_hold_reprices_books_reads_fare_info_and_saves_uat_test_data():
     make_quote()
     client = fake_client()
     view, save = run(hold_request(), client)
-    assert view.booking_id == "TRV-ABC123" and view.pnr == "63B55C" and view.label == "UAT test data"
+    assert view.booking_id == "TRV-ABC123" and view.pnr == "63B55C" and view.label is None
     assert view.time_limit == datetime(2026, 11, 20, 13, 18, tzinfo=timezone.utc)
     assert TICKET_REF not in view.model_dump_json() and NLD not in view.model_dump_json()
     # Booking uses the fresh search's NLD and hash, not the quote's old ones.
     kwargs = client.booking.await_args.kwargs
-    assert kwargs["nld"] == NLD and kwargs["acceptances"] == [HASH_EB] and kwargs["remarks"] == "Travelian UAT test booking"
+    assert kwargs["nld"] == NLD and kwargs["acceptances"] == [HASH_EB] and kwargs["remarks"] == "Travelian booking"
     assert kwargs["passengers"][0]["passport_no"] == "AB1234567"
     assert client.fare_info.await_count == 1  # the reprice; after booking the PNR record verifies the total
     assert client.pnr_info.await_args.args == ("63B55C",)
