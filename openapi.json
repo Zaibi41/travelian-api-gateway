@@ -7336,6 +7336,18 @@
           "amount_paid": {
             "$ref": "#/components/schemas/BookingMoney"
           },
+          "balance_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The supplier's known balance is low or below this ticket's cost (Finance > Wallets). Amounts and supplier name only with cost and margin plus supplier names.",
+            "title": "Balance Warning"
+          },
           "blockers": {
             "description": "Why issuing (or requesting) isn't possible now; empty when it is.",
             "items": {
@@ -11416,6 +11428,120 @@
         "title": "SupplierPayment",
         "type": "object"
       },
+      "SupplierWalletList": {
+        "properties": {
+          "wallets": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierWalletView"
+            },
+            "title": "Wallets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "wallets"
+        ],
+        "title": "SupplierWalletList",
+        "type": "object"
+      },
+      "SupplierWalletView": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the supplier was last read (api) or the last movement (calculated).",
+            "title": "As Of"
+          },
+          "balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null = not known yet (never read, or nothing recorded)."
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "mode": {
+            "description": "api: read from the supplier; calculated: top-ups + adjustments - ticket charges.",
+            "enum": [
+              "api",
+              "calculated"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plain words, e.g. why the balance can't be read.",
+            "title": "Note"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert below this. Null = no alert set."
+          },
+          "tracking_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Since"
+          }
+        },
+        "required": [
+          "provider_id",
+          "name",
+          "mode"
+        ],
+        "title": "SupplierWalletView",
+        "type": "object"
+      },
       "TicketNumber": {
         "properties": {
           "position": {
@@ -11890,6 +12016,175 @@
           "duration_ms"
         ],
         "title": "VendorResult",
+        "type": "object"
+      },
+      "WalletEntryRequest": {
+        "properties": {
+          "amount_minor": {
+            "description": "Paisa. Top-up: more than 0. Adjustment: + or -, never 0.",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "occurred_at"
+        ],
+        "title": "WalletEntryRequest",
+        "type": "object"
+      },
+      "WalletHistory": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WalletHistoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "WalletHistory",
+        "type": "object"
+      },
+      "WalletHistoryItem": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By User Id"
+          },
+          "kind": {
+            "enum": [
+              "balance_check",
+              "top_up",
+              "adjustment",
+              "ticket"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "at",
+          "kind"
+        ],
+        "title": "WalletHistoryItem",
+        "type": "object"
+      },
+      "WalletThresholdRequest": {
+        "properties": {
+          "threshold_minor": {
+            "anyOf": [
+              {
+                "maximum": 100000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null removes the alert.",
+            "title": "Threshold Minor"
+          }
+        },
+        "title": "WalletThresholdRequest",
         "type": "object"
       },
       "app__api__routes__group_ticketing__BookingPassenger": {
@@ -16792,6 +17087,311 @@
           }
         ],
         "summary": "Reject Slip",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances": {
+      "get": {
+        "description": "Each supplier's last known balance: Southair as last read from its API, SooperFare calculated. No customer wallets.",
+        "operationId": "supplier_balances_v1_admin_finance_supplier_balances_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierWalletList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Supplier Balances",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances/southair/refresh": {
+      "post": {
+        "description": "Read Southair's balance now (read-only /my-profile) and keep it as a snapshot.",
+        "operationId": "refresh_southair_v1_admin_finance_supplier_balances_southair_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "502": {
+            "description": "Southair didn't answer."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Southair",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances/{provider}/adjustments": {
+      "post": {
+        "description": "Correct the calculated balance (+ or -) with a reason, e.g. to match SooperFare's portal. Audited.",
+        "operationId": "adjust_balance_v1_admin_finance_supplier_balances__provider__adjustments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^(southair|sooperfare)$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Adjust Balance",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances/{provider}/history": {
+      "get": {
+        "description": "Balance checks, top-ups, adjustments and ticket charges, newest first.",
+        "operationId": "wallet_history_v1_admin_finance_supplier_balances__provider__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^(southair|sooperfare)$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Wallet History",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances/{provider}/threshold": {
+      "put": {
+        "description": "The low-balance alert level for this supplier (a Finance setting, audited). Null removes it.",
+        "operationId": "set_threshold_v1_admin_finance_supplier_balances__provider__threshold_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^(southair|sooperfare)$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletThresholdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Threshold",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-balances/{provider}/top-ups": {
+      "post": {
+        "description": "Record money Travelian paid into a supplier account with no balance API (SooperFare). Records only; moves no money.",
+        "operationId": "record_top_up_v1_admin_finance_supplier_balances__provider__top_ups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^(southair|sooperfare)$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Top Up",
         "tags": [
           "admin finance"
         ]

@@ -27,7 +27,7 @@ KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transf
          "auto_issue_failed", "paid_not_ticketed", "book_only_hold", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost")}
 
 #: Red alerts: a customer paid by card and has no ticket. Shown as urgent in the admin (Notifications > Booking alerts).
-URGENT_KINDS = frozenset({"paid_not_issued", "paid_not_issued_30m", "paid_hold_lost"})
+URGENT_KINDS = frozenset({"paid_not_issued", "paid_not_issued_30m", "paid_hold_lost", "low_supplier_balance"})
 
 
 def _money(amount_minor: int | None, currency: str | None) -> str:

@@ -28,12 +28,16 @@ async def lifespan(app: FastAPI):
     job = asyncio.create_task(run_group_hold_expiry(stop))
     # Card-paid website flights not issued (or stuck mid-issue after a restart): one retry, or staff alerted.
     recovery = asyncio.create_task(run_flight_issuance_recovery(stop))
+    # Supplier balances (travelian#68): Southair read on a schedule (read-only), low-balance alert once per drop.
+    from app.services.supplier_wallets import run_forever as run_supplier_balance_checks
+
+    balances = asyncio.create_task(run_supplier_balance_checks(stop))
     try:
         yield
     finally:
         app.state.ready = False
         stop.set()
-        for task in (job, recovery):
+        for task in (job, recovery, balances):
             task.cancel()
             try:
                 await task

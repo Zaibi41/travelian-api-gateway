@@ -351,6 +351,13 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         checklist.last_attempt = IssuanceAttempt(at=attempt.at, outcome=attempt.outcome, reason=attempt.reason,
                                                  supplier_answer=attempt.supplier_answer, pnr_status=attempt.pnr_status)
         checklist.can_check = attempt.can_check and viewer.can(ISSUE_TICKETS) and target.provider in (None, *issuance_service.ISSUING_PROVIDERS)
+    try:  # travelian#68: warn when the supplier's known balance is low or below this ticket's cost (information only)
+        from app.services import supplier_wallets
+
+        checklist.balance_warning = await run_in_threadpool(supplier_wallets.issue_warning, target.provider, target.supplier_cost_minor,
+                                                            viewer.visibility.cost_and_margin and viewer.visibility.supplier_names)
+    except Exception:  # noqa: BLE001
+        logger.warning("Supplier balance warning couldn't be worked out", exc_info=True)
     if viewer.visibility.cost_and_margin and target.supplier_cost_minor is not None:
         checklist.supplier_amount = money(target.supplier_cost_minor)
         checklist.margin = money(target.total_minor - target.supplier_cost_minor)
