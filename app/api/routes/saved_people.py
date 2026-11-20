@@ -190,6 +190,20 @@ async def add_document(viewer: Viewer, person_id: PersonId, body: DocumentInput)
         return error(exc)
 
 
+@router.put("/{person_id}/documents/{document_id}", response_model=SavedPersonDetail, response_model_exclude_none=True)
+async def edit_document(viewer: Viewer, person_id: PersonId, document_id: Annotated[str, Path(min_length=8, max_length=36)], body: DocumentInput):
+    """Edit a saved document (issue #12): number, country of issue, expiry. A new number (a renewed passport) keeps the
+    old document for past bookings and saves the new one; the same number only updates the expiry. Past bookings keep
+    their own copy."""
+    if not viewer.can(MANAGE_PEOPLE):
+        return refuse(403, "not_allowed", "Changing documents requires the manage people permission.")
+    try:
+        await run_in_threadpool(store.edit_document, owner_of(viewer), viewer.user_id, person_id, document_id, _document(body))
+        return await _detail(viewer, person_id)
+    except store.PeopleError as exc:
+        return error(exc)
+
+
 @router.delete("/{person_id}/documents/{document_id}", response_model=SavedPersonDetail, response_model_exclude_none=True)
 async def remove_document(viewer: Viewer, person_id: PersonId, document_id: Annotated[str, Path(min_length=8, max_length=36)]):
     """Remove a document from the person (kept for past booking links, no longer used or matched)."""
