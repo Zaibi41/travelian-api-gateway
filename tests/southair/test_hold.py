@@ -450,7 +450,7 @@ def test_hold_saves_the_itinerary_from_the_fresh_search():
     assert segment["direction"] == "outbound" and segment["origin"] == "KHI" and segment["destination"] == "MUX"
     assert segment["flight_number"] and segment["departure_local"].startswith("2026-11-27") and segment["fare_name"] == "EB"
     assert set(segment) == {"direction", "origin", "destination", "airline_code", "airline_name", "flight_number", "departure_local",
-                            "arrival_local", "duration_minutes", "stops", "stop_cities", "fare_name", "baggage", "meal"}
+                            "arrival_local", "duration_minutes", "stops", "stop_cities", "fare_name", "baggage", "baggage_parts", "meal"}
     assert "Test" not in str(itinerary) and "AB1234567" not in str(itinerary)
 
 

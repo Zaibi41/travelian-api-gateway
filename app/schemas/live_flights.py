@@ -24,7 +24,9 @@ class FareView(BaseModel):
     id: str = Field(description="Opaque fare ID, valid until the search expires.")
     name: str
     meal: str | None = None
-    baggage: str | None = None
+    baggage: str | None = Field(None, description="Short, hand carry first: '7 kg' (hand carry only), '7+20 kg', '7+1×23 kg', "
+                                                   "'7 kg + 1 pc', or 'Baggage: check with airline'.")
+    baggage_detail: str | None = Field(None, description="In full words, e.g. '7 kg hand carry + 20 kg checked'.")
     refund: str | None = None
     time_limit: str | None = Field(None, description="Supplier's hold time text, e.g. '1 hours for domestic'.")
     selling_price: FlightMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the supplier sent no total.")

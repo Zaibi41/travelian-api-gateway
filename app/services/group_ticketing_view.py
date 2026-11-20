@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.field_visibility import FieldVisibility
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.services import group_terms, supplier_logos
+from app.services.baggage import Baggage, from_group
 from app.services.group_ticketing import group_ticket_id, stock_label
 
 from uuid import NAMESPACE_URL, uuid5
@@ -41,6 +42,8 @@ class GroupLegView(BaseModel):
     arrival_time: str | None = None
     baggage: str | None = Field(None, description="Checked baggage in kg, e.g. '20'.")
     hand_carry: str | None = Field(None, description="Hand carry in kg, e.g. '7'.")
+    baggage_label: str | None = Field(None, description="Baggage as shown, hand carry first: '7+20 kg', or 'Baggage: check with airline'.")
+    baggage_detail: str | None = Field(None, description="In full words, e.g. '7 kg hand carry + 20 kg checked'.")
     meal: Literal["Yes", "No"] | None = None
 
 
@@ -68,6 +71,8 @@ class GroupTicketView(BaseModel):
     remaining: int | None = None
     baggage: str | int | None = Field(None, description="Checked baggage of the outbound leg in kg.")
     hand_carry: str | int | None = Field(None, description="Hand carry of the outbound leg in kg.")
+    baggage_label: str | None = Field(None, description="Outbound baggage as shown, hand carry first: '7+20 kg', or 'Baggage: check with airline'.")
+    baggage_detail: str | None = Field(None, description="In full words, e.g. '7 kg hand carry + 20 kg checked'.")
     meal: Literal["Yes", "No"] | None = None
     ticket_type: str | int | None = None
     legs: list[GroupLegView] = Field(default_factory=list, description="Every flight, outbound then return.")
@@ -129,17 +134,15 @@ def _kilos(value: str | int | None) -> Decimal | None:
     return number if number is not None and number.is_finite() and number >= 0 else None
 
 
+def group_baggage(checked: str | int | None, hand_carry: str | int | None) -> Baggage:
+    return from_group(checked, hand_carry)
+
+
 def baggage_text(checked: str | int | None, hand_carry: str | int | None) -> str | None:
-    """Group baggage for display, hand carry first: 7 and 20 -> '7+20 kg'; hand carry only -> '7 kg';
-    checked only -> '20 kg'. None when neither is a number."""
-    bag, hand = _kilos(checked), _kilos(hand_carry)
-    bag = bag if bag else None
-    hand = hand if hand else None
-    if hand is not None and bag is not None:
-        return f"{hand.normalize():f}+{bag.normalize():f} kg"
-    if hand is not None or bag is not None:
-        return f"{(hand or bag).normalize():f} kg"
-    return None
+    """Group baggage in the short form (app.services.baggage), hand carry first: 7 and 20 -> '7+20 kg'; hand carry
+    only -> '7 kg hand carry'; checked only -> '20 kg checked'. None when neither is known."""
+    found = from_group(checked, hand_carry)
+    return found.short() if found.known else None
 
 
 def _departure_time(ticket: GroupTicket) -> str | None:
@@ -164,6 +167,7 @@ def _legs(ticket: GroupTicket) -> list[GroupLegView]:
     return [GroupLegView(direction="return" if leg.direction == "return" else "outbound", flight_number=leg.flight_number,
                          origin=leg.origin, destination=leg.destination, departure_date=leg.departure_date, departure_time=leg.departure_time,
                          arrival_date=leg.arrival_date, arrival_time=leg.arrival_time, baggage=leg.baggage, hand_carry=leg.hand_carry,
+                         baggage_label=group_baggage(leg.baggage, leg.hand_carry).short(), baggage_detail=group_baggage(leg.baggage, leg.hand_carry).detail(),
                          meal=meal_text(leg.meal) or meal_text(ticket.meal)) for leg in ticket.legs]
 
 
@@ -180,7 +184,9 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         departure_date=ticket.departure_date, departure_time=_departure_time(ticket) or (first.departure_time if first else None), sector=ticket.sector,
         airline=ticket.airline, logo_url=supplier_logos.register(ticket.airline_logo, supplier_logos.airline_label(ticket.airline, first.flight_number if first else None)),
         flight_number=first.flight_number if first else None,
-        remaining=ticket.remaining, baggage=ticket.baggage, hand_carry=ticket.hand_carry, meal=meal_text(ticket.meal) or (first.meal if first else None),
+        remaining=ticket.remaining, baggage=ticket.baggage, hand_carry=ticket.hand_carry,
+        baggage_label=group_baggage(ticket.baggage, ticket.hand_carry).short(), baggage_detail=group_baggage(ticket.baggage, ticket.hand_carry).detail(),
+        meal=meal_text(ticket.meal) or (first.meal if first else None),
         ticket_type=ticket.ticket_type, legs=legs, selling_price=selling_price(cost),
         stock=stock_label(ticket.vendor),
     )

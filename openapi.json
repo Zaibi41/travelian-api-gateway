@@ -1883,7 +1883,20 @@
                 "type": "null"
               }
             ],
+            "description": "Short, hand carry first: '7 kg', '7+20 kg', or 'Baggage: check with airline'.",
             "title": "Baggage"
+          },
+          "baggage_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In full words, e.g. '7 kg hand carry + 20 kg checked'.",
+            "title": "Baggage Detail"
           },
           "departure_local": {
             "anyOf": [
@@ -2738,7 +2751,20 @@
                 "type": "null"
               }
             ],
+            "description": "Short, hand carry first: '7 kg' (hand carry only), '7+20 kg', '7+1\u00d723 kg', '7 kg + 1 pc', or 'Baggage: check with airline'.",
             "title": "Baggage"
+          },
+          "baggage_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In full words, e.g. '7 kg hand carry + 20 kg checked'.",
+            "title": "Baggage Detail"
           },
           "booking_mode": {
             "default": "hold",
@@ -3952,7 +3978,20 @@
                 "type": "null"
               }
             ],
+            "description": "Short, hand carry first: '7+20 kg', or 'Baggage: check with airline'.",
             "title": "Baggage"
+          },
+          "baggage_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In full words, e.g. '7 kg hand carry + 20 kg checked'.",
+            "title": "Baggage Detail"
           },
           "departure_date": {
             "anyOf": [
@@ -4847,6 +4886,30 @@
             "description": "Checked baggage in kg, e.g. '20'.",
             "title": "Baggage"
           },
+          "baggage_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In full words, e.g. '7 kg hand carry + 20 kg checked'.",
+            "title": "Baggage Detail"
+          },
+          "baggage_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Baggage as shown, hand carry first: '7+20 kg', or 'Baggage: check with airline'.",
+            "title": "Baggage Label"
+          },
           "departure_date": {
             "anyOf": [
               {
@@ -5306,6 +5369,30 @@
             ],
             "description": "Checked baggage of the outbound leg in kg.",
             "title": "Baggage"
+          },
+          "baggage_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In full words, e.g. '7 kg hand carry + 20 kg checked'.",
+            "title": "Baggage Detail"
+          },
+          "baggage_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outbound baggage as shown, hand carry first: '7+20 kg', or 'Baggage: check with airline'.",
+            "title": "Baggage Label"
           },
           "can_hold": {
             "default": false,

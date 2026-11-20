@@ -55,7 +55,8 @@ class GroupHoldFlight(BaseModel):
     departure_date: str | None = None
     departure_time: str | None = None
     logo_url: str | None = None
-    baggage: str | None = None
+    baggage: str | None = Field(None, description="Short, hand carry first: '7+20 kg', or 'Baggage: check with airline'.")
+    baggage_detail: str | None = Field(None, description="In full words, e.g. '7 kg hand carry + 20 kg checked'.")
     legs: list[GroupLegView] = Field(default_factory=list, description="Every flight as held, outbound then return.")
 
 

@@ -104,8 +104,10 @@ def test_provider_and_supplier_pnr_only_with_supplier_access(visibility, sees):
 
 
 @pytest.mark.parametrize("checked, hand, expected", [
-    ("30", "10", "10+30 kg"), ("20", "7", "7+20 kg"), ("20 KG", "07", "7+20 kg"), ("0", "7", "7 kg"), ("", "7", "7 kg"),
-    (None, 7, "7 kg"), ("20", None, "20 kg"), ("", "", None), (None, None, None), ("see supplier", None, None),
+    ("30", "10", "10+30 kg"), ("20", "7", "7+20 kg"), ("20 KG", "07", "7+20 kg"), ("0", "7", "7 kg"),
+    # No checked value at all: not read as "no checked bag" (#36).
+    ("", "7", "7 kg hand carry"), (None, 7, "7 kg hand carry"), ("20", None, "20 kg checked"),
+    ("", "", None), (None, None, None), ("see supplier", None, None),
 ])
 def test_group_baggage_text_puts_hand_carry_first(checked, hand, expected):
     assert baggage_text(checked, hand) == expected
