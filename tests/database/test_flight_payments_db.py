@@ -509,7 +509,18 @@ def test_staff_rehold_of_an_expired_booking_at_an_accepted_new_price(website_hol
                   selling_total_minor=TOTAL + 5_000, supplier_response={"booking": "x"})
     with pytest.raises(ValueError):  # a new price nobody accepted
         supplier_bookings.replace_hold(reference, **values)
-    token = supplier_bookings.STAFF_REHOLD.set((None, TOTAL + 5_000))
+    token = supplier_bookings.STAFF_REHOLD.set((None, TOTAL + 5_000, "uuid-other"))  # the booking changed meanwhile
+    try:
+        with pytest.raises(ValueError):
+            supplier_bookings.replace_hold(reference, **values)
+    finally:
+        supplier_bookings.STAFF_REHOLD.reset(token)
+    assert supplier_bookings.claim_rehold(reference, "uuid-1") and not supplier_bookings.claim_rehold(reference, "uuid-1")
+    assert not supplier_bookings.claim_rehold(reference, "uuid-other")
+    supplier_bookings.release_rehold(reference)
+    assert supplier_bookings.claim_rehold(reference, "uuid-1")
+    supplier_bookings.release_rehold(reference)
+    token = supplier_bookings.STAFF_REHOLD.set((None, TOTAL + 5_000, "uuid-1"))
     try:
         supplier_bookings.replace_hold(reference, **values)
     finally:

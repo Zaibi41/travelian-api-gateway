@@ -131,10 +131,14 @@ def _expired(status="expired", issuance="not_issued", expires=NOW - timedelta(ho
                         supplier_cost_minor=2_400_000, supplier_ref="uuid-1", paid_minor=2_468_500, traveler_types=[(0, "ADT")])
 
 
-def _staff_rehold(target, listing, rehold_result=(True, "held again: new PNR NEWPNR"), accept=None):
+def _staff_rehold(target, listing, rehold_result=(True, "held again: new PNR NEWPNR"), accept=None, claimed=True):
+    from app.db import supplier_bookings
+
     rehold = AsyncMock(side_effect=rehold_result) if isinstance(rehold_result, Exception) else AsyncMock(return_value=rehold_result)
     with patch.object(store, "load", lambda reference: target), patch.object(flight_fallback, "_now", lambda: NOW), \
-         patch.object(flight_fallback, "rehold", rehold), patch.object(flight_fallback, "_audit", lambda *a: None):
+         patch.object(flight_fallback, "rehold", rehold), patch.object(flight_fallback, "_audit", lambda *a: None), \
+         patch.object(supplier_bookings, "claim_rehold", lambda reference, ref: claimed), \
+         patch.object(supplier_bookings, "release_rehold", lambda reference: None):
         try:
             return asyncio.run(flight_fallback.staff_rehold("TRV-S-1", "u1", accept, sooperfare_factory=sooperfare(listing))), rehold
         except flight_fallback.Rehold as error:
@@ -159,6 +163,10 @@ def test_staff_rehold_holds_again_once_sooperfare_shows_the_old_hold_gone(status
     (_expired("cancelled"), EXPIRED, "not_reholdable"),
     (store.Target(**{**_expired().__dict__, "provider": "southair"}), EXPIRED, "not_sooperfare"),
     (_expired(), RuntimeError("down"), None),                                       # can't check -> nothing held
+    (_expired(), {"data": [{"uuid": "other", "booking": {"reservation_status": "expired"}}]}, "not_listed"),  # fail closed
+    (_expired(), {"data": [{"uuid": "uuid-1", "booking": {"reservation_status": "on_hold"}}]}, "still_active"),  # unknown word
+    (_expired(), {"data": [{"uuid": "uuid-1", "booking": {}}]}, "still_active"),
+    (_expired("paid_not_ticketed", expires=NOW + timedelta(hours=1)), EXPIRED, "still_held"),  # our hold time not over
 ])
 def test_staff_rehold_refuses_before_any_new_hold(target, listing, code):
     from app.vendors.flights.sooperfare.client import SooperfareError
@@ -176,6 +184,12 @@ def test_staff_rehold_shows_a_new_price_and_holds_only_when_accepted():
     assert "25,100" in error.message and "Nothing was held" in error.message
     result, rehold = _staff_rehold(_expired(), EXPIRED, accept=2_510_000)
     assert result.startswith("held again") and rehold.await_args.kwargs["accept_total_minor"] == 2_510_000
+
+
+def test_staff_rehold_runs_once_at_a_time():
+    error, rehold = _staff_rehold(_expired(), EXPIRED, claimed=False)
+    assert error.code == "rehold_running"
+    rehold.assert_not_awaited()
 
 
 def test_staff_rehold_failure_says_what_happened():

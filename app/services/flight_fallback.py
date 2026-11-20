@@ -175,6 +175,7 @@ class Rehold(Exception):
 
 
 REHOLD_PROVIDERS = ("sooperfare",)
+INACTIVE_AT_SOOPERFARE = ("expired", "cancelled", "canceled")
 
 
 def _audit(reference: str, actor: str | None, action: str, details: dict) -> None:
@@ -211,15 +212,24 @@ async def staff_rehold(reference: str, actor: str | None, accept_total_minor: in
     except SooperfareError:
         raise Rehold(502, "SooperFare's booking list couldn't be read, so the old hold can't be checked. Nothing was held; try again.",
                      "not_checked") from None
+    if target.booking_status != "expired" and target.hold_expires_at is not None and target.hold_expires_at > now:
+        raise Rehold(409, f"This booking is still held (PNR {target.pnr}) until its time limit. Issue it, or cancel it first. "
+                          "Nothing was held.", "still_held")
     items = listing.get("data") if isinstance(listing, dict) and isinstance(listing.get("data"), list) else []
-    record = next((item.get("booking") for item in items if isinstance(item, dict) and item.get("uuid") == target.supplier_ref), None)
-    status = str(record.get("reservation_status") or "") if isinstance(record, dict) else ""
-    if status == "active" and target.hold_expires_at is not None and target.hold_expires_at > now:
-        raise Rehold(409, f"SooperFare still holds this booking (PNR {target.pnr}). Issue it, or cancel it first. Nothing was held.", "still_held")
-    if status == "active":
-        raise Rehold(409, f"SooperFare still lists PNR {target.pnr} as active although its time is up. Check with SooperFare before "
-                          "holding again, so the travelers aren't booked twice. Nothing was held.", "still_active")
-    token = supplier_bookings.STAFF_REHOLD.set((actor, accept_total_minor))
+    item = next((item for item in items if isinstance(item, dict) and item.get("uuid") == target.supplier_ref), None)
+    record = item.get("booking") if isinstance(item, dict) and isinstance(item.get("booking"), dict) else None
+    status = str(record.get("reservation_status") or "").lower() if record else ""
+    # Fail closed: only SooperFare's own word that the old reservation is over (expired or cancelled) allows a new hold.
+    if record is None:
+        raise Rehold(409, f"SooperFare's booking list doesn't show PNR {target.pnr}, so it can't be confirmed that the old hold is "
+                          "over. Check with SooperFare before holding again. Nothing was held.", "not_listed")
+    if status not in INACTIVE_AT_SOOPERFARE:
+        raise Rehold(409, f"SooperFare shows PNR {target.pnr} as '{status or 'unknown'}', not expired or cancelled. Check with SooperFare "
+                          "before holding again, so the travelers aren't booked twice. Nothing was held.", "still_active")
+    if not await run_in_threadpool(supplier_bookings.claim_rehold, reference, target.supplier_ref):
+        raise Rehold(409, "A re-hold for this booking is already running, or the booking just changed. Reload the booking. Nothing was held.",
+                     "rehold_running")
+    token = supplier_bookings.STAFF_REHOLD.set((actor, accept_total_minor, target.supplier_ref))
     try:
         held, what = await rehold(reference, sooperfare_factory=sooperfare_factory, accept_total_minor=accept_total_minor, staff=True)
     except PriceChanged as change:
@@ -231,6 +241,7 @@ async def staff_rehold(reference: str, actor: str | None, accept_total_minor: in
                      old_total={"amount_minor": change.old_total_minor, "currency": change.currency}) from None
     finally:
         supplier_bookings.STAFF_REHOLD.reset(token)
+        await run_in_threadpool(supplier_bookings.release_rehold, reference)
     await run_in_threadpool(_audit, reference, actor, "rehold_by_staff" if held else "rehold_by_staff_failed", {"result": what})
     if not held:
         raise Rehold(502, f"Not held again: {what}. Nothing was booked.", "rehold_failed")
