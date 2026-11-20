@@ -506,6 +506,18 @@
             ],
             "title": "Iban"
           },
+          "qr_download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gateway path that downloads the QR image as a file (every browser, no S3 CORS).",
+            "title": "Qr Download Url"
+          },
           "qr_url": {
             "anyOf": [
               {
@@ -19665,6 +19677,54 @@
           }
         },
         "summary": "Payment Methods",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/payment-qr/{account_id}": {
+      "get": {
+        "description": "Download QR: the checkout account's QR image as a file (Content-Disposition: attachment), so it saves in every\nbrowser, including iPhone Safari and Android; the S3 image itself can't be downloaded cross-site.",
+        "operationId": "payment_qr_v1_public_payment_qr__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            },
+            "description": "The QR image as a download."
+          },
+          "404": {
+            "description": "No such account QR at checkout."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "The image couldn't be read."
+          }
+        },
+        "summary": "Payment Qr",
         "tags": [
           "public website"
         ]

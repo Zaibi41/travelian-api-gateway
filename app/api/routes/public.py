@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from starlette.concurrency import run_in_threadpool
 
 from fastapi import APIRouter, Header, Path, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.flights import FlightSearchRequest
@@ -192,6 +192,21 @@ async def get_booking(reference: str, token: Token, request: Request):
 async def payment_methods():
     """What checkout can offer now; bank-transfer accounts (full number, IBAN, QR image) and the site logo."""
     return await service.payment_methods()
+
+
+@router.get("/payment-qr/{account_id}", response_class=Response,
+            responses={200: {"content": {"image/png": {}, "image/jpeg": {}, "image/webp": {}}, "description": "The QR image as a download."},
+                       404: {"description": "No such account QR at checkout."}, 502: {"description": "The image couldn't be read."}})
+async def payment_qr(request: Request, account_id: Annotated[str, Path(max_length=64)]):
+    """Download QR: the checkout account's QR image as a file (Content-Disposition: attachment), so it saves in every
+    browser, including iPhone Safari and Android; the S3 image itself can't be downloaded cross-site."""
+    try:
+        service.check_rate(service.QR_LIMIT, _ip(request))
+        content, kind, name = await service.payment_qr(account_id)
+    except service.PublicError as error:
+        return _error(error)
+    return Response(content, media_type=kind, headers={"Content-Disposition": f'attachment; filename="{name}"',
+                                                       "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"})
 
 
 class SiteConfig(BaseModel):
