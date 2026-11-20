@@ -39,7 +39,11 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     flights = await run_in_threadpool(flight_expiry.expire_due, now)
     outcome["flights_expired"] = [item.reference for item in flights]
     logger.info("Flight holds expired", extra={"count": len(flights)})
+    from app.services import customer_emails
+
     for item in flights:
+        if not item.paid_minor:
+            await customer_emails.send(item.reference, "hold_expired")  # only if the customer was told about the hold
         if item.paid_minor:
             logger.warning("Flight hold ended with a payment recorded: paid, not ticketed (refund or rebook by hand)",
                            extra={"reference": item.reference, "amount_minor": item.paid_minor, "currency": item.currency})
@@ -50,6 +54,7 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     outcome["expired"] = expired
     for reference in expired:
         logger.info("Group hold expired", extra={"reference": reference})
+        await customer_emails.send(reference, "hold_expired")  # unpaid holds the customer was told about
     due = await run_in_threadpool(store.releases_due, settings.group_hold_release_attempts)
     for booking in due:
         provider = provider_for(booking.provider)

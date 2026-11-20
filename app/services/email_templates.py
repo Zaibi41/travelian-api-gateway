@@ -550,6 +550,47 @@ def paid_not_ticketed(booking: Booking) -> Email:
         reference=booking.reference, status=status, tone="urgent", preheader=preheader, body=body), text, preheader)
 
 
+def hold_expired(booking: Booking) -> Email:
+    """An unpaid hold ended (gateway#52): the seats are released; nothing was charged; search again or ask us."""
+    status = "Hold ended: seats released"
+    preheader = f"The hold on booking {booking.reference} has ended and the seats are released. Nothing was charged."
+    body = (_heading("Your hold has ended")
+            + _p(_e(_greeting(booking)))
+            + _p("The time to pay for this booking has passed, so the airline has released the seats. <strong>Nothing was charged.</strong> "
+                 "Fares change often: search again for the latest price, or message us and we'll help you book.")
+            + _summary(booking, "Hold ended, seats released", "info", total_label="Fare when held")
+            + _p("", margin="0 0 10px")
+            + _button("Search flights again", f"{_site()}/flights-search")
+            + _p(f'<a href="{_e(_whatsapp(booking.reference))}" style="color:{BLUE};">Ask us on WhatsApp</a>', size=14, margin="-10px 0 18px"))
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", "The time to pay for this booking has passed, so the airline has released the seats.",
+                          "Nothing was charged. Search again for the latest price, or message us and we'll help you book.", ""]
+                 + _text_summary(booking, "Hold ended, seats released") + ["", f"Search flights again: {_site()}/flights-search",
+                                                                         f"Ask us on WhatsApp: {_whatsapp(booking.reference)}"])
+    return Email(f"Booking {booking.reference}: your hold has ended", _layout(
+        reference=booking.reference, status=status, tone="info", preheader=preheader, body=body), text, preheader)
+
+
+def booking_cancelled(booking: Booking) -> Email:
+    """Travelian cancelled the booking (e.g. at the customer's request, gateway#48). A refund, if any, is a separate message."""
+    status = "Booking cancelled"
+    preheader = f"Booking {booking.reference} is cancelled."
+    paid = booking.paid_minor or 0
+    refund_note = (f"You paid <strong>{_e(money(paid, booking.currency))}</strong>. Our team will contact you about the refund."
+                   if paid else "Nothing was charged.")
+    body = (_heading("Your booking is cancelled")
+            + _p(_e(_greeting(booking)))
+            + _p(f"Booking <strong>{_e(booking.reference)}</strong> is cancelled. {refund_note}")
+            + _summary(booking, "Cancelled", "info")
+            + _p("", margin="0 0 10px")
+            + _p("Didn't ask for this, or have a question? Reply to this email or message us on WhatsApp.", size=14)
+            + _button("Message us on WhatsApp", _whatsapp(booking.reference), TEAL))
+    refund_text = f"You paid {money(paid, booking.currency)}. Our team will contact you about the refund." if paid else "Nothing was charged."
+    text = _text(status, reference=booking.reference, lines=[_greeting(booking), "", f"Booking {booking.reference} is cancelled. {refund_text}", ""]
+                 + _text_summary(booking, "Cancelled") + ["", "Didn't ask for this, or have a question? Reply to this email or WhatsApp us."])
+    return Email(f"Booking {booking.reference} is cancelled", _layout(
+        reference=booking.reference, status=status, tone="info", preheader=preheader, body=body), text, preheader)
+
+
 # ---------- staff templates ----------
 
 def _admin_link(reference: str) -> str:

@@ -32,7 +32,9 @@ from app.services import email_templates as t
 logger = logging.getLogger(__name__)
 
 KINDS = {"booking_held", "book_only_held", "bank_transfer", "jazzcash", "payment_received", "ticket_issued", "issuance_pending",
-         "paid_not_ticketed"}
+         "paid_not_ticketed", "hold_expired", "booking_cancelled"}
+# The emails that tell a customer their seats are held: a hold that ends is only mentioned to customers who got one.
+HOLD_KINDS = ("booking_held", "book_only_held", "bank_transfer", "jazzcash")
 LINK_DAYS = 30
 
 
@@ -155,6 +157,10 @@ def render(kind: str, booking: t.Booking, *, method: str = "card") -> t.Email:
         return t.issuance_pending(booking)
     if kind == "paid_not_ticketed":
         return t.paid_not_ticketed(booking)
+    if kind == "hold_expired":
+        return t.hold_expired(booking)
+    if kind == "booking_cancelled":
+        return t.booking_cancelled(booking)
     raise ValueError(kind)
 
 
@@ -194,11 +200,12 @@ def _record(booking_id: str, kind: str, sent: bool, reason: str, to: str | None)
                {"email": kind, "to": masked, **({} if sent else {"reason": reason})})
 
 
-def _already_sent(booking_id: str, kind: str) -> bool:
+def _already_sent(booking_id: str, kind: str | tuple[str, ...]) -> bool:
+    kinds = [kind] if isinstance(kind, str) else list(kind)
     with agencies.application_engine().begin() as connection:
         return bool(connection.scalar(text(
-            "SELECT 1 FROM booking_events WHERE booking_id = :b AND action = 'customer_email_sent' AND details ->> 'email' = :k LIMIT 1"),
-            {"b": booking_id, "k": kind}))
+            "SELECT 1 FROM booking_events WHERE booking_id = :b AND action = 'customer_email_sent' AND details ->> 'email' = ANY(:k) LIMIT 1"),
+            {"b": booking_id, "k": kinds}))
 
 
 def deliver(reference: str, kind: str, *, method: str = "card") -> tuple[bool, str]:
@@ -209,6 +216,9 @@ def deliver(reference: str, kind: str, *, method: str = "card") -> tuple[bool, s
             return False, "booking not found"
         if _already_sent(facts["id"], kind):
             return False, "already sent"
+        if kind == "hold_expired" and (facts.get("paid_minor") or not _already_sent(facts["id"], HOLD_KINDS)):
+            # Only an unpaid hold the customer was emailed about (a paid one follows the paid-not-ticketed path).
+            return False, "not needed"
         to = (facts.get("c_email") or "").strip()
         if not to:
             _record(facts["id"], kind, False, "no customer email on the booking", None)
