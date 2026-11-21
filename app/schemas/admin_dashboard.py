@@ -25,6 +25,8 @@ class NeedsAction(BaseModel):
 class CurrencyAmount(BaseModel):
     currency: str = Field(description="ISO currency code, e.g. PKR.")
     amount_minor: int | None = Field(None, description="Amount in minor units (paisa for PKR). Omitted = n/a: it can't be computed exactly.")
+    profit_not_known: int | None = Field(None, description="Gross profit only: paid bookings left out because their supplier cost isn't known "
+                                                         "(travelian#70; never counted as 0).")
 
 
 class ProductResults(BaseModel):

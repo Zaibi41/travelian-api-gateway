@@ -1324,6 +1324,17 @@
             "description": "Selling price (and cost, with access) per passenger type. Omitted when no travelers were saved.",
             "title": "Per Passenger"
           },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfitView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "travelian#70: selling + fees charged - supplier actual charge - payment fees - refunds paid. Cost and margin permission only."
+          },
           "supplier_cost": {
             "anyOf": [
               {
@@ -1856,6 +1867,83 @@
           "recorded_at"
         ],
         "title": "BookingPayment",
+        "type": "object"
+      },
+      "BookingProfitRow": {
+        "properties": {
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer"
+          },
+          "payment_fees": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refunds": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "sales": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "supplier_charge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplier_charge_basis": {
+            "enum": [
+              "recorded",
+              "quoted",
+              "not_known"
+            ],
+            "title": "Supplier Charge Basis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking_reference",
+          "created_at",
+          "product",
+          "sales",
+          "supplier_charge_basis",
+          "payment_fees",
+          "refunds"
+        ],
+        "title": "BookingProfitRow",
         "type": "object"
       },
       "BookingRecord": {
@@ -2669,6 +2757,18 @@
             "description": "ISO currency code, e.g. PKR.",
             "title": "Currency",
             "type": "string"
+          },
+          "profit_not_known": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gross profit only: paid bookings left out because their supplier cost isn't known (travelian#70; never counted as 0).",
+            "title": "Profit Not Known"
           }
         },
         "required": [
@@ -3612,6 +3712,120 @@
           "at"
         ],
         "title": "FinancePaymentRow",
+        "type": "object"
+      },
+      "FinanceReport": {
+        "properties": {
+          "by_booking": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BookingProfitRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Profit by booking (cost and margin permission only), largest sales first.",
+            "title": "By Booking"
+          },
+          "date_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "granularity": {
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Granularity",
+            "type": "string"
+          },
+          "payments_by_method": {
+            "items": {
+              "$ref": "#/components/schemas/MethodRow"
+            },
+            "title": "Payments By Method",
+            "type": "array"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/ReportPeriod"
+            },
+            "title": "Periods",
+            "type": "array"
+          },
+          "receivables": {
+            "items": {
+              "$ref": "#/components/schemas/ReceivableRow"
+            },
+            "title": "Receivables",
+            "type": "array"
+          },
+          "receivables_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "refunds_due": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Refundable money on paid bookings that can't travel, plus refunds approved but not paid."
+          },
+          "refunds_due_count": {
+            "title": "Refunds Due Count",
+            "type": "integer"
+          },
+          "supplier_spend": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SupplierSpendRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only.",
+            "title": "Supplier Spend"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ReportTotals"
+          }
+        },
+        "required": [
+          "granularity",
+          "totals",
+          "periods",
+          "receivables",
+          "receivables_total",
+          "refunds_due",
+          "refunds_due_count",
+          "payments_by_method"
+        ],
+        "title": "FinanceReport",
         "type": "object"
       },
       "FlightCalendar": {
@@ -7830,6 +8044,43 @@
         "title": "MergeRequest",
         "type": "object"
       },
+      "MethodRow": {
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "card_fees": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "count",
+          "amount",
+          "card_fees"
+        ],
+        "title": "MethodRow",
+        "type": "object"
+      },
       "NeedsAction": {
         "description": "Not affected by the date filter.",
         "properties": {
@@ -8870,6 +9121,55 @@
         "title": "PublicMoney",
         "type": "object"
       },
+      "ReceivableRow": {
+        "properties": {
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer"
+          },
+          "due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "booking_reference",
+          "status",
+          "total",
+          "due"
+        ],
+        "title": "ReceivableRow",
+        "type": "object"
+      },
       "ReceivingAccount": {
         "description": "A receiving account as Finance > Accounts & Ledgers manages it (active and inactive).",
         "properties": {
@@ -9472,6 +9772,150 @@
           "issued"
         ],
         "title": "ReportBucket",
+        "type": "object"
+      },
+      "ReportPeriod": {
+        "properties": {
+          "bookings": {
+            "title": "Bookings",
+            "type": "integer"
+          },
+          "fees_charged": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "other_currency": {
+            "default": 0,
+            "description": "Sales not in PKR, left out of the money totals.",
+            "title": "Other Currency",
+            "type": "integer"
+          },
+          "payment_fees": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "payment_fees_missing": {
+            "default": 0,
+            "description": "Sales with a card payment whose fee isn't recorded yet.",
+            "title": "Payment Fees Missing",
+            "type": "integer"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only. Sum over bookings whose profit is known."
+          },
+          "profit_not_known": {
+            "default": 0,
+            "description": "Sales whose supplier cost isn't known: left out of profit, never counted as 0.",
+            "title": "Profit Not Known",
+            "type": "integer"
+          },
+          "refunds": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "sales": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "supplier_charge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only. Of bookings whose profit is known."
+          }
+        },
+        "required": [
+          "bookings",
+          "sales",
+          "fees_charged",
+          "payment_fees",
+          "refunds",
+          "start"
+        ],
+        "title": "ReportPeriod",
+        "type": "object"
+      },
+      "ReportTotals": {
+        "properties": {
+          "bookings": {
+            "title": "Bookings",
+            "type": "integer"
+          },
+          "fees_charged": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "other_currency": {
+            "default": 0,
+            "description": "Sales not in PKR, left out of the money totals.",
+            "title": "Other Currency",
+            "type": "integer"
+          },
+          "payment_fees": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "payment_fees_missing": {
+            "default": 0,
+            "description": "Sales with a card payment whose fee isn't recorded yet.",
+            "title": "Payment Fees Missing",
+            "type": "integer"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only. Sum over bookings whose profit is known."
+          },
+          "profit_not_known": {
+            "default": 0,
+            "description": "Sales whose supplier cost isn't known: left out of profit, never counted as 0.",
+            "title": "Profit Not Known",
+            "type": "integer"
+          },
+          "refunds": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "sales": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "supplier_charge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost and margin permission only. Of bookings whose profit is known."
+          }
+        },
+        "required": [
+          "bookings",
+          "sales",
+          "fees_charged",
+          "payment_fees",
+          "refunds"
+        ],
+        "title": "ReportTotals",
         "type": "object"
       },
       "RepriceRequest": {
@@ -11464,6 +11908,40 @@
           }
         },
         "title": "SupplierPayment",
+        "type": "object"
+      },
+      "SupplierSpendRow": {
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier names permission only.",
+            "title": "Supplier"
+          },
+          "ticket_charges": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "top_ups": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "day",
+          "ticket_charges",
+          "top_ups"
+        ],
+        "title": "SupplierSpendRow",
         "type": "object"
       },
       "SupplierWalletList": {
@@ -16874,6 +17352,330 @@
           }
         ],
         "summary": "Reject Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reports": {
+      "get": {
+        "description": "Daily (weekly, monthly) sales and profit, receivables, refunds due, supplier spend, payments by method / account.\nSame sale rule and profit formula as the dashboard and the booking. Profit and supplier figures need cost and margin.",
+        "operationId": "finance_report_v1_admin_finance_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "pattern": "^(day|week|month)$",
+              "title": "Granularity",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(flight|group|hotel|umrah)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinanceReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Finance Report",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reports.csv": {
+      "get": {
+        "description": "One report section as CSV. Audited.",
+        "operationId": "export_report_csv_v1_admin_finance_reports_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "section",
+            "required": false,
+            "schema": {
+              "default": "summary",
+              "pattern": "^(summary|profit_by_booking|receivables|supplier_spend|payments_by_method)$",
+              "title": "Section",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "pattern": "^(day|week|month)$",
+              "title": "Granularity",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(flight|group|hotel|umrah)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Report Csv",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reports.xlsx": {
+      "get": {
+        "description": "Every report section as an Excel sheet (same numbers as /reports). Audited.",
+        "operationId": "export_report_xlsx_v1_admin_finance_reports_xlsx_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "pattern": "^(day|week|month)$",
+              "title": "Granularity",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(flight|group|hotel|umrah)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Report Xlsx",
         "tags": [
           "admin finance"
         ]
