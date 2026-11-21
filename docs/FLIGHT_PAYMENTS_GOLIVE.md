@@ -16,7 +16,7 @@ UAT card page looked broken; production serves them.
 (kept on for testing, owner's decision): a Southair hold is a test PNR and an issued Southair ticket is a test ticket, even
 when the card payment is real. **SooperFare is production**: a hold on a SooperFare fare is a real airline reservation.
 Other switches on: `PUBLIC_FLIGHT_BOOKING_ENABLED`, `SOOPERFARE_BOOKING_ENABLED`, `SOOPERFARE_TICKETING_ENABLED`,
-`BANK_TRANSFER_ENABLED`, `JAZZCASH_ENABLED`.
+`SOOPERFARE_CONFIRM_ENABLED`, `BANK_TRANSFER_ENABLED`, `JAZZCASH_ENABLED`.
 
 ### When Southair production credentials arrive
 
@@ -43,9 +43,11 @@ PayFast must allow `CHECKOUT_URL=https://api.travelian.pk/v1/public/payments/pay
 - [ ] **Southair funded account.** UAT has a zero balance, so automatic issuing is refused ("Not enough supplier balance")
       and every card booking becomes a red alert. Production credentials and a funded balance are needed before
       `SOUTHAIR_TICKETING_ENABLED=true` means anything.
-- [ ] **SooperFare issuing is not built.** `/v1/booking/confirm` has no documented answer (no example response;
-      `txn_ref_id` only "TEST"). Card works for SooperFare fares, but staff issue in SooperFare's portal after the red alert.
-      Ask SooperFare for the confirm response format and what `txn_ref_id` must be.
+- [ ] **SooperFare issuing: the owner issues the first real one.** Staff issue from the admin (booking → Payments →
+      "2 · Issue the ticket"), only with `SOOPERFARE_TICKETING_ENABLED` and `SOOPERFARE_CONFIRM_ENABLED` on. A paid
+      SooperFare booking is never issued automatically after card payment (or by the recovery job): staff get a red alert.
+      The first confirm's request and answer are saved on the booking (`supplier_response.ticketing`); record them in
+      `docs/SOOPERFARE_API_RESPONSES.md`.
 - [ ] **Supplier cancel not built (Southair, SooperFare):** abandoned holds are never cancelled by Travelian; they lapse at
       the supplier's time limit. (SooperFare /v1/booking/cancel and void are not built; Southair has no cancel call.)
 - [ ] **Southair is UAT on the live server** (`SOUTHAIR_BASE_URL` = sa.uat.ejmiral.com). `SOUTHAIR_BOOKING_ENABLED=true`
@@ -84,7 +86,8 @@ exist; decide then whether they move to Parameter Store (the only PayFast creden
 | `PUBLIC_FLIGHT_BOOKING_ENABLED` | `true` | Off: website flights stay requests (no hold, no payment). |
 | `SOUTHAIR_BOOKING_ENABLED` / `SOOPERFARE_BOOKING_ENABLED` | `true` per supplier | Needed for the website to hold a fare. |
 | `SOUTHAIR_TICKETING_ENABLED` | `true` only with a funded production account | Off: every card payment goes to staff (red alert). |
-| `SOOPERFARE_TICKETING_ENABLED` | leave `false` | Not used yet (issuing not built). |
+| `SOOPERFARE_TICKETING_ENABLED` | `true` | Off: SooperFare bookings are issued in SooperFare's portal, then the ticket numbers are recorded. |
+| `SOOPERFARE_CONFIRM_ENABLED` | `true` once the owner approves the first real issue (default `false`) | On: staff Issue sends one `/v1/booking/confirm` (charges Travelian's SooperFare balance). Needs `SOOPERFARE_TICKETING_ENABLED`. |
 | `BANK_TRANSFER_ENABLED` | `true` | And at least one active bank account with title + number/IBAN/QR in Accounts & Ledgers. |
 | `JAZZCASH_ENABLED` | `true` | Offered with an active JazzCash account that has the full number (QR image optional), Accounts & Ledgers. |
 | `PAYFAST_ALLOW_UAT` | `true` while testing on UAT, `false` with production PayFast | On: card / 1Link and auto-issuing also with PayFast UAT. |
@@ -105,7 +108,17 @@ production (`PAYFAST_BASE_URL` not `ipguat.apps.net.pk`) **or `PAYFAST_ALLOW_UAT
 paid booking goes to staff (red alert). The gateway logs `PayFast mode: production / UAT / UAT (allowed for testing),
 auto-issuing: on/off` at startup. Bank transfer and JazzCash are offered only with an
 active receiving account that has the **full account number** (Accounts & Ledgers); JazzCash also needs `JAZZCASH_ENABLED`.
-`SOOPERFARE_TICKETING_ENABLED=true` is harmless: no SooperFare issue call exists, so paid SooperFare bookings get a red alert.
+SooperFare issuing (both SooperFare switches on) is staff-only, from the admin's Issue button, in this order:
+1. **TEST guard:** a booking marked as a test, or with a passenger named TEST, is refused before anything else, whatever
+   the switches say.
+2. **Pre-check:** SooperFare's `booking/list` must show the booking active, not paid, not issued, with `billable_price`
+   equal to the stored supplier cost. Otherwise nothing is sent and the reason is shown.
+3. **One** `/v1/booking/confirm`, never retried.
+4. **Re-read** `booking/list` for the ticket numbers. Only when SooperFare shows it issued with a ticket number for every
+   traveler is the booking marked Ticket issued; anything else is *unknown* ("Don't issue again", Check with supplier).
+
+A paid SooperFare booking is never issued automatically after card payment: staff get a red alert and issue from the
+admin.
 
 ## 4. S3: uploads and public read
 
