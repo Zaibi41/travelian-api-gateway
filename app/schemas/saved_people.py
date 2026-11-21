@@ -47,6 +47,9 @@ class SavedPersonBooking(BaseModel):
     product: str | None = Field(None, description="flight or group (also hotel / umrah).")
     route: str | None = Field(None, description='Airports in travel order, e.g. "LHE → DXB → LHE". Omitted when the flights were not recorded.')
     departure_local: str | None = Field(None, description="First flight's local departure, e.g. 2026-11-19T00:25.")
+    airline_code: str | None = Field(None, description="First flight's airline (IATA), for the logo (#75).")
+    airline_name: str | None = Field(None, description="First flight's airline name (the airline flown, not the supplier).")
+    flight_number: str | None = Field(None, description="Flight number(s) in travel order, e.g. 'PA401 / PA402'.")
     statuses: BookingStatuses | None = None
     ticket_numbers: list[str] = []
     selling_price: BookingMoney | None = None

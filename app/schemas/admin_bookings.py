@@ -64,6 +64,9 @@ class BookingListItem(BaseModel):
     expires_at: datetime | None = None
     sample: bool = Field(description="True for rows from a one-time import.")
     data_label: DataLabel | None = Field(None, description="\"Imported\" for rows from a one-time import.")
+    airline_code: str | None = Field(None, description="First flight's airline (IATA), for the logo (#75).")
+    airline_name: str | None = Field(None, description="First flight's airline name (the airline flown, not the supplier).")
+    flight_number: str | None = Field(None, description="Flight number(s) in travel order, e.g. 'PA401 / PA402'.")
 
 
 class BookingListFilterOptions(BaseModel):
