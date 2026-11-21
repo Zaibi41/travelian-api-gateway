@@ -347,3 +347,110 @@ class FinanceReport(BaseModel):
     refunds_due_count: int
     supplier_spend: list[SupplierSpendRow] | None = Field(None, description="Cost and margin permission only.")
     payments_by_method: list[MethodRow]
+
+
+class StatementPreviewRequest(BaseModel):
+    file_name: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=2_200_000, description="The CSV file's text.")
+
+
+class StatementPreview(BaseModel):
+    columns: list[str]
+    sample: list[list[str]] = Field(description="The first rows, to choose the columns.")
+    rows: int
+    date_formats: list[str]
+
+
+class StatementColumns(BaseModel):
+    reference: str | None = None
+    description: str | None = None
+    date: str | None = None
+    amount: str | None = None
+    credit: str | None = None
+    debit: str | None = None
+    fee: str | None = None
+    net: str | None = None
+    payout_date: str | None = None
+
+
+class StatementImportRequest(StatementPreviewRequest):
+    kind: Literal["payfast", "bank", "supplier"]
+    account_id: str | None = Field(None, max_length=36, description="Bank: the receiving account the statement belongs to.")
+    provider_id: Literal["southair", "sooperfare"] | None = Field(None, description="Supplier statements.")
+    columns: StatementColumns
+    date_format: Literal["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD", "DD-MMM-YYYY"] = "DD/MM/YYYY"
+
+
+class StatementImportResult(BaseModel):
+    import_id: str
+    lines: int
+    matched: int
+    suggested: int
+    unmatched: int
+    mismatches_added: int
+    fees_recorded: int = Field(description="PayFast fees taken from the settlement file onto payments (used in profit).")
+
+
+class StatementImportView(BaseModel):
+    id: str
+    kind: Literal["payfast", "bank", "supplier"]
+    file_name: str
+    row_count: int
+    imported_at: datetime
+    imported_by_user_id: str | None = None
+    account_label: str | None = None
+    provider_id: str | None = None
+    matched: int
+    suggested: int
+    unmatched: int
+
+
+class StatementImportList(BaseModel):
+    imports: list[StatementImportView]
+
+
+class StatementLineView(BaseModel):
+    id: str
+    line_no: int
+    reference: str | None = None
+    description: str | None = None
+    occurred_on: date | None = None
+    amount: BookingMoney
+    fee: BookingMoney | None = None
+    net: BookingMoney | None = None
+    payout_on: date | None = None
+    status: Literal["matched", "suggested", "unmatched", "ignored"]
+    booking_reference: str | None = None
+    payment_reference: str | None = None
+    payment_amount: BookingMoney | None = None
+
+
+class StatementLineList(BaseModel):
+    lines: list[StatementLineView]
+
+
+class MismatchView(BaseModel):
+    id: str
+    kind: str
+    detail: str
+    booking_reference: str | None = None
+    expected: BookingMoney | None = None
+    actual: BookingMoney | None = None
+    status: Literal["open", "explained", "resolved"]
+    explanation: str | None = None
+    explained_by_user_id: str | None = None
+    explained_at: datetime | None = None
+    resolution_reason: str | None = None
+    resolved_by_user_id: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class MismatchList(BaseModel):
+    mismatches: list[MismatchView]
+    total: int
+
+
+class ResolveMismatchRequest(BaseModel):
+    status: Literal["explained", "resolved"]
+    reason: str = Field(min_length=1, max_length=1000)

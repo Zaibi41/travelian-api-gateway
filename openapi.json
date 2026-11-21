@@ -8157,6 +8157,165 @@
         "title": "MethodRow",
         "type": "object"
       },
+      "MismatchList": {
+        "properties": {
+          "mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/MismatchView"
+            },
+            "title": "Mismatches",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mismatches",
+          "total"
+        ],
+        "title": "MismatchList",
+        "type": "object"
+      },
+      "MismatchView": {
+        "properties": {
+          "actual": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "explained_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explained At"
+          },
+          "explained_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explained By User Id"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "resolution_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Reason"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By User Id"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "explained",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "detail",
+          "status",
+          "created_at"
+        ],
+        "title": "MismatchView",
+        "type": "object"
+      },
       "NeedsAction": {
         "description": "Not affected by the date filter.",
         "properties": {
@@ -10337,6 +10496,30 @@
         "title": "ResetPasswordRequest",
         "type": "object"
       },
+      "ResolveMismatchRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "explained",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "ResolveMismatchRequest",
+        "type": "object"
+      },
       "ReturnResult": {
         "properties": {
           "reference": {
@@ -11848,6 +12031,546 @@
           "submitted_at"
         ],
         "title": "SlipView",
+        "type": "object"
+      },
+      "StatementColumns": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "credit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "debit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debit"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          },
+          "payout_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout Date"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "title": "StatementColumns",
+        "type": "object"
+      },
+      "StatementImportList": {
+        "properties": {
+          "imports": {
+            "items": {
+              "$ref": "#/components/schemas/StatementImportView"
+            },
+            "title": "Imports",
+            "type": "array"
+          }
+        },
+        "required": [
+          "imports"
+        ],
+        "title": "StatementImportList",
+        "type": "object"
+      },
+      "StatementImportRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bank: the receiving account the statement belongs to.",
+            "title": "Account Id"
+          },
+          "columns": {
+            "$ref": "#/components/schemas/StatementColumns"
+          },
+          "content": {
+            "description": "The CSV file's text.",
+            "maxLength": 2200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "date_format": {
+            "default": "DD/MM/YYYY",
+            "enum": [
+              "DD/MM/YYYY",
+              "MM/DD/YYYY",
+              "YYYY-MM-DD",
+              "DD-MMM-YYYY"
+            ],
+            "title": "Date Format",
+            "type": "string"
+          },
+          "file_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "payfast",
+              "bank",
+              "supplier"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "enum": [
+                  "southair",
+                  "sooperfare"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supplier statements.",
+            "title": "Provider Id"
+          }
+        },
+        "required": [
+          "file_name",
+          "content",
+          "kind",
+          "columns"
+        ],
+        "title": "StatementImportRequest",
+        "type": "object"
+      },
+      "StatementImportResult": {
+        "properties": {
+          "fees_recorded": {
+            "description": "PayFast fees taken from the settlement file onto payments (used in profit).",
+            "title": "Fees Recorded",
+            "type": "integer"
+          },
+          "import_id": {
+            "title": "Import Id",
+            "type": "string"
+          },
+          "lines": {
+            "title": "Lines",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "mismatches_added": {
+            "title": "Mismatches Added",
+            "type": "integer"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "integer"
+          },
+          "unmatched": {
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "import_id",
+          "lines",
+          "matched",
+          "suggested",
+          "unmatched",
+          "mismatches_added",
+          "fees_recorded"
+        ],
+        "title": "StatementImportResult",
+        "type": "object"
+      },
+      "StatementImportView": {
+        "properties": {
+          "account_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Label"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "imported_at": {
+            "format": "date-time",
+            "title": "Imported At",
+            "type": "string"
+          },
+          "imported_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imported By User Id"
+          },
+          "kind": {
+            "enum": [
+              "payfast",
+              "bank",
+              "supplier"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "integer"
+          },
+          "unmatched": {
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "file_name",
+          "row_count",
+          "imported_at",
+          "matched",
+          "suggested",
+          "unmatched"
+        ],
+        "title": "StatementImportView",
+        "type": "object"
+      },
+      "StatementLineList": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/StatementLineView"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "StatementLineList",
+        "type": "object"
+      },
+      "StatementLineView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "line_no": {
+            "title": "Line No",
+            "type": "integer"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
+          },
+          "payment_amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payment_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Reference"
+          },
+          "payout_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout On"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "status": {
+            "enum": [
+              "matched",
+              "suggested",
+              "unmatched",
+              "ignored"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "line_no",
+          "amount",
+          "status"
+        ],
+        "title": "StatementLineView",
+        "type": "object"
+      },
+      "StatementPreview": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "date_formats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Date Formats",
+            "type": "array"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "sample": {
+            "description": "The first rows, to choose the columns.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Sample",
+            "type": "array"
+          }
+        },
+        "required": [
+          "columns",
+          "sample",
+          "rows",
+          "date_formats"
+        ],
+        "title": "StatementPreview",
+        "type": "object"
+      },
+      "StatementPreviewRequest": {
+        "properties": {
+          "content": {
+            "description": "The CSV file's text.",
+            "maxLength": 2200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "file_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "content"
+        ],
+        "title": "StatementPreviewRequest",
         "type": "object"
       },
       "SupplierBookingView": {
@@ -17247,6 +17970,537 @@
           }
         ],
         "summary": "Add Payment Fee",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/imports": {
+      "get": {
+        "operationId": "list_statement_imports_v1_admin_finance_reconciliation_imports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(payfast|bank|supplier)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementImportList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Statement Imports",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "description": "Import a PayFast settlement, a bank statement or a supplier statement and match it. If any row can't be read,\nnothing is saved and the rows are listed. Audited. Changes no payment or booking.",
+        "operationId": "import_statement_v1_admin_finance_reconciliation_imports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatementImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "409": {
+            "description": "Already imported."
+          },
+          "422": {
+            "description": "Rows that can't be read (listed); nothing saved."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Statement",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/imports/{import_id}/lines": {
+      "get": {
+        "operationId": "list_statement_lines_v1_admin_finance_reconciliation_imports__import_id__lines_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "title": "Import Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(matched|suggested|unmatched|ignored)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementLineList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Statement Lines",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/lines/{line_id}/confirm": {
+      "post": {
+        "description": "Staff confirm a suggested bank match. Audited.",
+        "operationId": "confirm_bank_match_v1_admin_finance_reconciliation_lines__line_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm Bank Match",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/lines/{line_id}/reject": {
+      "post": {
+        "description": "Staff reject a suggested bank match: the credit goes on the mismatch list. Audited.",
+        "operationId": "reject_bank_match_v1_admin_finance_reconciliation_lines__line_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Bank Match",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/mismatches": {
+      "get": {
+        "description": "One list of differences to work through; supplier ones need cost and margin.",
+        "operationId": "list_mismatches_v1_admin_finance_reconciliation_mismatches_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(open|explained|resolved|all)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "open",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MismatchList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Mismatches",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/mismatches/{mismatch_id}/resolve": {
+      "post": {
+        "description": "Mark a mismatch explained or resolved, with the reason. Audited; it can't be reopened or edited.",
+        "operationId": "resolve_mismatch_v1_admin_finance_reconciliation_mismatches__mismatch_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mismatch_id",
+            "required": true,
+            "schema": {
+              "title": "Mismatch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveMismatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MismatchView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Mismatch",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/preview": {
+      "post": {
+        "description": "The file's columns and first rows, so staff can say which column is which. Nothing is saved.",
+        "operationId": "preview_statement_v1_admin_finance_reconciliation_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatementPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "description": "Not a readable CSV."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Statement",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/reconciliation/supplier-check": {
+      "post": {
+        "description": "Compare recorded supplier charges with issued tickets and their stored cost; differences go on the mismatch list.",
+        "operationId": "supplier_check_v1_admin_finance_reconciliation_supplier_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Supplier Check V1 Admin Finance Reconciliation Supplier Check Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Supplier Check",
         "tags": [
           "admin finance"
         ]
