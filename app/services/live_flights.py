@@ -19,7 +19,7 @@ from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from app.core.config import settings
 from app.core.field_visibility import BackOfficeUser
 from app.schemas.flights import FlightSearchRequest
-from app.schemas.live_flights import FareView, FlightMoney, FlightSearchView, FlightView, JourneyView, ProviderStatus
+from app.schemas.live_flights import FareView, FlightMoney, FlightSearchView, FlightView, JourneyView, ProviderStatus, SegmentView
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairError, SouthairNotConfigured, configured_client
 from app.services import baggage, restricted_airlines
@@ -157,6 +157,34 @@ def _fare_view(fare_id: str, fare: normalize.Fare, viewer: BackOfficeUser, fallb
     return view
 
 
+def _gap_minutes(arrived: str | None, departs: str | None) -> int | None:
+    """Minutes between two local times at the same airport ("YYYY-MM-DDTHH:MM"); None when either is missing or out of order."""
+    try:
+        minutes = int((datetime.fromisoformat(departs) - datetime.fromisoformat(arrived)).total_seconds() // 60)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return minutes if minutes >= 0 else None
+
+
+def segment_views(segments) -> list[SegmentView]:
+    """A flight's connection, flight by flight, with the time on the ground at each stop (#37, #83, #84, #119, #122).
+    Every segment must name both airports, else none are returned (the stop list alone is then all there is)."""
+    rows = [dict(row) for row in segments or []]
+    if not rows or not all(row.get("origin") and row.get("destination") for row in rows):
+        return []
+    views = []
+    for index, row in enumerate(rows):
+        layover = _gap_minutes(rows[index - 1].get("arrival_local"), row.get("departure_local")) if index else None
+        minutes = row.get("duration_minutes")
+        views.append(SegmentView(
+            flight_number=row.get("flight_number") or None, origin=str(row["origin"]).upper(), destination=str(row["destination"]).upper(),
+            departure_local=row.get("departure_local"), arrival_local=row.get("arrival_local"),
+            duration_minutes=minutes if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0 else None,
+            layover_minutes=layover,
+        ))
+    return views
+
+
 def segment(direction: str, leg: normalize.Leg, flight: normalize.Flight, fare: normalize.Fare) -> dict:
     """One flight of a booking's itinerary, as the supplier described it. No passenger data."""
     return {
@@ -280,7 +308,8 @@ def _add_sooperfare(session: SearchSession, results: list[sf_normalize.Result], 
                 flights_by_direction[direction].append((flight.departure_local or "", FlightView(
                     id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
                     flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
-                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities, fares=fare_views,
+                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities,
+                    segments=segment_views(flight.segments), fares=fare_views,
                 )))
 
 
@@ -318,7 +347,8 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
                 flights_by_direction[direction].append((flight.departure_local or "", FlightView(
                     id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
                     flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
-                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities, fares=fare_views,
+                    duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities,
+                    segments=segment_views(flight.segments), fares=fare_views,
                 )))
         providers.append(ProviderStatus(name=NAME, status="responded"))
     if use_sooperfare:

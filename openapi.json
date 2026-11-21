@@ -4356,6 +4356,15 @@
             "title": "Id",
             "type": "string"
           },
+          "segments": {
+            "default": [],
+            "description": "Each flight of the connection, in order, with the time at each stop. Empty when the supplier sent no flight-by-flight detail.",
+            "items": {
+              "$ref": "#/components/schemas/SegmentView"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
           "stop_cities": {
             "default": [],
             "items": {
@@ -11510,6 +11519,84 @@
           }
         },
         "title": "SavedPersonUpdate",
+        "type": "object"
+      },
+      "SegmentView": {
+        "description": "One flight of a connection, in order. Airports are IATA codes; times are each airport's local time.",
+        "properties": {
+          "arrival_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local time at destination, YYYY-MM-DDTHH:MM.",
+            "title": "Arrival Local"
+          },
+          "departure_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local time at origin, YYYY-MM-DDTHH:MM.",
+            "title": "Departure Local"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flying time of this flight.",
+            "title": "Duration Minutes"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "layover_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Time on the ground at `origin` before this flight (the stop). Omitted for the first flight.",
+            "title": "Layover Minutes"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ],
+        "title": "SegmentView",
         "type": "object"
       },
       "SellingPriceItem": {

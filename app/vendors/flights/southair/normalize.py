@@ -71,6 +71,9 @@ class Flight:
     stops: int | None
     stop_cities: list[str]
     fares: list[Fare]
+    #: Each flight of a connection ({flight_number, origin, destination, departure_local, arrival_local, duration_minutes}),
+    #: only when every one names its airports and times; empty otherwise.
+    segments: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -207,13 +210,19 @@ def _flight(raw: Any) -> Flight | None:
     except (TypeError, ValueError):
         stops = None
     stop_text = _text(main.get("STOP_CITY"))
+    legs = tuple({"flight_number": _text(info.get("callsign"), 16), "origin": _text(info.get("dep_city"), 3),
+                  "destination": _text(info.get("arr_city"), 3), "departure_local": _local(info.get("dep_date_time")),
+                  "arrival_local": _local(info.get("arr_date_time")),
+                  "duration_minutes": _utc_minutes(info.get("dep_dt_utc"), info.get("arr_dt_utc"))} for info in infos)
+    if not all(leg["origin"] and leg["destination"] and leg["departure_local"] and leg["arrival_local"] for leg in legs):
+        legs = ()
     code = _text(operator.get("iata_code"), 3) or (callsign[:2] if callsign and callsign[:2].isalnum() else None)
     return Flight(
         key=f"{callsign or '?'}@{departure or '?'}", airline_code=code.upper() if code else None,
         airline_name=_text(operator.get("name"), 80), flight_number=callsign, departure_local=departure,
         arrival_local=_local(main.get("arr_date_time")), departure_utc=_local(main.get("dep_dt_utc")),
         duration_minutes=_minutes(main.get("flight_time")), stops=stops,
-        stop_cities=[c.strip() for c in stop_text.split(",") if c.strip()] if stop_text else [], fares=fares,
+        stop_cities=[c.strip() for c in stop_text.split(",") if c.strip()] if stop_text else [], fares=fares, segments=legs,
     )
 
 
