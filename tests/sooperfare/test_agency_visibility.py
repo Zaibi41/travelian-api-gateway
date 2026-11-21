@@ -127,7 +127,9 @@ def test_agency_search_gets_both_suppliers_results_without_any_supplier_field(mo
     assert not keys(body) & SUPPLIER_KEYS
     for flight in flights:
         assert set(flight) <= {"id", "airline_code", "airline_name", "flight_number", "departure_local", "arrival_local",
-                               "duration_minutes", "stops", "stop_cities", "fares"}
+                               "duration_minutes", "stops", "stop_cities", "segments", "fares"}
+        for row in flight.get("segments", []):
+            assert set(row) <= {"flight_number", "origin", "destination", "departure_local", "arrival_local", "duration_minutes", "layover_minutes"}
         for fare in flight["fares"]:
             assert set(fare) <= {"id", "name", "meal", "baggage", "baggage_detail", "refund", "time_limit", "selling_price", "booking_mode"}
     raw = response.text

@@ -36,6 +36,18 @@ class FareView(BaseModel):
                                                                           "is ever made; it can only be sent as a request to book.")
 
 
+class SegmentView(BaseModel):
+    """One flight of a connection, in order. Airports are IATA codes; times are each airport's local time."""
+    flight_number: str | None = None
+    origin: str
+    destination: str
+    departure_local: str | None = Field(None, description="Local time at origin, YYYY-MM-DDTHH:MM.")
+    arrival_local: str | None = Field(None, description="Local time at destination, YYYY-MM-DDTHH:MM.")
+    duration_minutes: int | None = Field(None, description="Flying time of this flight.")
+    layover_minutes: int | None = Field(None, description="Time on the ground at `origin` before this flight (the stop). "
+                                                          "Omitted for the first flight.")
+
+
 class FlightView(BaseModel):
     id: str = Field(description="Opaque flight ID.")
     airline_code: str | None = None
@@ -46,6 +58,8 @@ class FlightView(BaseModel):
     duration_minutes: int | None = None
     stops: int | None = None
     stop_cities: list[str] = []
+    segments: list[SegmentView] = Field([], description="Each flight of the connection, in order, with the time at each stop. "
+                                                        "Empty when the supplier sent no flight-by-flight detail.")
     fares: list[FareView]
 
 

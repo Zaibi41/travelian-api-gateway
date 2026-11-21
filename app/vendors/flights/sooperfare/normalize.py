@@ -128,7 +128,9 @@ def parse_flight(raw: dict) -> Flight | None:
         segments=[{"flight_number": s.get("flight_number"), "operating": (s.get("operating_carrier") or {}).get("iata"),
                    "origin": (s.get("from") or {}).get("iata"),
                    "destination": (s.get("to") or {}).get("iata"), "departure_local": _local(s.get("departure_at")),
-                   "arrival_local": _local(s.get("arrival_at"))} for s in segments],
+                   "arrival_local": _local(s.get("arrival_at")),
+                   "duration_minutes": s.get("flight_time") if isinstance(s.get("flight_time"), int) and not isinstance(s.get("flight_time"), bool) else None}
+                  for s in segments],
         fares=fares,
     )
 
