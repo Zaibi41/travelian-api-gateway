@@ -42,7 +42,7 @@ async def create(request: HoldRequest, viewer: BackOfficeUser, channel: str = "s
     with ExitStack() as stack:
         flags = await flight_holds.no_double_booking(request, viewer, quote.request, stack)
         view = await _save(request, viewer, quote, links, channel)
-    await duplicate_bookings.flag_for_staff(view.booking_id, flags, actor=viewer.user_id if channel == "staff" else None,
+    await duplicate_bookings.flag(view.booking_id, flags, viewer=viewer, actor=viewer.user_id if channel == "staff" else None,
                                             passenger=flight_holds._lead_name(request))
     return view
 

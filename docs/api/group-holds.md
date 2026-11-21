@@ -44,7 +44,7 @@ booking's reference** (notifications reach staff who may not be allowed to see i
 A staff refusal or warning names the existing reference only when the viewer may see that booking (as the admin booking
 list: back office, and a `hold_unrecorded` booking only with supplier access); otherwise "<name> already has a booking on
 <route> on <date>." If bookings can't be read, staff get `503 duplicate_check_failed` and nothing is booked; the website
-goes ahead unflagged (logged). An identical second staff call while the first is still running is refused. No migration
+goes ahead unflagged (logged). For the website the flagging runs in the background, so the response time never depends on a match. An identical second staff call while the first is still running is refused. No migration
 and no staff override.
 
 ## Dhillu & Sahi listing setting

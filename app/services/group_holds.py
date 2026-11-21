@@ -682,7 +682,7 @@ async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, reques
         await notifications.booking_event("booking_requested", reference=reference, passenger=lead, route=ticket.sector,
                                           fare_minor=selling_each * request.adults, currency=currency, pnr=None, hold_expires_at=None,
                                           note="Website request: nothing is held at the supplier yet.")
-        await duplicate_bookings.flag_for_staff(reference, flags, actor=viewer.user_id, passenger=lead)
+        await duplicate_bookings.flag(reference, flags, viewer=viewer, actor=viewer.user_id, passenger=lead)
         # B23: website customers are saved to (or matched with) Customers & Travelers too.
         await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
         return await read(reference, viewer)
@@ -736,7 +736,7 @@ async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, reques
     await notifications.booking_event("hold_created", reference=reference, passenger=lead, route=ticket.sector,
                                       fare_minor=selling.amount_minor * request.adults, currency=selling.currency, pnr=held.pnr,
                                       hold_expires_at=expires_at)
-    await duplicate_bookings.flag_for_staff(reference, flags, actor=viewer.user_id, passenger=lead)
+    await duplicate_bookings.flag(reference, flags, viewer=viewer, actor=viewer.user_id, passenger=lead)
     # B23: every booking saves (or matches) its customer and travelers in Customers & Travelers, website ones included
     # (same duplicate rules: a matching passport or CNIC links; a likely match is left for staff to choose).
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)

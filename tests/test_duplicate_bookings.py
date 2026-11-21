@@ -375,7 +375,8 @@ def test_website_flight_hold_goes_ahead_with_the_same_answer_and_staff_are_flagg
              patch.object(store, "record_flag", lambda reference, actor, details: flagged.append(reference)), \
              patch.object(flight_holds.supplier_bookings, "save_hold", MagicMock(return_value="TRV-NEW002")), \
              patch.object(flight_holds, "_save_people", lambda *a, **kw: []):
-            views.append(asyncio.run(flight_holds.hold(southair.hold_request(), WEBSITE_SEARCH_VIEWER, client_factory=lambda: client)))
+            views.append(asyncio.run(then_background(flight_holds.hold(southair.hold_request(), WEBSITE_SEARCH_VIEWER,
+                                                                       client_factory=lambda: client))))
         assert client.booking.await_count == 1                                # held as usual
     assert views[0].model_dump() == views[1].model_dump()                     # the guest's answer doesn't change
     assert flagged == ["TRV-NEW002"]                                           # the match is flagged on the new booking
@@ -398,5 +399,58 @@ def test_website_group_request_is_saved_and_flagged_not_refused():
          patch.object(group.flight_holds, "_save_people", lambda *a, **kw: []), \
          patch.object(group_holds, "read", AsyncMock(return_value="view")), patch.object(rule, "flag_for_staff", flag), \
          patch.object(store, "travelers_named", lambda names, exclude_reference=None: rows):
-        assert asyncio.run(group_holds.hold(group.REQUEST, viewer, fetch=AsyncMock(return_value=group.stock()), request_only=True)) == "view"
+        assert asyncio.run(then_background(group_holds.hold(group.REQUEST, viewer, fetch=AsyncMock(return_value=group.stock()),
+                                                            request_only=True))) == "view"
     assert flag.await_args.args[0] == "TRV-GRP-AB12CD" and len(flag.await_args.args[1]) == 1
+
+
+async def then_background(call):
+    """Await the call, then let the website's background flag work finish (asyncio.run would cancel it)."""
+    result = await call
+    await asyncio.gather(*list(rule._background))
+    return result
+
+
+@pytest.mark.parametrize("website", [True, False])
+def test_website_flagging_runs_off_the_response_path_staff_flagging_inline(website):
+    """The guest's response never waits for the flag work, so its timing can't reveal a match; staff flag inline."""
+    started, release, finished = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_flag(reference, flags, *, actor, passenger=None):
+        started.set()
+        await release.wait()
+        finished.append(reference)
+
+    async def scenario():
+        viewer = WEBSITE if website else ADMIN
+        with patch.object(rule, "flag_for_staff", slow_flag):
+            if website:
+                await rule.flag("TRV-NEW001", [], viewer=viewer, actor=None)   # returns at once, even with nothing to flag
+                assert finished == [] and len(rule._background) == 1        # scheduled, not awaited
+                await asyncio.sleep(0)
+                assert started.is_set()
+                release.set()
+                await asyncio.gather(*list(rule._background))
+                assert finished == ["TRV-NEW001"] and rule._background == set()
+            else:
+                waiting = asyncio.ensure_future(rule.flag("TRV-NEW001", [], viewer=viewer, actor="u1"))
+                await asyncio.sleep(0)
+                assert not waiting.done()                                    # staff: awaited inline
+                release.set()
+                await waiting
+                assert finished == ["TRV-NEW001"]
+
+    asyncio.run(scenario())
+
+
+def test_background_flag_errors_are_logged_never_raised(caplog):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    async def scenario():
+        with patch.object(rule, "flag_for_staff", broken):
+            await rule.flag("TRV-NEW001", [], viewer=WEBSITE, actor=None)
+            await asyncio.gather(*list(rule._background))
+
+    asyncio.run(scenario())
+    assert "Background double-booking flag failed" in caplog.text

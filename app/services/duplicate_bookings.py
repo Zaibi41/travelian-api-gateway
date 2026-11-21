@@ -19,6 +19,7 @@ Two identical staff requests arriving together are refused too (in this gateway 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -256,6 +257,28 @@ async def flag_for_staff(reference: str, flags: list[Flag], *, actor: str | None
     await notifications.booking_event("possible_double_booking", reference=reference, passenger=passenger or _name(flags[0].person),
                                       route=f"{first[0]} → {first[1]}", fare_minor=None, currency=None, pnr=None, hold_expires_at=None,
                                       note=notification_note(flags))
+
+
+#: Website flag tasks still running (kept so they aren't garbage-collected before they finish).
+_background: set[asyncio.Task] = set()
+
+
+async def flag(reference: str, flags: list[Flag], *, viewer: Any, actor: str | None, passenger: str | None = None) -> None:
+    """Flag for staff. Staff: now. Website: always scheduled in the background (even with nothing to flag), so the guest's
+    response time never depends on whether another booking matched."""
+    if not is_website(viewer):
+        await flag_for_staff(reference, flags, actor=actor, passenger=passenger)
+        return
+
+    async def run() -> None:
+        try:
+            await flag_for_staff(reference, flags, actor=actor, passenger=passenger)
+        except Exception as error:  # noqa: BLE001 - background work never surfaces to the guest
+            logger.error("Background double-booking flag failed", extra={"reference": reference, "error_type": type(error).__name__})
+
+    task = asyncio.get_running_loop().create_task(run())
+    _background.add(task)
+    task.add_done_callback(_background.discard)
 
 
 # Check-and-book calls by staff now running in this process: (name key, journey) -> the passengers being booked.
