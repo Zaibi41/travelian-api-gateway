@@ -194,7 +194,24 @@ async def staff_rehold(reference: str, actor: str | None, accept_total_minor: in
     """Staff "Re-hold at SooperFare": a new hold of the same flights and fare for a booking whose hold is gone (expired, or
     paid but not ticketed). Only once SooperFare's own record shows the old reservation is no longer active (never two
     holds for the same people). Same selling total, or the new one the staff member saw and accepted (accept_total_minor);
-    any other change raises Rehold 409 price_changed with the new total. Returns the new hold in plain words."""
+    any other change raises Rehold 409 price_changed with the new total. Returns the new hold in plain words.
+    Every attempt is in the booking's audit trail with who asked (the event time is when): held (rehold_by_staff, plus
+    rehold_created from the save), failed (rehold_by_staff_failed) or refused before anything was held
+    (rehold_by_staff_refused, with the code and the words staff saw, e.g. price_changed with both totals)."""
+    try:
+        return await _staff_rehold(reference, actor, accept_total_minor, sooperfare_factory)
+    except Rehold as error:
+        if error.code != "rehold_failed":  # rehold_failed is already recorded as rehold_by_staff_failed
+            try:
+                await run_in_threadpool(_audit, reference, actor, "rehold_by_staff_refused",
+                                        {"code": error.code, "result": error.message, **error.extra,
+                                         **({"accept_total_minor": accept_total_minor} if accept_total_minor else {})})
+            except Exception:  # noqa: BLE001 - never hides the refusal staff must see
+                logger.error("Re-hold refusal not recorded", extra={"reference": reference, "code": error.code})
+        raise
+
+
+async def _staff_rehold(reference: str, actor: str | None, accept_total_minor: int | None, sooperfare_factory) -> str:
     from app.db import supplier_bookings
 
     target = await run_in_threadpool(store.load, reference)

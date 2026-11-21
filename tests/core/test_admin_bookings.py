@@ -380,6 +380,46 @@ def test_checklist_blockers(monkeypatch):
     assert any("Full payment" in b for b in body["blockers"]) and any("expired" in b for b in body["blockers"])
 
 
+@pytest.mark.parametrize("status, expires, reason", [
+    ("expired", NOW - timedelta(hours=2), "The hold has expired."),            # the expiry job ran
+    ("paid_not_ticketed", NOW - timedelta(hours=2), "The hold has expired."),  # money recorded, hold ran out
+    ("held", NOW - timedelta(minutes=5), "The hold has expired or is about to expire."),  # time over, job not run yet
+    ("held", NOW + timedelta(seconds=30), "The hold has expired or is about to expire."),
+    ("pending_payment", NOW - timedelta(hours=1), "The hold has expired."),
+    ("cancelled", NOW + timedelta(hours=5), "The booking isn't on hold."),
+])
+def test_one_hold_reason_only(status, expires, reason):
+    """gateway#44: an expired booking said both "isn't on hold" and "has expired"."""
+    from app.db import issuance as store
+    reasons = store.blockers(issuance_target(booking_status=status, hold_expires_at=expires), NOW, 60)
+    assert reasons == [reason]
+    assert store.blockers(issuance_target(), NOW, 60) == []
+
+
+@pytest.mark.parametrize("ticketing, confirm", [(False, False), (True, False)])
+def test_checklist_gives_only_the_hold_reason_while_the_hold_is_gone(monkeypatch, ticketing, confirm):
+    """gateway#44: an expired SooperFare booking showed the hold blocker and the ticketing switch notice together."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "sooperfare_ticketing_enabled", ticketing)
+    monkeypatch.setattr(settings, "sooperfare_confirm_enabled", confirm)
+    expired = issuance_target(provider="sooperfare", booking_status="expired", hold_expires_at=NOW - timedelta(hours=2))
+    body = checklist(monkeypatch, ISSUER, expired).json()
+    assert body["blockers"] == ["The hold has expired."] and "ticketing_note" not in body
+    assert body["ticketing_enabled"] is False and body["can_issue"] is False and body["can_request"] is False
+    # While the hold is valid, the switch is the reason and its note shows.
+    body = checklist(monkeypatch, ISSUER, issuance_target(provider="sooperfare")).json()
+    assert body["blockers"] == [] and "SOOPERFARE_" in body["ticketing_note"] and body["can_issue"] is False
+
+
+def test_checklist_for_an_expired_booking_with_ticketing_on_has_one_reason(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "sooperfare_ticketing_enabled", True)
+    monkeypatch.setattr(settings, "sooperfare_confirm_enabled", True)
+    body = checklist(monkeypatch, ISSUER, issuance_target(provider="sooperfare", booking_status="expired",
+                                                          hold_expires_at=NOW - timedelta(hours=2))).json()
+    assert body["blockers"] == ["The hold has expired."] and "ticketing_note" not in body and body["ticketing_enabled"] is True
+
+
 def test_checklist_shows_the_last_attempt_reason_and_check_with_supplier(monkeypatch):
     last = ("issuance_unknown", {"reason_code": "unclear_after_ticketing", "supplier_answer": "ok", "pnr_status": "OK"}, NOW)
     body = checklist(monkeypatch, ISSUER, issuance_target(issuance_status="unknown"), last=last).json()
