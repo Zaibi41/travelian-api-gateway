@@ -16,6 +16,7 @@ def run(expired):
     supplier = MagicMock()
     with patch.object(flight_expiry, "expire_due", MagicMock(return_value=expired)) as expire, \
          patch.object(group_store, "expire_due", lambda now, no_release=frozenset(): []), patch.object(group_store, "releases_due", lambda limit: []), \
+         patch.object(group_store, "paid_not_ticketed_due", lambda now, no_release=frozenset(): []), \
          patch.object(group_hold_expiry, "provider_for", lambda vendor: supplier):
         outcome = asyncio.run(group_hold_expiry.run_once(NOW))
     return outcome, expire, supplier
@@ -50,7 +51,8 @@ def test_unpaid_expired_holds_get_the_hold_ended_email(request):
         pass
 
     with patch.object(flight_fallback, "hold_lost", hold_lost), \
-         patch.object(group_store, "expire_due", lambda now, no_release=frozenset(): ["TRV-GRP001"]):
+         patch.object(group_store, "expire_due", lambda now, no_release=frozenset(): ["TRV-GRP001"]), \
+         patch.object(group_store, "paid_not_ticketed_due", lambda now, no_release=frozenset(): []):
         supplier = MagicMock()
         with patch.object(flight_expiry, "expire_due", MagicMock(return_value=[flight_expiry.FlightExpired("TRV-PAID01", 2_666_000, "PKR", "paid_not_ticketed"),
                                                                                flight_expiry.FlightExpired("TRV-AB12CD", 0, "PKR")])), \

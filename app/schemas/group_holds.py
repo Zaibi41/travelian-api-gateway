@@ -89,7 +89,8 @@ class GroupHoldPayment(BaseModel):
     received_at: datetime
 
 
-GroupHoldStatus = Literal["held", "confirmed", "expired", "released", "processing", "issued", "unknown", "not_recorded", "requested"]
+GroupHoldStatus = Literal["held", "confirmed", "expired", "released", "processing", "issued", "unknown", "not_recorded", "requested",
+                          "paid_not_ticketed"]
 #: After payment: "Paid – awaiting final PNR" -> "Final PNR received" -> "Ticketed" (final PNR and every ticket number).
 GroupTicketingStatus = Literal["awaiting_final_pnr", "final_pnr_received", "ticketed"]
 
@@ -119,9 +120,13 @@ class FareTermsView(BaseModel):
 class GroupHoldView(BaseModel):
     booking_id: str = Field(description="Travelian reference, e.g. TRV-GRP-AB12CD.")
     pnr: str | None = Field(None, description="The supplier's PNR. Only with the supplier names permission.")
-    status: GroupHoldStatus = Field(description="held; confirmed (paid, the final PNR is recorded); expired (time limit passed, can't be held again: search again); released; "
+    status: GroupHoldStatus = Field(description="held (also paid in full past the time limit, waiting for the final PNR: ticketing_status "
+                                                "awaiting_final_pnr); confirmed (paid, the final PNR is recorded); expired (time limit passed "
+                                                "with no money recorded, can't be held again: search again); released; "
                                                 "processing (issuing); issued; unknown (issuing outcome unclear); not_recorded (the supplier held "
-                                                "but the booking couldn't be completed; only viewers with supplier access can open it).")
+                                                "but the booking couldn't be completed; only viewers with supplier access can open it); "
+                                                "paid_not_ticketed (part-paid when the time limit passed, or the supplier cancelled a paid "
+                                                "booking: staff refund or rebook).")
     hold_expires_at: datetime | None = Field(None, description="Travelian's own time limit: hold creation + GROUP_HOLD_MINUTES.")
     adults: int
     flight: GroupHoldFlight

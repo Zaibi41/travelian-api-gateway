@@ -306,8 +306,13 @@ def _status(booking: store.GroupBooking, now: datetime) -> str:
         return "confirmed"
     if booking.booking_status == "cancelled":
         return "released"
-    if booking.booking_status == "expired" or (booking.booking_status == "held" and store.is_over(booking, now)):
+    if booking.booking_status == store.PAID_NOT_TICKETED:
+        return "paid_not_ticketed"
+    if booking.booking_status == "expired":
         return "expired"
+    if booking.booking_status == "held" and store.is_over(booking, now):
+        # Paid in full (waiting for the final PNR) stays held; otherwise what the expiry job will make it (gateway#109).
+        return store.hold_end(booking, now) or "held"
     return "held"
 
 
@@ -350,7 +355,8 @@ SUPPLIER_CANCELLED = "Cancelled at the supplier"
 
 async def refresh_supplier(booking: store.GroupBooking) -> store.GroupBooking:
     """Read the supplier's booking again where the provider can (Dhillu & Sahi agent-booking-detail) for an open hold:
-    keeps its amounts and, when it says cancelled, marks ours expired. A failed read changes nothing."""
+    keeps its amounts and, when it says cancelled, marks ours expired (paid_not_ticketed with money recorded, and staff
+    are alerted). A failed read changes nothing."""
     if booking.booking_status != "held" or not booking.supplier_ref:
         return booking
     provider = provider_for(booking.provider)
@@ -375,7 +381,23 @@ async def refresh_supplier(booking: store.GroupBooking) -> store.GroupBooking:
             booked_at = None
         if booked_at is not None:
             new_expiry = expiry_from(booking_amounts, booked_at, booking.supplier_ref)
-    return await run_in_threadpool(store.save_supplier_amounts, booking.reference, booking_amounts, cancelled, _now(), new_expiry)
+    saved = await run_in_threadpool(store.save_supplier_amounts, booking.reference, booking_amounts, cancelled, _now(), new_expiry)
+    if saved.booking_status == store.PAID_NOT_TICKETED and booking.booking_status != store.PAID_NOT_TICKETED:
+        await paid_not_ticketed_alert(saved, "The supplier cancelled the booking")
+    return saved
+
+
+async def paid_not_ticketed_alert(booking: store.GroupBooking, why: str) -> None:
+    """Staff notification (admin and email): a group booking with money recorded ended without a ticket. Never raises."""
+    logger.warning("Group booking ended with a payment recorded: paid, not ticketed (refund or rebook by hand)",
+                   extra={"reference": booking.reference, "amount_minor": booking.paid_minor, "currency": booking.currency})
+    segment = booking.itinerary[0] if booking.itinerary else {}
+    route = f"{segment['origin']} - {segment['destination']}" if segment.get("origin") and segment.get("destination") else None
+    await notifications.booking_event(
+        "paid_not_ticketed", reference=booking.reference, passenger=None, route=route, fare_minor=booking.paid_minor,
+        currency=booking.currency, pnr=booking.pnr, hold_expires_at=booking.hold_expires_at,
+        note=f"{why} with {money_text(booking.paid_minor, booking.currency)} of {money_text(booking.total_minor, booking.currency)} received"
+             " and no final PNR. Refund or rebook.")
 
 
 async def refresh_for_payment(reference: str) -> None:
@@ -423,7 +445,8 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
     status = _status(booking, now)
     due = max(booking.total_minor - booking.paid_minor, 0)
     adults = max(booking.adults, 1)
-    open_hold = status == "held"
+    # Paid in full past the hold time reads as held (waiting for the final PNR), but nothing more goes to the supplier.
+    open_hold = status == "held" and not store.is_over(booking, now)
     provider = provider_for(booking.provider)
     issuable = supports_issue(provider)
     view = GroupHoldView(
@@ -449,8 +472,9 @@ def build_view(booking: store.GroupBooking, people: booking_people.People | None
     view.can_set_selling_price = open_hold and booking.paid_minor == 0 and viewer.can(RECORD_PAYMENTS)
     view.final_pnr = booking.final_pnr
     view.ticketing_status = ticketing_status(booking.booking_status, booking.issuance_status, booking.final_pnr, due == 0)
+    # Paid in full: the final PNR can be recorded even after the hold time (gateway#109).
     view.can_edit_tickets = (viewer.can(ISSUE_TICKETS) and due == 0 and booking.booking_status in store.TICKETABLE
-                             and not (status == "held" and store.is_over(booking, now)))
+                             and not (status == "held" and store.is_over(booking, now) and not store.waits_for_final_pnr(booking)))
     view.itinerary_available = view.ticketing_status == "ticketed"
     if viewer.visibility.supplier_names:
         # Supplier name and the supplier's PNR: only with the supplier names permission.
@@ -743,6 +767,8 @@ async def _open_hold(reference: str) -> tuple[store.GroupBooking, GroupHoldProvi
     status = _status(booking, _now())
     if status == "expired":
         raise GroupHoldError(409, "The hold has expired. Search again and hold new seats.", "hold_expired")
+    if status == "held" and store.is_over(booking, _now()):  # paid in full, waiting for the final PNR
+        raise GroupHoldError(409, "The hold time has passed. Record the final PNR and tickets on the booking.", "hold_expired")
     if status != "held":
         raise GroupHoldError(409, "This booking isn't on hold.", "not_held")
     provider = provider_for(booking.provider)
@@ -871,7 +897,7 @@ async def record_tickets(reference: str, viewer: BackOfficeUser, final_pnr: str,
         raise GroupHoldError(403, "Recording the final PNR and tickets requires the issue tickets permission.", "not_allowed")
     try:
         booking = await run_in_threadpool(store.load, reference)
-        if booking.booking_status == "held" and store.is_over(booking, _now()):
+        if booking.booking_status == "held" and store.is_over(booking, _now()) and not store.waits_for_final_pnr(booking):
             raise GroupHoldError(409, "This hold has expired.", "hold_expired")
         await run_in_threadpool(store.record_tickets, reference, viewer.user_id, final_pnr, tickets)
     except store.GroupHoldRefused as error:

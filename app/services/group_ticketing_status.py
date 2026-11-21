@@ -18,7 +18,7 @@ LABEL: dict[str, str] = {
 }
 
 #: Statuses with nothing left to ticket.
-_CLOSED = ("cancelled", "expired", "hold_unrecorded", "hold_pending", "hold_failed")
+_CLOSED = ("cancelled", "expired", "hold_unrecorded", "hold_pending", "hold_failed", "paid_not_ticketed")
 
 
 def ticketing_status(booking_status: str, issuance_status: str | None, final_pnr: str | None, paid_in_full: bool) -> TicketingStatus | None:
