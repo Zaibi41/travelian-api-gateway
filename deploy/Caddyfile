@@ -10,6 +10,8 @@
 #   write with no sign-in; they returned traveler contact details and supplier cost). No screen uses them; bookings
 #   are in the gateway (/v1/admin/bookings, /v1/public/...). One prefix covers both routes, their /{id} paths,
 #   trailing slashes and encoded variants (Caddy matches the unescaped path, case-insensitively, slashes merged).
+#   No indexing (gateway#81): /robots.txt (disallow all) is answered by the gateway, and every response, the
+#   legacy Lambda's too, carries X-Robots-Tag: noindex (the gateway sets it on its own; Caddy adds it when missing).
 #
 # LEGACY_API_TARGET is the "API Gateway domain name" of the api.travelian.pk custom
 # domain (d-xxxxxxxxxx.execute-api.us-east-1.amazonaws.com). It is set in
@@ -26,8 +28,13 @@
 
 (travelian_routes) {
 	encode gzip
+	header ?X-Robots-Tag noindex
 
 	handle /v1/* {
+		reverse_proxy {$GATEWAY_UPSTREAM:127.0.0.1:8000}
+	}
+
+	handle /robots.txt {
 		reverse_proxy {$GATEWAY_UPSTREAM:127.0.0.1:8000}
 	}
 
