@@ -102,6 +102,11 @@ def _minor(value) -> int | None:
         return None
 
 
+def _said(error: sooperfare.SooperfareError) -> str:
+    """SooperFare's own reason, in words (never a credential: only the message SooperFare answered, or ours)."""
+    return f"SooperFare said: {error.public_message.strip().rstrip('.')}" if error.status else error.public_message.strip().rstrip(".")
+
+
 def _expiry(value) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -118,8 +123,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
         fresh, currency, priced, new_context = await live_flights.sf_price_selection(quote.request, quote.refs, factory)
     except live_flights.RepriceError as error:
         raise HoldError(error.status, error.message, code=error.code) from None
-    except sooperfare.SooperfareError:
-        raise HoldError(502, "The flight supplier couldn't reprice this fare. Nothing was booked.", code="not_confirmed") from None
+    except sooperfare.SooperfareError as error:
+        raise HoldError(502, f"The flight supplier couldn't reprice this fare ({_said(error)}). Nothing was booked.",
+                        code="not_confirmed") from None
     fee = int(new_context.get("platform_fee_minor") or 0)
 
     def fresh_each(kind: str, number: int, cost: int) -> int | None:
@@ -161,18 +167,24 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
             raise HoldError(409 if error.status != 422 else 422, f"The airline didn't hold the seats: {error.public_message} Nothing was booked.",
                             code="hold_refused") from None
         logger.warning("SooperFare reservation unclear", extra={"error_code": error.error_code})
-        raise HoldError(502, "The supplier didn't confirm the hold. Check SooperFare before trying again.", code="not_confirmed_hold") from None
+        raise HoldError(502, f"The supplier didn't confirm the hold ({_said(error)}). Check SooperFare before trying again.",
+                        code="not_confirmed_hold") from None
     data = answer.get("data") if isinstance(answer.get("data"), dict) else {}
     booking_id = str(data.get("uuid") or "")
     pnr = str(((data.get("providers") or [{}])[0] or {}).get("pnr") or "").strip().upper()
     expires_at = _expiry(data.get("expiry_at"))
-    if not booking_id or not pnr.isalnum() or data.get("reservation_status") != "active" or expires_at is None:
-        logger.warning("SooperFare reservation not confirmed", extra={"status": data.get("reservation_status"), "pnr": pnr or None})
-        raise HoldError(502, "The supplier didn't confirm the hold. Check SooperFare before trying again.", code="not_confirmed_hold",
-                        **({"pnr": pnr} if pnr else {}))
+    status = data.get("reservation_status")
+    if not booking_id or not pnr.isalnum() or status != "active" or expires_at is None:
+        logger.warning("SooperFare reservation not confirmed", extra={"status": status, "pnr": pnr or None})
+        problems = [] if status == "active" else [f"reservation status \"{status}\"" if status else "no reservation status"]
+        problems += [what for what, absent in (("no booking id", not booking_id), ("no PNR", not pnr.isalnum()),
+                                               ("no hold expiry", expires_at is None)) if absent]
+        answered = "SooperFare answered with " + ", ".join(problems)
+        raise HoldError(502, f"The supplier didn't confirm the hold: {answered}. Check SooperFare before trying again.",
+                        code="not_confirmed_hold", **({"pnr": pnr} if pnr else {}))
 
     # 3. Verify the held total from SooperFare's own booking record.
-    record_total, record_status = None, None
+    record_total, record_status, list_error = None, None, None
     try:
         listing = await client.booking_list()
         items = listing.get("data") if isinstance(listing.get("data"), list) else []
@@ -182,6 +194,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
             record_total = _minor(record.get("billable_price")) if record_status == "active" else None
     except sooperfare.SooperfareError as error:
         logger.warning("SooperFare booking list after reservation failed", extra={"error_code": error.error_code, "pnr": pnr})
+        list_error = error
     total_check = "no_total" if record_total is None else "matches" if record_total == supplier_total else "differs"
     if total_check != "matches":
         logger.warning("SooperFare hold total not verified; booking not saved",
@@ -189,7 +202,9 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
         from app.services import sooperfare_bookings  # late: it imports the SooperFare client too
 
         outcome = await sooperfare_bookings.cancel_orphan(booking_id, record_total or supplier_total, currency, pnr, client)
-        what = ("SooperFare's booking list didn't show it" if total_check == "no_total"
+        what = (f"SooperFare's booking list couldn't be read ({_said(list_error)})" if list_error is not None
+                else f"SooperFare's booking list shows it as \"{record_status}\", not active" if record_status not in (None, "active")
+                else "SooperFare's booking list didn't show it" if total_check == "no_total"
                 else f"SooperFare's total ({live_flights.money_text(record_total, currency)}) differs from the price checked "
                      f"({live_flights.money_text(supplier_total, currency)})")
         raise HoldError(502, f"SooperFare created a hold (PNR {pnr}) but it couldn't be verified: {what}. It wasn't saved, and {outcome}. "
