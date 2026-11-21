@@ -360,7 +360,7 @@ def test_restart_after_the_supplier_ticketed_records_the_ticket_without_sending_
         connection.execute(sa.text("UPDATE bookings SET issuance_status = 'processing' WHERE reference = :r"), {"r": reference})
         fake = FakeSouthair([ISSUED])
         assert recover(fake) == {reference: "issued"}
-    assert fake.calls == ["pnr_info"]  # no ticketing call
+    assert fake.calls == ["pnr_info", "profile"]  # no ticketing call; only the balance is read again (travelian#68)
     assert admin_statuses(reference) == ("ticket_issued", "paid", "issued")
 
 
