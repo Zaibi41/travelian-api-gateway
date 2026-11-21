@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.routes.admin_announcements import router as admin_announcements_router
 from app.api.routes.admin_bookings import router as admin_bookings_router
 from app.api.routes.admin_dashboard import router as admin_dashboard_router
 from app.api.routes.admin_notifications import router as admin_notifications_router
@@ -67,3 +68,4 @@ router.include_router(logos_router)
 router.include_router(public_router)
 router.include_router(admin_notifications_router)
 router.include_router(admin_uploads_router)
+router.include_router(admin_announcements_router)
