@@ -54,6 +54,8 @@ def upgrade() -> None:
         sa.Column("matched_by_user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=True),
         sa.Column("matched_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint("status IN ('matched', 'suggested', 'unmatched', 'ignored')", name="ck_recon_lines_status"),
+        sa.CheckConstraint("status <> 'matched' OR (matched_by_user_id IS NOT NULL AND matched_at IS NOT NULL"
+                           " AND (payment_id IS NOT NULL OR booking_id IS NOT NULL))", name="ck_recon_lines_matched"),
     )
     op.create_index("ix_recon_lines_import", "recon_lines", ["import_id", "line_no"])
     op.create_index("ix_recon_lines_payment", "recon_lines", ["payment_id"])
@@ -74,32 +76,55 @@ def upgrade() -> None:
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("clock_timestamp()")),
         sa.CheckConstraint("status IN ('open', 'explained', 'resolved')", name="ck_recon_mismatches_status"),
-        sa.CheckConstraint("status = 'open' OR (resolution_reason IS NOT NULL AND resolved_at IS NOT NULL)", name="ck_recon_mismatches_reason"),
+        sa.CheckConstraint("status = 'open' OR (resolution_reason IS NOT NULL AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL)",
+                           name="ck_recon_mismatches_reason"),
     )
     op.create_index("ix_recon_mismatches_status", "recon_mismatches", ["status", "created_at"])
-    # Statement lines keep their amounts; mismatches are never deleted.
+    # Imports never change; a statement line keeps what the file said and is final once matched; a mismatch only moves
+    # forward (open -> explained -> resolved) and keeps its facts. Nothing here is deleted.
     op.execute("""
         CREATE FUNCTION recon_lines_guard() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
             IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'statement lines are never deleted'; END IF;
-            IF NEW.amount_minor <> OLD.amount_minor OR NEW.fee_minor IS DISTINCT FROM OLD.fee_minor OR NEW.net_minor IS DISTINCT FROM OLD.net_minor
-               OR NEW.import_id <> OLD.import_id OR NEW.reference IS DISTINCT FROM OLD.reference THEN
-                RAISE EXCEPTION 'a statement line''s amounts and reference never change';
+            IF NEW.id <> OLD.id OR NEW.import_id <> OLD.import_id OR NEW.line_no <> OLD.line_no OR NEW.amount_minor <> OLD.amount_minor
+               OR NEW.fee_minor IS DISTINCT FROM OLD.fee_minor OR NEW.net_minor IS DISTINCT FROM OLD.net_minor
+               OR NEW.reference IS DISTINCT FROM OLD.reference OR NEW.description IS DISTINCT FROM OLD.description
+               OR NEW.occurred_on IS DISTINCT FROM OLD.occurred_on OR NEW.payout_on IS DISTINCT FROM OLD.payout_on THEN
+                RAISE EXCEPTION 'a statement line keeps what the file said';
+            END IF;
+            IF OLD.status = 'matched' THEN RAISE EXCEPTION 'a matched statement line is final'; END IF;
+            IF NOT (OLD.status = 'suggested' AND NEW.status IN ('matched', 'unmatched')) AND NEW.status <> OLD.status THEN
+                RAISE EXCEPTION 'statement line can''t go from % to %', OLD.status, NEW.status;
             END IF;
             RETURN NEW;
         END $$""")
     op.execute("CREATE TRIGGER recon_lines_guard BEFORE UPDATE OR DELETE ON recon_lines FOR EACH ROW EXECUTE FUNCTION recon_lines_guard()")
     op.execute("""
-        CREATE FUNCTION recon_no_delete() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN RAISE EXCEPTION '% rows are never deleted', TG_TABLE_NAME; END $$""")
-    for table in ("recon_imports", "recon_mismatches"):
-        op.execute(f"CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} FOR EACH ROW EXECUTE FUNCTION recon_no_delete()")
+        CREATE FUNCTION recon_imports_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'imported statements are never changed or deleted'; END $$""")
+    op.execute("CREATE TRIGGER recon_imports_guard BEFORE UPDATE OR DELETE ON recon_imports FOR EACH ROW EXECUTE FUNCTION recon_imports_guard()")
+    op.execute("""
+        CREATE FUNCTION recon_mismatches_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'mismatches are never deleted'; END IF;
+            IF NEW.id <> OLD.id OR NEW.kind <> OLD.kind OR NEW.dedupe_key <> OLD.dedupe_key OR NEW.detail <> OLD.detail
+               OR NEW.line_id IS DISTINCT FROM OLD.line_id OR NEW.payment_id IS DISTINCT FROM OLD.payment_id
+               OR NEW.booking_id IS DISTINCT FROM OLD.booking_id OR NEW.expected_minor IS DISTINCT FROM OLD.expected_minor
+               OR NEW.actual_minor IS DISTINCT FROM OLD.actual_minor OR NEW.created_at <> OLD.created_at THEN
+                RAISE EXCEPTION 'a mismatch keeps its facts';
+            END IF;
+            IF NOT ((OLD.status = 'open' AND NEW.status IN ('explained', 'resolved')) OR (OLD.status = 'explained' AND NEW.status = 'resolved')) THEN
+                RAISE EXCEPTION 'mismatch status can''t go from % to %', OLD.status, NEW.status;
+            END IF;
+            RETURN NEW;
+        END $$""")
+    op.execute("CREATE TRIGGER recon_mismatches_guard BEFORE UPDATE OR DELETE ON recon_mismatches FOR EACH ROW EXECUTE FUNCTION recon_mismatches_guard()")
 
 
 def downgrade() -> None:
     for table in ("recon_imports", "recon_mismatches"):
-        op.execute(f"DROP TRIGGER IF EXISTS {table}_no_delete ON {table}")
-    op.execute("DROP FUNCTION IF EXISTS recon_no_delete()")
+        op.execute(f"DROP TRIGGER IF EXISTS {table}_guard ON {table}")
+        op.execute(f"DROP FUNCTION IF EXISTS {table}_guard()")
     op.execute("DROP TRIGGER IF EXISTS recon_lines_guard ON recon_lines")
     op.execute("DROP FUNCTION IF EXISTS recon_lines_guard()")
     op.drop_index("ix_recon_mismatches_status", table_name="recon_mismatches")
