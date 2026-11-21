@@ -1,8 +1,10 @@
 """Hold expiry job (started from the app lifespan): Group Ticketing holds and flight holds.
 
 Every GROUP_HOLD_JOB_INTERVAL_SECONDS:
-1. Held group bookings past Travelian's own time limit become 'expired' (logged), with their
-   seats marked for release.
+1. Held group bookings past Travelian's own time limit with no money recorded become 'expired' (logged), with their
+   seats marked for release. With money recorded they never become plain 'expired' (gateway#109): paid in full, they
+   stay held, waiting for the final PNR (ticketing status "Paid – awaiting final PNR"; staff record it); part-paid, they
+   become 'paid_not_ticketed' (seats marked for release, staff alerted to refund or rebook).
 2. Every booking whose seats still need releasing (expired by time, or a staff release the
    supplier didn't confirm) gets one release call. Success: logged as supplier_released. Failure:
    logged, attempts + 1, tried again next run, 'failed' after GROUP_HOLD_RELEASE_ATTEMPTS. While a
@@ -22,7 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.db import flight_expiry
 from app.db import group_holds as store
-from app.services.group_holds import NO_RELEASE_SOURCES, HeldRef, provider_for
+from app.services.group_holds import NO_RELEASE_SOURCES, HeldRef, paid_not_ticketed_alert, provider_for
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ def _now() -> datetime:
 async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     """One pass. Returns what happened: expired, released, failed (references), for logs and tests."""
     now = now or _now()
-    outcome: dict[str, list[str]] = {"expired": [], "released": [], "failed": [], "flights_expired": []}
+    outcome: dict[str, list[str]] = {"expired": [], "paid_not_ticketed": [], "released": [], "failed": [], "flights_expired": []}
     # Flights: held past the time limit and not issued -> expired. No supplier call: the hold lapses at the airline.
     flights = await run_in_threadpool(flight_expiry.expire_due, now)
     outcome["flights_expired"] = [item.reference for item in flights]
@@ -55,6 +57,10 @@ async def run_once(now: datetime | None = None) -> dict[str, list[str]]:
     for reference in expired:
         logger.info("Group hold expired", extra={"reference": reference})
         await customer_emails.send(reference, "hold_expired")  # unpaid holds the customer was told about
+    part_paid = await run_in_threadpool(store.paid_not_ticketed_due, now, frozenset(NO_RELEASE_SOURCES))
+    outcome["paid_not_ticketed"] = [booking.reference for booking in part_paid]
+    for booking in part_paid:
+        await paid_not_ticketed_alert(booking, "The group hold time passed")
     due = await run_in_threadpool(store.releases_due, settings.group_hold_release_attempts)
     for booking in due:
         provider = provider_for(booking.provider)

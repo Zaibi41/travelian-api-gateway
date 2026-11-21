@@ -2,7 +2,9 @@
 
 A group hold is created by supplier_bookings.save_hold(product="group"). Its state changes here
 lock the booking row and check the current state in the same transaction:
-- expire: a held booking whose hold time has passed becomes 'expired' (it is never held again).
+- expire: a held booking whose hold time has passed becomes 'expired' (it is never held again), unless money is
+  recorded on it (gateway#109): paid in full, it stays 'held' waiting for the final PNR (staff record it; the hold time
+  no longer ends it); part-paid, it becomes 'paid_not_ticketed' (staff refund or rebook), never plain 'expired'.
 - release: a held booking becomes 'cancelled' after the supplier confirmed the release.
 - accept_cost: the issuer confirmed the re-checked supplier cost; only the cost changes (booking and travelers).
 - release state (supplier_response -> 'release'): whether the seats were given back at the supplier
@@ -131,45 +133,77 @@ def _set_release(connection, booking_id: str, state: dict[str, Any]) -> None:
 RELEASE_NOT_AVAILABLE = "not_available"  # the source has no release call: the hold ends at the supplier by itself
 
 
-def _expire(connection, booking: GroupBooking, now: datetime, no_release: frozenset[str] = frozenset()) -> None:
-    """held -> expired; seats to be released at the supplier by the expiry job, unless the source has no release call."""
-    connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
-                       {"b": booking.id})
-    status = RELEASE_NOT_AVAILABLE if booking.provider in no_release else RELEASE_PENDING
-    _set_release(connection, booking.id, {"status": status, "attempts": 0, "updated_at": now.isoformat()})
-    _event(connection, booking.id, None, "hold_expired", {"pnr": booking.pnr, "time_limit": booking.hold_expires_at.isoformat() if booking.hold_expires_at else None})
+#: Money is recorded but the hold ended without a ticket: staff refund or rebook by hand (the flights' status too).
+PAID_NOT_TICKETED = "paid_not_ticketed"
 
 
-def _expirable(booking: GroupBooking, now: datetime) -> bool:
-    return booking.booking_status == "held" and is_over(booking, now) and booking.issuance_status in ("not_issued", "requested")
+def waits_for_final_pnr(booking: GroupBooking) -> bool:
+    """Held and paid in full, no final PNR yet: the hold time no longer ends it; staff record the final PNR (gateway#109)."""
+    return (booking.booking_status == "held" and booking.paid_minor > 0 and booking.paid_minor >= booking.total_minor
+            and not booking.final_pnr)
+
+
+def hold_end(booking: GroupBooking, now: datetime) -> str | None:
+    """What the hold time does to this booking now: None (nothing), 'expired' (no money recorded) or 'paid_not_ticketed'
+    (part-paid). Nothing for a booking that isn't held, isn't over, is being issued (or unclear), has its final PNR, or is
+    paid in full (waits for the final PNR)."""
+    if booking.booking_status != "held" or not is_over(booking, now) or booking.issuance_status not in ("not_issued", "requested"):
+        return None
+    if booking.final_pnr or waits_for_final_pnr(booking):
+        return None
+    return PAID_NOT_TICKETED if booking.paid_minor > 0 else "expired"
+
+
+def _expire(connection, booking: GroupBooking, now: datetime, no_release: frozenset[str] = frozenset(), status: str = "expired") -> None:
+    """held -> expired (or paid_not_ticketed with money recorded); seats to be released at the supplier by the expiry job,
+    unless the source has no release call."""
+    connection.execute(text("UPDATE bookings SET booking_status = :s, updated_at = now(), revision = revision + 1 WHERE id = :b"),
+                       {"s": status, "b": booking.id})
+    release = RELEASE_NOT_AVAILABLE if booking.provider in no_release else RELEASE_PENDING
+    _set_release(connection, booking.id, {"status": release, "attempts": 0, "updated_at": now.isoformat()})
+    details: dict[str, Any] = {"pnr": booking.pnr, "time_limit": booking.hold_expires_at.isoformat() if booking.hold_expires_at else None}
+    if booking.paid_minor:
+        details.update(amount_minor=booking.paid_minor, currency=booking.currency, reason_code="payment_recorded_refund_by_hand", status=status)
+    _event(connection, booking.id, None, "hold_expired", details)
 
 
 def expire_if_over(reference: str, now: datetime, no_release: frozenset[str] = frozenset()) -> GroupBooking:
-    """Mark a held booking whose time limit has passed as expired (once, with an audit entry).
-    Leaves a booking that is being issued, or whose issuing is unclear, alone."""
+    """Apply hold_end once (with an audit entry): expired, or paid_not_ticketed when part-paid. Leaves a booking that is
+    being issued, whose issuing is unclear, or that is paid in full (waiting for the final PNR) alone."""
     with agencies.application_engine().begin() as connection:
         booking = _load(connection, reference, lock=True)
-        if _expirable(booking, now):
-            _expire(connection, booking, now, no_release)
+        status = hold_end(booking, now)
+        if status:
+            _expire(connection, booking, now, no_release, status)
             booking = _load(connection, reference, lock=False)
         return booking
 
 
-def expire_due(now: datetime, no_release: frozenset[str] = frozenset()) -> list[str]:
-    """Every held group booking past its time limit becomes expired. Returns their references."""
+def _end_due(now: datetime, no_release: frozenset[str], outcome: str) -> list[GroupBooking]:
     with agencies.application_engine().begin() as connection:
         references = connection.execute(
             text("SELECT reference FROM bookings WHERE product = 'group' AND booking_status = 'held' AND hold_expires_at <= :now"
                  " AND issuance_status IN ('not_issued', 'requested') ORDER BY hold_expires_at"), {"now": now},
         ).scalars().all()
-    expired = []
+    ended = []
     for reference in references:
         with agencies.application_engine().begin() as connection:
             booking = _load(connection, reference, lock=True)
-            if _expirable(booking, now):
-                _expire(connection, booking, now, no_release)
-                expired.append(reference)
-    return expired
+            if hold_end(booking, now) == outcome:
+                _expire(connection, booking, now, no_release, outcome)
+                ended.append(_load(connection, reference, lock=False))
+    return ended
+
+
+def expire_due(now: datetime, no_release: frozenset[str] = frozenset()) -> list[str]:
+    """Every held group booking past its time limit with no money recorded becomes expired. Returns their references.
+    Paid in full ones are left alone (waiting for the final PNR); part-paid ones are paid_not_ticketed_due's."""
+    return [booking.reference for booking in _end_due(now, no_release, "expired")]
+
+
+def paid_not_ticketed_due(now: datetime, no_release: frozenset[str] = frozenset()) -> list[GroupBooking]:
+    """Every held group booking past its time limit that is part-paid becomes paid_not_ticketed (staff refund or rebook)."""
+    return _end_due(now, no_release, PAID_NOT_TICKETED)
 
 
 def releases_due(max_attempts: int) -> list[GroupBooking]:
@@ -360,10 +394,15 @@ def save_supplier_amounts(reference: str, booking_amounts: dict[str, Any], cance
             _event(connection, booking.id, None, "hold_time_from_supplier",
                    {"time_limit": supplier_expiry.isoformat(), "previous_time_limit": booking.hold_expires_at.isoformat() if booking.hold_expires_at else None})
         if cancelled and booking.booking_status == "held" and booking.issuance_status in ("not_issued", "requested"):
-            connection.execute(text("UPDATE bookings SET booking_status = 'expired', updated_at = now(), revision = revision + 1 WHERE id = :b"),
-                               {"b": booking.id})
+            # With money recorded the seats are gone but the money isn't: paid_not_ticketed (refund or rebook), never expired.
+            status = PAID_NOT_TICKETED if booking.paid_minor > 0 else "expired"
+            connection.execute(text("UPDATE bookings SET booking_status = :s, updated_at = now(), revision = revision + 1 WHERE id = :b"),
+                               {"s": status, "b": booking.id})
             _set_release(connection, booking.id, {"status": RELEASE_NOT_AVAILABLE, "attempts": 0, "updated_at": now.isoformat()})
-            _event(connection, booking.id, None, "supplier_cancelled", {"pnr": booking.pnr, "reason_code": "cancel_status_1"})
+            details: dict[str, Any] = {"pnr": booking.pnr, "reason_code": "cancel_status_1"}
+            if booking.paid_minor:
+                details.update(amount_minor=booking.paid_minor, currency=booking.currency, status=status)
+            _event(connection, booking.id, None, "supplier_cancelled", details)
         return _load(connection, reference, lock=False)
 
 

@@ -399,8 +399,9 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         detail.final_pnr = booking.final_pnr
         detail.group_ticketing_status = ticketing_status(booking.status, booking.ticket_status, booking.final_pnr, due_zero)
         detail.itinerary_available = detail.group_ticketing_status == "ticketed"
+        # Paid in full: the final PNR can be recorded even after the hold time (gateway#109); unpaid past it can't.
         detail.can_edit_group_tickets = (can_issue_tickets and due_zero and booking.status in ("held", "confirmed", "ticket_issued")
-                                         and not (booking.status == "held" and booking.hold_expires_at is not None
+                                         and not (booking.status == "held" and booking.hold_expires_at is not None and not paid
                                                   and booking.hold_expires_at <= datetime.now(booking.hold_expires_at.tzinfo)))
     detail.can_set_selling_price = (can_record_payments and booking.status in ("held", "pending_payment") and issuance_status(booking) == "not_issued"
                                     and not (people and people.payments) and bool(fare.per_passenger))
