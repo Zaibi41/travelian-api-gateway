@@ -641,3 +641,148 @@ async def export_report_csv(viewer: Annotated[BackOfficeUser, Depends(require_fi
     await run_in_threadpool(_export_audit, viewer, "csv", section=section, date_from=date_from, date_to=date_to)
     return Response(body, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="travelian-{section}-{date_from or "all"}-{date_to or "all"}.csv"'})
+
+
+# ------------------------------------------------------------------------------------------------ Reconciliation (#71)
+from fastapi.responses import JSONResponse  # noqa: E402
+
+from app.db import reconciliation as recon  # noqa: E402
+from app.schemas.finance import (  # noqa: E402
+    MismatchList, MismatchView, ResolveMismatchRequest, StatementImportList, StatementImportRequest, StatementImportResult, StatementImportView,
+    StatementLineList, StatementLineView, StatementPreview, StatementPreviewRequest,
+)
+from app.services import statement_csv  # noqa: E402
+
+#: Supplier mismatches carry supplier cost: cost and margin permission only.
+SUPPLIER_KINDS = {"ticket_without_charge", "charge_differs_from_cost", "supplier_line_not_found", "supplier_statement_differs"}
+
+
+def _recon_error(error: recon.ReconRefused | statement_csv.StatementError) -> JSONResponse:
+    if isinstance(error, statement_csv.StatementError):
+        return JSONResponse({"detail": str(error), "code": "invalid_file"}, status_code=422)
+    return JSONResponse({"detail": error.message, "problems": error.problems[:50]}, status_code=error.status)
+
+
+@router.post("/reconciliation/preview", response_model=StatementPreview, responses={422: {"description": "Not a readable CSV."}})
+async def preview_statement(body: StatementPreviewRequest, viewer: Annotated[BackOfficeUser, Depends(require_finance)]):
+    """The file's columns and first rows, so staff can say which column is which. Nothing is saved."""
+    try:
+        header, rows = statement_csv.read(body.content.encode("utf-8"))
+    except statement_csv.StatementError as error:
+        return _recon_error(error)
+    return StatementPreview(columns=header, sample=rows[:5], rows=len(rows), date_formats=list(statement_csv.DATE_FORMATS))
+
+
+@router.post("/reconciliation/imports", response_model=StatementImportResult, status_code=201,
+             responses={409: {"description": "Already imported."}, 422: {"description": "Rows that can't be read (listed); nothing saved."}})
+async def import_statement(body: StatementImportRequest, viewer: Annotated[BackOfficeUser, Depends(require_finance)]):
+    """Import a PayFast settlement, a bank statement or a supplier statement and match it. If any row can't be read,
+    nothing is saved and the rows are listed. Audited. Changes no payment or booking."""
+    if body.kind == "supplier" and not viewer.visibility.cost_and_margin:
+        raise HTTPException(403, "Supplier statements need the cost and margin permission.")
+    content = body.content.encode("utf-8")
+    mapping = {k: v for k, v in body.columns.model_dump().items() if v}
+    try:
+        header, rows = statement_csv.read(content)
+        lines, problems = statement_csv.lines(header, rows, mapping, body.date_format, credits_only=body.kind == "bank")
+    except statement_csv.StatementError as error:
+        return _recon_error(error)
+    if problems:
+        return _recon_error(recon.ReconRefused(422, f"{len(problems)} row{'s' if len(problems) != 1 else ''} couldn't be read. Nothing was imported.",
+                                               problems))
+    if not lines:
+        return _recon_error(recon.ReconRefused(422, "No amounts were found with these columns. Nothing was imported."))
+    column_map = {**mapping, "date_format": body.date_format}
+    try:
+        if body.kind == "payfast":
+            result = await run_in_threadpool(recon.import_payfast, body.file_name, content, column_map, lines, actor(viewer))
+        elif body.kind == "bank":
+            if not body.account_id:
+                raise recon.ReconRefused(422, "Choose the receiving account this statement belongs to.")
+            result = await run_in_threadpool(recon.import_bank, body.account_id, body.file_name, content, column_map, lines, actor(viewer))
+        else:
+            if not body.provider_id:
+                raise recon.ReconRefused(422, "Choose the supplier this statement is from.")
+            result = await run_in_threadpool(recon.import_supplier, body.provider_id, body.file_name, content, column_map, lines, actor(viewer))
+    except recon.ReconRefused as error:
+        return _recon_error(error)
+    return StatementImportResult(**result.__dict__)
+
+
+@router.get("/reconciliation/imports", response_model=StatementImportList)
+async def list_statement_imports(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                                 kind: str | None = Query(None, pattern="^(payfast|bank|supplier)$")) -> StatementImportList:
+    rows = await run_in_threadpool(recon.list_imports, kind)
+    if not viewer.visibility.cost_and_margin:
+        rows = [r for r in rows if r["kind"] != "supplier"]
+    return StatementImportList(imports=[StatementImportView(**r) for r in rows])
+
+
+@router.get("/reconciliation/imports/{import_id}/lines", response_model=StatementLineList)
+async def list_statement_lines(import_id: str, viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                               status: str | None = Query(None, pattern="^(matched|suggested|unmatched|ignored)$")) -> StatementLineList:
+    kinds = {r["id"]: r["kind"] for r in await run_in_threadpool(recon.list_imports, None)}
+    if kinds.get(import_id) == "supplier" and not viewer.visibility.cost_and_margin:
+        raise HTTPException(403, "Supplier statements need the cost and margin permission.")
+    rows = await run_in_threadpool(recon.list_lines, import_id, status)
+    pkr = lambda minor: None if minor is None else money(minor, "PKR")  # noqa: E731
+    return StatementLineList(lines=[StatementLineView(
+        id=r["id"], line_no=r["line_no"], reference=r["reference"], description=r["description"], occurred_on=r["occurred_on"],
+        amount=money(r["amount_minor"], "PKR"), fee=pkr(r["fee_minor"]), net=pkr(r["net_minor"]), payout_on=r["payout_on"], status=r["status"],
+        booking_reference=r["booking_reference"], payment_reference=r["payment_reference"], payment_amount=pkr(r["payment_amount_minor"])) for r in rows])
+
+
+@router.post("/reconciliation/lines/{line_id}/confirm", status_code=204, responses={404: {}, 409: {}})
+async def confirm_bank_match(line_id: str, viewer: Annotated[BackOfficeUser, Depends(require_finance)]):
+    """Staff confirm a suggested bank match. Audited."""
+    try:
+        await run_in_threadpool(recon.decide_suggestion, line_id, actor(viewer), True)
+    except recon.ReconRefused as error:
+        return _recon_error(error)
+    return Response(status_code=204)
+
+
+@router.post("/reconciliation/lines/{line_id}/reject", status_code=204, responses={404: {}, 409: {}})
+async def reject_bank_match(line_id: str, viewer: Annotated[BackOfficeUser, Depends(require_finance)]):
+    """Staff reject a suggested bank match: the credit goes on the mismatch list. Audited."""
+    try:
+        await run_in_threadpool(recon.decide_suggestion, line_id, actor(viewer), False)
+    except recon.ReconRefused as error:
+        return _recon_error(error)
+    return Response(status_code=204)
+
+
+@router.post("/reconciliation/supplier-check", response_model=dict)
+async def supplier_check(viewer: Annotated[BackOfficeUser, Depends(require_wallet_viewer)]) -> dict:
+    """Compare recorded supplier charges with issued tickets and their stored cost; differences go on the mismatch list."""
+    return {"mismatches_added": await run_in_threadpool(recon.check_supplier_charges, actor(viewer))}
+
+
+def _mismatch_view(r: dict) -> MismatchView:
+    pkr = lambda minor: None if minor is None else money(minor, "PKR")  # noqa: E731
+    return MismatchView(id=r["id"], kind=r["kind"], detail=r["detail"], booking_reference=r["booking_reference"], expected=pkr(r["expected_minor"]),
+                        actual=pkr(r["actual_minor"]), status=r["status"], explanation=r["explanation"],
+                        explained_by_user_id=r["explained_by_user_id"], explained_at=r["explained_at"], resolution_reason=r["resolution_reason"],
+                        resolved_by_user_id=r["resolved_by_user_id"], resolved_at=r["resolved_at"], created_at=r["created_at"])
+
+
+@router.get("/reconciliation/mismatches", response_model=MismatchList)
+async def list_mismatches(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                          status: str | None = Query("open", pattern="^(open|explained|resolved|all)$"), kind: str | None = Query(None, max_length=40),
+                          limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)) -> MismatchList:
+    """One list of differences to work through; supplier ones need cost and margin."""
+    rows, total = await run_in_threadpool(lambda: recon.list_mismatches(None if status == "all" else status, kind, limit, offset))
+    if not viewer.visibility.cost_and_margin:
+        hidden = [r for r in rows if r["kind"] in SUPPLIER_KINDS]
+        rows, total = [r for r in rows if r["kind"] not in SUPPLIER_KINDS], total - len(hidden)
+    return MismatchList(mismatches=[_mismatch_view(r) for r in rows], total=total)
+
+
+@router.post("/reconciliation/mismatches/{mismatch_id}/resolve", response_model=MismatchView, responses={404: {}, 409: {}, 422: {}})
+async def resolve_mismatch(mismatch_id: str, body: ResolveMismatchRequest, viewer: Annotated[BackOfficeUser, Depends(require_finance)]):
+    """Mark a mismatch explained or resolved, with the reason. Audited; it can't be reopened or edited."""
+    try:
+        return _mismatch_view(await run_in_threadpool(recon.resolve_mismatch, mismatch_id, actor(viewer), body.status, body.reason,
+                                                               viewer.visibility.cost_and_margin))
+    except recon.ReconRefused as error:
+        return _recon_error(error)
