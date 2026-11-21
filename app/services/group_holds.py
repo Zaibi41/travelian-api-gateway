@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
@@ -43,7 +44,7 @@ from app.schemas.group_holds import (
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
-from app.services import flight_holds, group_terms, notifications, pricing
+from app.services import duplicate_bookings, flight_holds, group_terms, notifications, pricing
 from app.services.group_ticketing_status import ticketing_status
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services import baggage as bags
@@ -581,6 +582,11 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None, request_only: bool = False) -> GroupHoldView:
     """Hold seats at the supplier. request_only (website, live booking off): the same checks and record, saved as
     'requested', and the supplier is never called."""
+    with ExitStack() as stack:
+        return await _hold(request, viewer, fetch, request_only, stack)
+
+
+async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, request_only: bool, stack: ExitStack) -> GroupHoldView:
     website = viewer.role == WEBSITE_ROLE  # a guest on the public site (app.services.public_booking)
     if viewer.role not in BACK_OFFICE_ROLES and not website:
         raise GroupHoldError(403, "Only back-office users can hold group seats.", "not_allowed")
@@ -629,6 +635,15 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
     if missing:
         raise GroupHoldError(422, "This fare needs a passport for every traveler: number and expiry date.", "invalid_passengers",
                              [(["passengers", index, field], "A passport is needed for this fare.") for index, field in missing])
+
+    # Issue #17: no second booking for a passenger already booked on this route and date (flights or groups), checked
+    # before our record is written and before any supplier call. The passengers stay claimed until the record exists.
+    journeys = duplicate_bookings.itinerary_journeys(_itinerary(ticket))
+    try:
+        stack.enter_context(duplicate_bookings.booking(resolved.passengers, journeys, staff=not website, nothing="Nothing was held."))
+        await duplicate_bookings.check(resolved.passengers, journeys, staff=not website, nothing="Nothing was held.")
+    except duplicate_bookings.DuplicateBooking as error:
+        raise GroupHoldError(error.status, error.message, error.code) from None
 
     # The selling price per adult: the staff's (whole rupees, not below the supplier cost) or the default
     # (supplier price + the group markup; markup 0 when unset). Shared rule: app.services.pricing.

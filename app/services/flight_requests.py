@@ -7,6 +7,8 @@ and payment with the customer outside the system and then make the booking thems
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -37,6 +39,12 @@ async def create(request: HoldRequest, viewer: BackOfficeUser, channel: str = "s
     if {kind: sum(p.type == kind for p in request.passengers) for kind in counts} != counts:
         raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
     request, links = await run_in_threadpool(flight_holds.resolve_saved, request, None)
+    with ExitStack() as stack:
+        await flight_holds.no_double_booking(request, viewer, quote.request, stack)
+        return await _save(request, viewer, quote, links, channel)
+
+
+async def _save(request: HoldRequest, viewer: BackOfficeUser, quote, links, channel: str) -> RequestView:
     restricted = any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs)
     selling = {kind: selling for kind, _, _, selling in quote.passengers}
     costs = {kind: cost for kind, _, cost, _ in quote.passengers}

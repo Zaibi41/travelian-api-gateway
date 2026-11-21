@@ -20,6 +20,10 @@ No login. The gateway decides prices and what a guest sees; the page only displa
 | `GET/POST /payments/payfast/notify` | PayFast's server notification (`CHECKOUT_URL`). Not in the API docs. |
 | `POST /payments/payfast/return` | The website forwards the parameters PayFast sent the customer back with. |
 
+A guest's flight or group booking for a traveler who already has an active booking on the same route and date is refused
+with `409 duplicate_booking` and a plain sentence ("One of these travelers already has a booking on this route and date, so
+nothing was booked. If you need help, contact Travelian."), before anything is held (docs/api/group-holds.md, "No double booking").
+
 ## PayFast (sandbox `https://ipguat.apps.net.pk`)
 
 Contract: the PayFast Postman collection (frontend `docs/postman/PayFast.postman_collection.json`, not committed) and

@@ -310,7 +310,7 @@ def test_every_group_booking_path_saves_its_people():
     import inspect
     from app.services import group_holds
 
-    source = inspect.getsource(group_holds.hold)
+    source = inspect.getsource(group_holds._hold)  # the body of group_holds.hold
     request_branch = source[source.index("if request_only:  # a request"):source.index("# 2. The hold.")]
     assert "_save_people" in request_branch
     tail = source[source.index("hold_created"):]

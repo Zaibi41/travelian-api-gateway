@@ -18,6 +18,24 @@ Staff see `stock` (`supplier` or `owned`), never `supplier`, unless granted "see
 Group identity: each search result and each hold carry `group_source` (`provider`, `provider_name`, `supplier_pnr`, `supplier_group_id`, `supplier_ticket_id`) only for viewers with the supplier names permission (Super Admin; staff when granted). When a hold is created the listing row's identity is copied onto the booking (`supplier_response -> 'source'`; the hold's PNR when the supplier gives one, else the listing's). Dhillu & Sahi: the ticket's `pnr`, the first subpart's `group_id` and `id`. Skypass: `airline_pnr` and the ticket `id`; Skypass sends no group ID, and `open_seats_slot` (hold-only) is never returned. In Bookings, a group booking's `pnr` (the supplier's) is also left out, and not searchable, without that permission.
 Passport numbers and dates of birth are stored as in the Flights holds (plain text for the sandbox phase, masked on read; docs/pii-storage.md).
 
+## No double booking (issue #17)
+
+Before our record is written and before any supplier call, every hold and request (staff and website, flights and group
+tickets, checked against each other) is refused with `409 duplicate_booking` when a passenger already has an active booking
+on the same route and departure date (`app/services/duplicate_bookings.py`):
+
+- same passenger: first + last name equal ignoring case and spaces, and the same date of birth or the same passport /
+  CNIC number; adults, children and infants alike;
+- same route: a journey (outbound, or the return of a round trip) with the same origin, destination and departure date;
+- active: `held`, `pending_payment`, `payment_received`, `confirmed`, `ticket_issued`, `paid_not_ticketed`, `hold_unrecorded`,
+  and `hold_pending` younger than 60 minutes. Not `requested`, `hold_failed`, `cancelled`, `expired`, nor an unpaid hold past
+  its time limit. A re-hold of a booking is not refused by that booking itself.
+
+Staff see the existing booking's reference ("Ali Raza already has booking TRV-… on KHI → ISB on 10 Dec 2026. …"); the
+website gets a plain sentence with no other booking's details. If bookings can't be read, nothing is booked
+(`503 duplicate_check_failed`). An identical second call while the first is still running is refused the same way.
+No migration and no override.
+
 ## Dhillu & Sahi listing setting
 
 `DHILLU_SAHI_SECTOR_GROUP_IDS`: the sector group ids sent as `my_sector_id` to the listing call, comma-separated, read exactly as written (items trimmed, empty items ignored). There is no default. Unset or empty: the Dhillu & Sahi listing is never called, its fares are left out (as for any unconfigured supplier), so it can't be held either, and one warning naming the setting is logged at startup. Example only, not a default:

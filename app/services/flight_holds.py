@@ -9,6 +9,7 @@ Never retried automatically. There is no cancel call: the hold lapses at time_li
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import replace
 
 import logging
@@ -24,7 +25,7 @@ from app.db import saved_people, supplier_bookings
 from app.schemas.customer_card import ContactError
 from app.schemas.live_flights import IDENTITY_FIELDS, FlightMoney, HoldContact, HoldPassenger, HoldRequest, HoldView
 from app.schemas.saved_people import SaveOutcomeView
-from app.services import live_flights, notifications, restricted_airlines, sooperfare_holds
+from app.services import duplicate_bookings, live_flights, notifications, restricted_airlines, sooperfare_holds
 from app.services.live_flights import RepriceError, get_quote, price_selection, sell
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairError, configured_client
@@ -308,8 +309,25 @@ def save(into: str | None, **values) -> str:
                                           selling_total_minor=values["selling_total_minor"], supplier_response=values["supplier_response"])
 
 
+async def no_double_booking(request: HoldRequest, viewer: BackOfficeUser, search, stack: ExitStack, into: str | None = None) -> None:
+    """Issue #17: refuse a passenger who already has an active booking on this route and date, before any supplier call.
+    The passengers stay claimed (in `stack`) until the booking is saved, so an identical call meanwhile is refused too."""
+    journeys = duplicate_bookings.search_journeys(search.origin, search.destination, search.departure_date, search.return_date)
+    staff = viewer.role != WEBSITE_ROLE
+    try:
+        stack.enter_context(duplicate_bookings.booking(request.passengers, journeys, staff=staff))
+        await duplicate_bookings.check(request.passengers, journeys, staff=staff, exclude_reference=into)
+    except duplicate_bookings.DuplicateBooking as error:
+        raise HoldError(error.status, error.message, code=error.code) from None
+
+
 async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None, into: str | None = None) -> HoldView:
     """into: re-hold the same fare for this existing (paid) booking instead of creating a new one (app.services.flight_payments)."""
+    with ExitStack() as stack:
+        return await _hold(request, viewer, client_factory, sooperfare_factory, into, stack)
+
+
+async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, sooperfare_factory, into: str | None, stack: ExitStack) -> HoldView:
     if not (settings.southair_booking_enabled or settings.sooperfare_booking_enabled):
         raise HoldError(409, "Booking is turned off. Nothing was booked.", code="booking_off")
     if viewer.role not in BACK_OFFICE_ROLES and viewer.role != WEBSITE_ROLE:
@@ -350,6 +368,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, client_factory=None
     # Ages are taken on the last travel date (the return date of a round trip), as the airlines rule (issue #52).
     passengers = _supplier_passengers(request, quote.request.return_date or quote.request.departure_date)
     warnings = passport_warnings(request, quote.request)
+    await no_double_booking(request, viewer, quote.request, stack, into)
 
     if quote.provider == live_flights.SOOPERFARE:
         return await sooperfare_holds.hold(request, viewer, quote, card=card, owner=owner, links=links, warnings=warnings,
