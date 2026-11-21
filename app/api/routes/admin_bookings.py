@@ -376,7 +376,9 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor >= target.total_minor,
         amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor, 0)),
         hold_expires_at=target.hold_expires_at, ticketing_enabled=issuance_service.ticketing_on(target.provider, target.product),
-        ticketing_note=issuance_service.ticketing_reason(target.provider, target.product),
+        # One reason at a time (gateway#44): while a flight's hold is gone, the hold is the reason, not the ticketing switch.
+        ticketing_note=None if target.product == "flight" and issuance_store.hold_blocker(target, _now(), settings.ticketing_deadline_margin_seconds)
+        else issuance_service.ticketing_reason(target.provider, target.product),
         can_request=issuable and status == "not_issued",
         can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider, target.product),
     )

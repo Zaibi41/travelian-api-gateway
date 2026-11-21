@@ -82,16 +82,33 @@ def load(reference: str) -> Target:
         return _load(connection, reference, lock=False)
 
 
+HOLD_EXPIRED = "The hold has expired."
+HOLD_ENDING = "The hold has expired or is about to expire."
+NOT_HELD = "The booking isn't on hold."
+#: Statuses that mean the hold ran out (flight expiry job: expired, or paid_not_ticketed when money was recorded).
+HOLD_RAN_OUT = ("expired", "paid_not_ticketed")
+
+
+def hold_blocker(target: Target, now: datetime, margin_seconds: int) -> str | None:
+    """The one hold reason for this booking, or None while the hold is valid (gateway#44: an expired booking used to get
+    both "isn't on hold" and "has expired", next to an unrelated ticketing notice)."""
+    ending = target.hold_expires_at is None or (target.hold_expires_at - now).total_seconds() <= margin_seconds
+    if target.booking_status in HOLD_RAN_OUT or (target.booking_status not in ("held", "cancelled") and ending):
+        return HOLD_EXPIRED
+    if target.booking_status != "held":
+        return NOT_HELD
+    return HOLD_ENDING if ending else None
+
+
 def blockers(target: Target, now: datetime, margin_seconds: int, products: tuple[str, ...] = ("flight",)) -> list[str]:
     """Why this booking can't be issued now (empty when it can). Same rules for request and issue.
     `products`: the products the caller's issuing path handles (Southair: flight; Group Ticketing: group)."""
     reasons = [TEST_BOOKING] if target.test_booking else []
     if target.product not in products or not target.pnr or not target.supplier_ref:
         reasons.append("This booking has no supplier hold to issue.")
-    if target.booking_status != "held":
-        reasons.append("The booking isn't on hold.")
-    if target.hold_expires_at is None or (target.hold_expires_at - now).total_seconds() <= margin_seconds:
-        reasons.append("The hold has expired or is about to expire.")
+    hold = hold_blocker(target, now, margin_seconds)
+    if hold:
+        reasons.append(hold)
     if target.paid_minor < target.total_minor:
         reasons.append("Full payment isn't recorded yet.")
     return reasons
