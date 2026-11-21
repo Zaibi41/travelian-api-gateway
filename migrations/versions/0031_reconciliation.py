@@ -71,12 +71,17 @@ def upgrade() -> None:
         sa.Column("actual_minor", sa.BigInteger(), nullable=True),
         sa.Column("detail", sa.Text(), nullable=False),
         sa.Column("status", sa.String(12), nullable=False, server_default="open"),
+        sa.Column("explanation", sa.Text(), nullable=True),
+        sa.Column("explained_by_user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column("explained_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("resolution_reason", sa.Text(), nullable=True),
         sa.Column("resolved_by_user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=True),
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("clock_timestamp()")),
         sa.CheckConstraint("status IN ('open', 'explained', 'resolved')", name="ck_recon_mismatches_status"),
-        sa.CheckConstraint("status = 'open' OR (resolution_reason IS NOT NULL AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL)",
+        sa.CheckConstraint("status <> 'explained' OR (explanation IS NOT NULL AND explained_at IS NOT NULL AND explained_by_user_id IS NOT NULL)",
+                           name="ck_recon_mismatches_explained"),
+        sa.CheckConstraint("status <> 'resolved' OR (resolution_reason IS NOT NULL AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL)",
                            name="ck_recon_mismatches_reason"),
     )
     op.create_index("ix_recon_mismatches_status", "recon_mismatches", ["status", "created_at"])
@@ -112,6 +117,10 @@ def upgrade() -> None:
                OR NEW.booking_id IS DISTINCT FROM OLD.booking_id OR NEW.expected_minor IS DISTINCT FROM OLD.expected_minor
                OR NEW.actual_minor IS DISTINCT FROM OLD.actual_minor OR NEW.created_at <> OLD.created_at THEN
                 RAISE EXCEPTION 'a mismatch keeps its facts';
+            END IF;
+            IF OLD.status = 'explained' AND (NEW.explanation IS DISTINCT FROM OLD.explanation
+               OR NEW.explained_by_user_id IS DISTINCT FROM OLD.explained_by_user_id OR NEW.explained_at IS DISTINCT FROM OLD.explained_at) THEN
+                RAISE EXCEPTION 'an explanation is never changed';
             END IF;
             IF NOT ((OLD.status = 'open' AND NEW.status IN ('explained', 'resolved')) OR (OLD.status = 'explained' AND NEW.status = 'resolved')) THEN
                 RAISE EXCEPTION 'mismatch status can''t go from % to %', OLD.status, NEW.status;
