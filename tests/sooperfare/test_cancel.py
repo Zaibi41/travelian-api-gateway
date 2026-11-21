@@ -67,6 +67,20 @@ def test_refused_cancel_shows_sooperfares_reason_and_changes_nothing(stored):
     assert saved[-1][0] == "supplier_cancel_failed" and saved[-1][2] is None
 
 
+@pytest.mark.parametrize("failure, words", [(SooperfareError("timeout", "The flight supplier took too long to answer."), "took too long to answer"),
+                                            (SooperfareError("unreachable"), "couldn't be reached"),
+                                            (SooperfareError("invalid_response", status=200), "couldn't read")])
+def test_no_clear_answer_is_said_in_plain_words_and_keeps_the_booking_held(stored, failure, words):
+    _, saved = stored
+    with pytest.raises(svc.SupplierCancelError) as error:
+        asyncio.run(svc.cancel("TRV-SF1", "u1", lambda: FakeSooperfare(listing(False), failure)))
+    message = error.value.message
+    assert words in message and "may not have gone through" in message and "still held" in message and "Check with SooperFare" in message
+    assert "(" not in message  # no error codes
+    action, cancel, status = saved[-1]
+    assert action == "supplier_cancel_failed" and status is None and cancel["state"] == "failed" and words in cancel["message"]
+
+
 def test_check_later_marks_cancelled_once_sooperfare_confirms(stored):
     record, saved = stored
     record.supplier_response["supplier_cancel"] = {"state": "requested"}
@@ -99,3 +113,34 @@ def test_confirm_shows_the_exact_request_and_never_sends_while_off(stored, monke
     with pytest.raises(svc.SupplierCancelError) as error:
         asyncio.run(svc.confirm("TRV-SF1", "u1", lambda: NeverCalled()))
     assert error.value.code == "confirm_off" and saved == []
+
+
+def test_cancel_route_checks_the_role_and_returns_sooperfares_refusal(monkeypatch):
+    """The gateway decides who may cancel (issue tickets + supplier names), never the page."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import admin_bookings as routes
+    from app.core.field_visibility import ALL, NONE, FieldVisibility, BackOfficeUser, require_back_office, resolve_actions
+
+    called = []
+
+    async def fake_cancel(reference, actor, factory=None):
+        called.append((reference, actor))
+        raise svc.SupplierCancelError(502, "SooperFare refused the cancel: Booking cannot be cancelled. Nothing was changed.", "cancel_failed")
+
+    monkeypatch.setattr(svc, "cancel", fake_cancel)
+
+    def post(viewer):
+        app = FastAPI()
+        app.include_router(routes.router, prefix="/v1")
+        app.dependency_overrides[require_back_office] = lambda: viewer
+        return TestClient(app).post("/v1/admin/bookings/TRV-SF1/supplier-cancel")
+
+    for viewer in (BackOfficeUser("u2", "staff", NONE), BackOfficeUser("u3", "staff", FieldVisibility(supplier_names=True, cost_and_margin=False))):
+        assert post(viewer).status_code == 403
+    assert called == []
+    answer = post(BackOfficeUser("u1", "super_admin", ALL, resolve_actions("super_admin", set())))
+    assert answer.status_code == 502 and answer.json() == {
+        "detail": "SooperFare refused the cancel: Booking cannot be cancelled. Nothing was changed.", "code": "cancel_failed"}
+    assert called == [("TRV-SF1", "u1")]
