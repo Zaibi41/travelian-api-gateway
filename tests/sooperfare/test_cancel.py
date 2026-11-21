@@ -41,7 +41,21 @@ def stored(monkeypatch):
     return record, saved
 
 
-def test_accepted_but_still_active_is_cancel_requested_not_cancelled(stored):
+@pytest.fixture(autouse=True)
+def emails(monkeypatch):
+    """The customer's "Booking cancelled" email (gateway#52): recorded here, never sent."""
+    from app.services import customer_emails
+
+    sent = []
+
+    async def send(reference, kind, *, method="card"):
+        sent.append((reference, kind))
+
+    monkeypatch.setattr(customer_emails, "send", send)
+    return sent
+
+
+def test_accepted_but_still_active_is_cancel_requested_not_cancelled(stored, emails):
     _, saved = stored
     fake = FakeSooperfare(listing(False))
     state = asyncio.run(svc.cancel("TRV-SF1", "u1", lambda: fake))
@@ -49,22 +63,24 @@ def test_accepted_but_still_active_is_cancel_requested_not_cancelled(stored):
     assert state["state"] == "requested" and state["answer"]["txn_ref_id"] == "txn-016"
     action, cancel, status = saved[-1]
     assert action == "supplier_cancel_requested" and status is None      # still held
+    assert emails == []  # not cancelled yet, so the customer isn't told
 
 
 @pytest.mark.parametrize("after", [listing(True), listing(False, "cancelled")])
-def test_cancelled_only_when_sooperfare_says_so(stored, after):
+def test_cancelled_only_when_sooperfare_says_so(stored, after, emails):
     _, saved = stored
     state = asyncio.run(svc.cancel("TRV-SF1", "u1", lambda: FakeSooperfare(after)))
     assert state["state"] == "confirmed" and saved[-1][0] == "supplier_cancel_confirmed" and saved[-1][2] == "cancelled"
+    assert emails == [("TRV-SF1", "booking_cancelled")]
 
 
-def test_refused_cancel_shows_sooperfares_reason_and_changes_nothing(stored):
+def test_refused_cancel_shows_sooperfares_reason_and_changes_nothing(stored, emails):
     _, saved = stored
     fake = FakeSooperfare(listing(False), SooperfareError("refused", "Booking cannot be cancelled.", status=422))
     with pytest.raises(svc.SupplierCancelError) as error:
         asyncio.run(svc.cancel("TRV-SF1", "u1", lambda: fake))
     assert "Booking cannot be cancelled." in error.value.message and "Nothing was changed" in error.value.message
-    assert saved[-1][0] == "supplier_cancel_failed" and saved[-1][2] is None
+    assert saved[-1][0] == "supplier_cancel_failed" and saved[-1][2] is None and emails == []
 
 
 @pytest.mark.parametrize("failure, words", [(SooperfareError("timeout", "The flight supplier took too long to answer."), "took too long to answer"),
@@ -81,12 +97,24 @@ def test_no_clear_answer_is_said_in_plain_words_and_keeps_the_booking_held(store
     assert action == "supplier_cancel_failed" and status is None and cancel["state"] == "failed" and words in cancel["message"]
 
 
-def test_check_later_marks_cancelled_once_sooperfare_confirms(stored):
+def test_check_later_marks_cancelled_once_sooperfare_confirms(stored, emails):
     record, saved = stored
     record.supplier_response["supplier_cancel"] = {"state": "requested"}
     assert asyncio.run(svc.check("TRV-SF1", "u1", lambda: FakeSooperfare(listing(False))))["state"] == "requested"
-    assert saved[-1][0] == "supplier_checked" and saved[-1][2] is None
+    assert saved[-1][0] == "supplier_checked" and saved[-1][2] is None and emails == []
     assert asyncio.run(svc.check("TRV-SF1", "u1", lambda: FakeSooperfare(listing(True))))["state"] == "confirmed"
+    assert saved[-1][2] == "cancelled" and emails == [("TRV-SF1", "booking_cancelled")]
+
+
+def test_an_email_failure_never_changes_a_confirmed_cancel(stored, monkeypatch):
+    from app.services import customer_emails
+
+    async def broken(reference, kind, *, method="card"):
+        raise RuntimeError("SES down")
+
+    monkeypatch.setattr(customer_emails, "send", broken)
+    _, saved = stored
+    assert asyncio.run(svc.cancel("TRV-SF1", "u1", lambda: FakeSooperfare(listing(True))))["state"] == "confirmed"
     assert saved[-1][2] == "cancelled"
 
 

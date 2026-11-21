@@ -169,7 +169,19 @@ async def cancel(reference: str, actor: str | None, factory=None) -> dict[str, A
     await run_in_threadpool(_save, record, actor, "supplier_cancel_confirmed" if cancelled else "supplier_cancel_requested",
                             {"supplier": "sooperfare", **answered, "sooperfare_status": state}, cancel=cancel_state,
                             status="cancelled" if cancelled else None)
+    if cancelled:
+        await _tell_customer(record.reference)
     return cancel_state
+
+
+async def _tell_customer(reference: str) -> None:
+    """The customer's "Booking cancelled" email, once SooperFare confirmed the cancel (sent once; never changes the cancel)."""
+    from app.services import customer_emails  # late: it reads the booking with its own queries
+
+    try:
+        await customer_emails.send(reference, "booking_cancelled")
+    except Exception:  # noqa: BLE001 - the booking is cancelled either way
+        logger.warning("Booking cancelled email not sent", extra={"reference": reference})
 
 
 async def _read_state(client, record: Record) -> dict[str, Any] | None:
@@ -193,6 +205,7 @@ async def check(reference: str, actor: str | None, factory=None) -> dict[str, An
         cancel_state = {**previous, "state": "confirmed", "confirmed_at": _now(), "sooperfare": state}
         await run_in_threadpool(_save, record, actor, "supplier_cancel_confirmed", {"supplier": "sooperfare", "sooperfare_status": state},
                                 cancel=cancel_state, status="cancelled")
+        await _tell_customer(record.reference)
         return cancel_state
     cancel_state = {**previous, "checked_at": _now(), "sooperfare": state} if previous else {"state": "none", "sooperfare": state}
     await run_in_threadpool(_save, record, actor, "supplier_checked", {"supplier": "sooperfare", "sooperfare_status": state},
