@@ -65,12 +65,14 @@ def upgrade() -> None:
         sa.Column("approved_by_user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=True),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("rejected_reason", sa.Text(), nullable=True),
+        sa.Column("create_txid", sa.BigInteger(), nullable=False, server_default=sa.text("txid_current()")),
         sa.CheckConstraint("source_type IN ('payment', 'ticket', 'supplier_charge', 'payment_fee', 'refund', 'top_up', 'adjustment', 'manual')",
                            name="ck_journals_source"),
         sa.CheckConstraint("status IN ('posted', 'pending_approval', 'rejected')", name="ck_journals_status"),
         sa.CheckConstraint("source_type = 'manual' OR (status = 'posted' AND source_id IS NOT NULL)", name="ck_journals_auto"),
-        sa.CheckConstraint("source_type <> 'manual' OR status <> 'posted' OR (approved_by_user_id IS NOT NULL AND approved_by_user_id <> created_by_user_id)",
-                           name="ck_journals_checker"),
+        sa.CheckConstraint("source_type <> 'manual' OR created_by_user_id IS NOT NULL", name="ck_journals_maker"),
+        sa.CheckConstraint("source_type <> 'manual' OR status <> 'posted' OR (approved_by_user_id IS NOT NULL"
+                           " AND approved_by_user_id IS DISTINCT FROM created_by_user_id)", name="ck_journals_checker"),
         sa.CheckConstraint("status <> 'rejected' OR rejected_reason IS NOT NULL", name="ck_journals_rejected"),
     )
     op.create_index("uq_journals_source", "journals", ["source_type", "source_id"], unique=True, postgresql_where=sa.text("source_type <> 'manual'"))
@@ -116,18 +118,28 @@ def upgrade() -> None:
             IF OLD.status <> 'pending_approval' OR NEW.status NOT IN ('posted', 'rejected') THEN
                 RAISE EXCEPTION 'journal can''t go from % to %; post a correcting journal', OLD.status, NEW.status;
             END IF;
-            IF NEW.posted_on <> OLD.posted_on OR NEW.description <> OLD.description OR NEW.source_type <> OLD.source_type
-               OR NEW.created_by_user_id IS DISTINCT FROM OLD.created_by_user_id OR NEW.number <> OLD.number THEN
+            IF NEW.id <> OLD.id OR NEW.posted_on <> OLD.posted_on OR NEW.description <> OLD.description OR NEW.source_type <> OLD.source_type
+               OR NEW.source_id IS DISTINCT FROM OLD.source_id OR NEW.booking_id IS DISTINCT FROM OLD.booking_id
+               OR NEW.created_by_user_id IS DISTINCT FROM OLD.created_by_user_id OR NEW.number <> OLD.number
+               OR NEW.created_at <> OLD.created_at OR NEW.create_txid <> OLD.create_txid THEN
                 RAISE EXCEPTION 'a journal''s content never changes';
             END IF;
             RETURN NEW;
         END $$""")
     op.execute("CREATE TRIGGER journals_guard BEFORE UPDATE OR DELETE ON journals FOR EACH ROW EXECUTE FUNCTION journals_guard()")
     op.execute("""
+        CREATE FUNCTION journals_stamp() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            NEW.create_txid := txid_current();
+            NEW.created_at := clock_timestamp();
+            RETURN NEW;
+        END $$""")
+    op.execute("CREATE TRIGGER journals_stamp BEFORE INSERT ON journals FOR EACH ROW EXECUTE FUNCTION journals_stamp()")
+    op.execute("""
         CREATE FUNCTION journal_lines_open_journal() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
-            -- Lines are written only by the transaction that creates the journal (created_at is that transaction's clock).
-            IF (SELECT created_at FROM journals WHERE id = NEW.journal_id) < transaction_timestamp() THEN
+            -- Lines are written only by the transaction that created the journal (create_txid is set by the database).
+            IF (SELECT create_txid FROM journals WHERE id = NEW.journal_id) IS DISTINCT FROM txid_current() THEN
                 RAISE EXCEPTION 'lines can only be added when the journal is created';
             END IF;
             RETURN NEW;
@@ -138,6 +150,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS journal_lines_open_journal ON journal_lines")
     op.execute("DROP FUNCTION IF EXISTS journal_lines_open_journal()")
+    op.execute("DROP TRIGGER IF EXISTS journals_stamp ON journals")
+    op.execute("DROP FUNCTION IF EXISTS journals_stamp()")
     op.execute("DROP TRIGGER IF EXISTS journals_guard ON journals")
     op.execute("DROP FUNCTION IF EXISTS journals_guard()")
     op.execute("DROP TRIGGER IF EXISTS journal_lines_append_only ON journal_lines")
