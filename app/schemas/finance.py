@@ -278,3 +278,72 @@ class WalletHistoryItem(BaseModel):
 
 class WalletHistory(BaseModel):
     items: list[WalletHistoryItem]
+
+
+class ReportTotals(BaseModel):
+    bookings: int
+    sales: BookingMoney
+    fees_charged: BookingMoney
+    supplier_charge: BookingMoney | None = Field(None, description="Cost and margin permission only. Of bookings whose profit is known.")
+    payment_fees: BookingMoney
+    refunds: BookingMoney
+    profit: BookingMoney | None = Field(None, description="Cost and margin permission only. Sum over bookings whose profit is known.")
+    profit_not_known: int = Field(0, description="Sales whose supplier cost isn't known: left out of profit, never counted as 0.")
+    payment_fees_missing: int = Field(0, description="Sales with a card payment whose fee isn't recorded yet.")
+    other_currency: int = Field(0, description="Sales not in PKR, left out of the money totals.")
+
+
+class ReportPeriod(ReportTotals):
+    start: date
+
+
+class ReceivableRow(BaseModel):
+    booking_reference: str
+    customer: str | None = None
+    status: str
+    total: BookingMoney
+    due: BookingMoney
+    hold_expires_at: datetime | None = None
+
+
+class SupplierSpendRow(BaseModel):
+    day: date
+    supplier: str | None = Field(None, description="Supplier names permission only.")
+    ticket_charges: BookingMoney
+    top_ups: BookingMoney
+
+
+class MethodRow(BaseModel):
+    method: str
+    account: str | None = None
+    count: int
+    amount: BookingMoney
+    card_fees: BookingMoney
+
+
+class BookingProfitRow(BaseModel):
+    booking_reference: str
+    created_at: datetime
+    product: str
+    customer: str | None = None
+    sales: BookingMoney
+    supplier_charge: BookingMoney | None = None
+    supplier_charge_basis: Literal["recorded", "quoted", "not_known"]
+    payment_fees: BookingMoney
+    refunds: BookingMoney
+    profit: BookingMoney | None = None
+
+
+class FinanceReport(BaseModel):
+    date_from: date | None = None
+    date_to: date | None = None
+    granularity: Literal["day", "week", "month"]
+    totals: ReportTotals
+    periods: list[ReportPeriod]
+    by_booking: list[BookingProfitRow] | None = Field(None, description="Profit by booking (cost and margin permission only), largest sales first.")
+    receivables: list[ReceivableRow]
+    receivables_total: BookingMoney
+    refunds_due: BookingMoney = Field(description="Refundable money on paid bookings that can't travel, plus refunds approved but not paid.")
+    refunds_due_count: int
+    supplier_spend: list[SupplierSpendRow] | None = Field(None, description="Cost and margin permission only.")
+    payments_by_method: list[MethodRow]

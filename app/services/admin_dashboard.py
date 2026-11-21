@@ -176,20 +176,23 @@ def scoped(bookings: Iterable[BookingRow], query: DashboardQuery) -> list[Bookin
 
 def build_summary(
     bookings: Iterable[BookingRow], query: DashboardQuery, now: datetime, window_hours: int, can_see_margin: bool,
+    profit_loader=None,
 ) -> DashboardSummary:
     bookings = list(bookings)  # iterated more than once below
     window = timedelta(hours=window_hours)
     selected = scoped(bookings, query)
     period_rows = [booking for booking in selected if in_period(booking, query.period, now)]
     sales = [booking for booking in period_rows if is_sale(booking)]
+    # travelian#70: with a loader, gross profit is the finance profit (the same numbers as Finance > Reports).
+    profits = profit_loader(sales) if (profit_loader and can_see_margin) else None
 
-    total_sales, gross_profit = money_by_currency(sales)
+    total_sales, gross_profit = money_by_currency(sales, profits)
     by_product = None
     if query.product is None:
         by_product = []
         for product, label in TRACKED_PRODUCTS.items():
             rows = [booking for booking in period_rows if booking.product == product]
-            product_sales, product_profit = money_by_currency([booking for booking in rows if is_sale(booking)])
+            product_sales, product_profit = money_by_currency([booking for booking in rows if is_sale(booking)], profits)
             by_product.append(ProductResults(
                 product=product, label=label, total_bookings=len(rows), held=sum(is_open_hold(b, now) for b in rows),
                 paid=sum(is_paid(b) for b in rows), issued_tickets=sum(is_issued_ticket(b) for b in rows),
@@ -219,9 +222,12 @@ def build_summary(
     )
 
 
-def money_by_currency(sales: list[BookingRow]) -> tuple[list[CurrencyAmount], list[CurrencyAmount]]:
+def money_by_currency(sales: list[BookingRow], profits: dict | None = None) -> tuple[list[CurrencyAmount], list[CurrencyAmount]]:
     """Sales and gross profit summed per currency (PKR first, then A-Z; PKR 0 when there are no sales). A sum is null
-    (n/a) when a booking in it has no total, or for profit, no real supplier cost; never a guessed 0."""
+    (n/a) when a booking in it has no total, or for profit, no real supplier cost; never a guessed 0.
+    With `profits` (travelian#70, app.services.finance_reports.profits): profit is the finance profit of each booking
+    (selling + fees charged - supplier charge - payment fees - refunds), summed over bookings whose profit is known;
+    the others are counted in profit_not_known instead. The same numbers as Finance > Reports."""
     by_currency: dict[str, list[BookingRow]] = {"PKR": []} if not sales else {}
     for booking in sales:
         by_currency.setdefault((booking.currency or "PKR").upper(), []).append(booking)
@@ -231,6 +237,10 @@ def money_by_currency(sales: list[BookingRow]) -> tuple[list[CurrencyAmount], li
         priced = all(b.total_minor is not None for b in rows)
         costed = priced and not any(cost_unknown(b.import_source, b.supplier_cost_minor, b.total_minor, b.cost_known) for b in rows)
         sales_out.append(CurrencyAmount(currency=currency, amount_minor=sum(b.total_minor or 0 for b in rows) if priced else None))
+        if profits is not None and priced:
+            known = [profits[b.booking_id].profit_minor for b in rows if b.booking_id in profits and profits[b.booking_id].profit_minor is not None]
+            profit_out.append(CurrencyAmount(currency=currency, amount_minor=sum(known), profit_not_known=len(rows) - len(known)))
+            continue
         profit_out.append(CurrencyAmount(currency=currency, amount_minor=sum((b.total_minor or 0) - (b.supplier_cost_minor or 0) for b in rows)
                                          if costed else None))
     return sales_out, profit_out

@@ -7,6 +7,7 @@ granted; agency and customer roles get 403. Nothing here moves money or calls a 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
@@ -505,3 +506,138 @@ async def wallet_history(viewer: Annotated[BackOfficeUser, Depends(require_walle
     return WalletHistory(items=[WalletHistoryItem(at=i.at, kind=i.kind, amount=None if i.amount_minor is None else money(i.amount_minor, "PKR"),
                                                   balance=None if i.balance_minor is None else money(i.balance_minor, "PKR"), reference=i.reference,
                                                   reason=i.reason, booking_reference=i.booking_reference, by_user_id=i.by_user_id) for i in items])
+
+
+# ------------------------------------------------------------------------------------------------ Reports (#70)
+from app.schemas.finance import (  # noqa: E402
+    BookingProfitRow, FinanceReport, MethodRow, ReceivableRow, ReportPeriod, ReportTotals, SupplierSpendRow,
+)
+from app.services import finance_reports as reports, xlsx  # noqa: E402
+
+GRANULARITY = "^(day|week|month)$"
+PRODUCT = "^(flight|group|hotel|umrah)$"
+
+
+def _totals_fields(t: reports.Totals, cost: bool) -> dict:
+    pkr = lambda minor: money(minor, "PKR")  # noqa: E731
+    return dict(bookings=t.bookings, sales=pkr(t.sales_minor), fees_charged=pkr(t.fees_charged_minor),
+                supplier_charge=pkr(t.supplier_charge_minor) if cost else None, payment_fees=pkr(t.payment_fees_minor),
+                refunds=pkr(t.refunds_minor), profit=pkr(t.profit_minor) if cost else None, profit_not_known=t.profit_not_known,
+                payment_fees_missing=t.payment_fees_missing, other_currency=t.other_currency)
+
+
+def build_report(viewer: BackOfficeUser, date_from: date | None, date_to: date | None, granularity: str, product: str | None) -> FinanceReport:
+    from app.db.bookings import list_dashboard_bookings
+
+    cost, names = viewer.visibility.cost_and_margin, viewer.visibility.supplier_names
+    rows = [r for r in list_dashboard_bookings() if r.product != "tour" and r.product != "visa"]
+    sales = reports.sales_in(rows, date_from, date_to, product)
+    profit_map = reports.profits(sales)
+    totals = reports.Totals()
+    for row in sales:
+        totals.add(row, profit_map[row.booking_id])
+    open_rows = [r for r in rows if not product or r.product == product]
+    paid = reports.paid_by_booking(r.booking_id for r in open_rows)
+    owed = reports.receivables(open_rows, paid)
+    start, end = day_range(date_from, date_to)
+    due_rows = finance_payments.refunds_due()
+    approved, _ = store.list_refunds("approved", 500, 0)
+    requested, _ = store.list_refunds("requested", 500, 0)
+    report = FinanceReport(
+        date_from=date_from, date_to=date_to, granularity=granularity, totals=ReportTotals(**_totals_fields(totals, cost)),
+        periods=[ReportPeriod(start=start_day, **_totals_fields(t, cost)) for start_day, t in reports.by_period(sales, profit_map, granularity)],
+        receivables=[ReceivableRow(booking_reference=r.booking_id, customer=r.customer_name or r.agency_name, status=r.status,
+                                   total=money(r.total_minor or 0, r.currency or "PKR"), due=money(due, r.currency or "PKR"),
+                                   hold_expires_at=r.hold_expires_at) for r, due in owed[:200]],
+        receivables_total=money(sum(due for r, due in owed if (r.currency or "PKR") == "PKR"), "PKR"),
+        refunds_due=money(sum(r["refundable_minor"] for r in due_rows) + sum(r.amount_minor for r in approved + requested), "PKR"),
+        refunds_due_count=len(due_rows) + len(approved) + len(requested),
+        payments_by_method=[MethodRow(method=m, account=a, count=n, amount=money(amt, "PKR"), card_fees=money(fee, "PKR"))
+                            for m, a, n, amt, fee in reports.payments_by_method(start, end)],
+    )
+    if cost:
+        report.by_booking = [BookingProfitRow(
+            booking_reference=r.booking_id, created_at=r.created_at, product=r.product, customer=r.customer_name or r.agency_name,
+            sales=money(p.selling_minor, r.currency or "PKR"),
+            supplier_charge=None if p.supplier_charge_minor is None else money(p.supplier_charge_minor, r.currency or "PKR"),
+            supplier_charge_basis=p.supplier_charge_basis, payment_fees=money(p.payment_fees_minor, r.currency or "PKR"),
+            refunds=money(p.refunds_minor, r.currency or "PKR"), profit=None if p.profit_minor is None else money(p.profit_minor, r.currency or "PKR"))
+            for r, p in sorted(((r, profit_map[r.booking_id]) for r in sales), key=lambda item: -item[1].selling_minor)[:500]]
+        report.supplier_spend = [SupplierSpendRow(day=d, supplier=wallet_store.SUPPLIERS.get(p, (p, ""))[0] if names else None,
+                                                  ticket_charges=money(c, "PKR"), top_ups=money(t, "PKR"))
+                                 for d, p, c, t in reports.supplier_spend(start, end)]
+    return report
+
+
+@router.get("/reports", response_model=FinanceReport)
+async def finance_report(viewer: Annotated[BackOfficeUser, Depends(require_finance)], date_from: date | None = None, date_to: date | None = None,
+                         granularity: str = Query("day", pattern=GRANULARITY), product: str | None = Query(None, pattern=PRODUCT)) -> FinanceReport:
+    """Daily (weekly, monthly) sales and profit, receivables, refunds due, supplier spend, payments by method / account.
+    Same sale rule and profit formula as the dashboard and the booking. Profit and supplier figures need cost and margin."""
+    return await run_in_threadpool(build_report, viewer, date_from, date_to, granularity, product)
+
+
+SECTIONS = ("summary", "profit_by_booking", "receivables", "supplier_spend", "payments_by_method")
+
+
+def report_sheets(report: FinanceReport) -> dict[str, list[list]]:
+    r = xlsx.rupees
+    sheets: dict[str, list[list]] = {"summary": [["Period start", "Bookings", "Sales (Rs)", "Fees charged (Rs)", "Supplier charge (Rs)", "Payment fees (Rs)",
+                                                   "Refunds (Rs)", "Profit (Rs)", "Profit not known (bookings)"]]}
+    for p in report.periods:
+        sheets["summary"].append([p.start.isoformat(), p.bookings, r(p.sales.amount_minor), r(p.fees_charged.amount_minor),
+                                  r(p.supplier_charge.amount_minor) if p.supplier_charge else None, r(p.payment_fees.amount_minor),
+                                  r(p.refunds.amount_minor), r(p.profit.amount_minor) if p.profit else None, p.profit_not_known])
+    t = report.totals
+    sheets["summary"].append(["Total", t.bookings, r(t.sales.amount_minor), r(t.fees_charged.amount_minor),
+                              r(t.supplier_charge.amount_minor) if t.supplier_charge else None, r(t.payment_fees.amount_minor),
+                              r(t.refunds.amount_minor), r(t.profit.amount_minor) if t.profit else None, t.profit_not_known])
+    if report.by_booking is not None:
+        sheets["profit_by_booking"] = [["Booking", "Made on", "Product", "Customer", "Sales (Rs)", "Supplier charge (Rs)", "Basis", "Payment fees (Rs)",
+                                        "Refunds (Rs)", "Profit (Rs)"]] + [
+            [b.booking_reference, b.created_at.astimezone(PKT).strftime("%Y-%m-%d"), b.product, b.customer or "", r(b.sales.amount_minor),
+             r(b.supplier_charge.amount_minor) if b.supplier_charge else "Not known", b.supplier_charge_basis, r(b.payment_fees.amount_minor),
+             r(b.refunds.amount_minor), r(b.profit.amount_minor) if b.profit else "Not known"] for b in report.by_booking]
+    sheets["receivables"] = [["Booking", "Customer", "Status", "Total (Rs)", "Due (Rs)"]] + [
+        [x.booking_reference, x.customer or "", x.status, r(x.total.amount_minor), r(x.due.amount_minor)] for x in report.receivables]
+    if report.supplier_spend is not None:
+        sheets["supplier_spend"] = [["Day", "Supplier", "Ticket charges (Rs)", "Top-ups (Rs)"]] + [
+            [x.day.isoformat(), x.supplier or "", r(x.ticket_charges.amount_minor), r(x.top_ups.amount_minor)] for x in report.supplier_spend]
+    sheets["payments_by_method"] = [["Method", "Account", "Payments", "Amount (Rs)", "Card fees (Rs)"]] + [
+        [METHOD_LABEL.get(x.method, x.method), x.account or "", x.count, r(x.amount.amount_minor), r(x.card_fees.amount_minor)]
+        for x in report.payments_by_method]
+    return sheets
+
+
+def _export_audit(viewer: BackOfficeUser, kind: str, **after) -> None:
+    with store.agencies.application_engine().begin() as connection:
+        store.audit(connection, actor(viewer), "report_exported", "export", None, after={"format": kind, **after})
+
+
+@router.get("/reports.xlsx", response_class=Response, responses={200: {"content": {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}}})
+async def export_report_xlsx(viewer: Annotated[BackOfficeUser, Depends(require_finance)], date_from: date | None = None,
+                             date_to: date | None = None, granularity: str = Query("day", pattern=GRANULARITY),
+                             product: str | None = Query(None, pattern=PRODUCT)) -> Response:
+    """Every report section as an Excel sheet (same numbers as /reports). Audited."""
+    report = await run_in_threadpool(build_report, viewer, date_from, date_to, granularity, product)
+    body = xlsx.workbook({name.replace("_", " ").capitalize(): rows for name, rows in report_sheets(report).items()})
+    await run_in_threadpool(_export_audit, viewer, "xlsx", date_from=date_from, date_to=date_to)
+    return Response(body, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="travelian-report-{date_from or "all"}-{date_to or "all"}.xlsx"'})
+
+
+@router.get("/reports.csv", response_class=Response, responses={200: {"content": {"text/csv": {}}}})
+async def export_report_csv(viewer: Annotated[BackOfficeUser, Depends(require_finance)], section: str = Query("summary", pattern="^(" + "|".join(SECTIONS) + ")$"),
+                            date_from: date | None = None, date_to: date | None = None, granularity: str = Query("day", pattern=GRANULARITY),
+                            product: str | None = Query(None, pattern=PRODUCT)) -> Response:
+    """One report section as CSV. Audited."""
+    report = await run_in_threadpool(build_report, viewer, date_from, date_to, granularity, product)
+    sheets = report_sheets(report)
+    if section not in sheets:
+        raise HTTPException(403, "This report section needs the cost and margin permission.")
+    header, *rows = sheets[section]
+    body = csv_text(header, [[Number(str(v)) if isinstance(v, (int, Decimal)) and not isinstance(v, bool) else v for v in row] for row in rows])
+    await run_in_threadpool(_export_audit, viewer, "csv", section=section, date_from=date_from, date_to=date_to)
+    return Response(body, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="travelian-{section}-{date_from or "all"}-{date_to or "all"}.csv"'})

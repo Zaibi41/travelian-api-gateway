@@ -95,6 +95,8 @@ class BookingFare(BaseModel):
     per_passenger: list[FarePerPassenger] | None = Field(None, description="Selling price (and cost, with access) per passenger type. Omitted when no travelers were saved.")
     supplier_cost: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
     margin: BookingMoney | None = Field(None, description="Omitted without the cost and margin permission, or when unknown.")
+    profit: "ProfitView | None" = Field(None, description="travelian#70: selling + fees charged - supplier actual charge - payment fees - "
+                                                          "refunds paid. Cost and margin permission only.")
     cost_unknown: bool | None = Field(None, description="True when no real supplier cost exists (none recorded, or an imported booking whose cost "
                                                         "was filled in as its total): show cost and profit as n/a. Only with the cost and margin permission.")
 
@@ -416,3 +418,8 @@ class BookingDetail(BaseModel):
     customer_email_problems: list[CustomerEmailProblem] | None = Field(None, description="Customer emails not sent: staff contact the customer.")
     supplier_booking: SupplierBookingView | None = Field(None, description="SooperFare bookings, supplier-names permission only.")
     itinerary_available: bool = Field(True, description="The itinerary PDF / PNG can be downloaded. Group bookings: only once Ticketed.")
+
+
+from app.schemas.finance import ProfitView  # noqa: E402  (forward reference in BookingFare)
+
+BookingFare.model_rebuild()

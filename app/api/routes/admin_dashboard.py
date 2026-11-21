@@ -25,6 +25,10 @@ from app.services import admin_dashboard as figures
 from app.db import bookings as booking_store
 from app.db.bookings import BookingRow, BookingsUnavailable
 
+import logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/admin",
     tags=["admin dashboard"],
@@ -62,11 +66,22 @@ def _query(viewer: BackOfficeUser, period: Period = "all", product: Product | No
 async def dashboard_summary(viewer: Viewer, period: Period = "all", product: Product | None = None, provider: ProviderParam = None):
     query = _query(viewer, period, product, provider)
     bookings = await run_in_threadpool(_read_bookings)
-    return figures.build_summary(
+    return await run_in_threadpool(lambda: figures.build_summary(
         bookings, query, _now(),
         window_hours=settings.dashboard_expiring_hold_hours,
-        can_see_margin=viewer.visibility.cost_and_margin,
-    )
+        can_see_margin=viewer.visibility.cost_and_margin, profit_loader=_finance_profits,
+    ))
+
+
+def _finance_profits(sales):
+    """Finance profit per sale (travelian#70). Unavailable finance data: the tile falls back to selling - cost."""
+    from app.services import finance_reports
+
+    try:
+        return finance_reports.profits(sales)
+    except Exception:  # noqa: BLE001
+        logger.warning("Finance profit couldn't be loaded for the dashboard", exc_info=True)
+        return None
 
 
 @router.get("/dashboard/booking-report", response_model=BookingReport)

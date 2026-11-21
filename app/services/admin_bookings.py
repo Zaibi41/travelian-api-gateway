@@ -79,6 +79,27 @@ def customer_or_agency(booking: BookingRow) -> str | None:
     return booking.agency_name or booking.customer_name
 
 
+def _add_profit(fare, booking) -> None:
+    """The finance profit breakdown (travelian#70), the same calculation as Finance > Reports and the dashboard."""
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.schemas.finance import ProfitView
+    from app.services import finance_reports
+
+    try:
+        profit = finance_reports.profits([booking])[booking.booking_id]
+    except (HTTPException, SQLAlchemyError):  # supplementary: the booking still opens without it
+        return
+    currency = (booking.currency or "PKR").upper()
+    fare.profit = ProfitView(
+        selling=_money(profit.selling_minor, currency), fees_charged=_money(profit.fees_charged_minor, currency),
+        supplier_charge=None if profit.supplier_charge_minor is None else _money(profit.supplier_charge_minor, currency),
+        supplier_charge_basis=profit.supplier_charge_basis, payment_fees=_money(profit.payment_fees_minor, currency),
+        refunds=_money(profit.refunds_minor, currency), profit=None if profit.profit_minor is None else _money(profit.profit_minor, currency),
+        missing=list(profit.missing))
+
+
 def _add_slips(detail, reference: str) -> None:
     """The customer's chosen account and payment slips (travelian#76, gateway#56)."""
     from app.db import payment_accounts, payment_slips
@@ -371,6 +392,7 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
     if visibility.supplier_names and booking.provider:
         detail.provider = booking.provider
     if visibility.cost_and_margin:
+        _add_profit(fare, booking)
         if unknown_cost:
             fare.cost_unknown = True
         else:
