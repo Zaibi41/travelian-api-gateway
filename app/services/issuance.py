@@ -104,8 +104,37 @@ async def request(reference: str, viewer: BackOfficeUser, note: str | None = Non
     return Outcome("requested", "requested", "Issuance requested. An approver can now issue the ticket.")
 
 
+async def recheck_balance(reference: str, viewer: BackOfficeUser, client_factory=None) -> None:
+    """After a ticket is issued (travelian#68): record the supplier balance again and alert once if it is now low.
+    Southair: a fresh read-only /my-profile (the value read before issuing doesn't include this ticket's charge), kept as a
+    snapshot. SooperFare: its calculated balance now includes the ticket's charge. Never raises: the ticket is issued
+    either way, so a failure here is only logged."""
+    from app.db import finance
+    from app.services import supplier_wallets
+
+    try:
+        provider = (await run_in_threadpool(store.load, reference)).provider or "southair"
+        if provider == "southair":
+            await supplier_wallets.refresh_southair(finance.Actor(viewer.user_id, viewer.role), client_factory)
+        elif provider == "sooperfare":
+            await supplier_wallets.check_low(provider)
+    except supplier_wallets.BalanceUnavailable as error:
+        logger.warning("Balance after issue not checked: %s", error.message)
+    except Exception:  # noqa: BLE001 - never changes the issue result
+        logger.warning("Balance after issue not checked", exc_info=True)
+
+
 async def issue(reference: str, viewer: BackOfficeUser, client_factory=None, accepted_cost_minor: int | None = None,
                 sooperfare_factory=None) -> Outcome:
+    """Issue the ticket (steps above); once it is issued, the supplier balance is checked again (recheck_balance)."""
+    outcome = await _issue(reference, viewer, client_factory, accepted_cost_minor, sooperfare_factory)
+    if outcome.result == "issued":
+        await recheck_balance(reference, viewer, client_factory)
+    return outcome
+
+
+async def _issue(reference: str, viewer: BackOfficeUser, client_factory, accepted_cost_minor: int | None,
+                 sooperfare_factory) -> Outcome:
     _require(viewer)
     loaded = await run_in_threadpool(store.load, reference)
     if loaded.test_booking:  # before anything else: a TEST booking never reaches a supplier's ticketing call
@@ -451,6 +480,13 @@ async def verify(reference: str, viewer: BackOfficeUser, client_factory=None, so
     """Check with the supplier (read-only: pnr_info only, never ticketing) after an unknown or failed issuance.
     Ticket numbers found -> recorded as issued. Booked, no ticket, nothing paid -> safe to issue again. Unclear -> unknown
     (issuing stays blocked until verified or resolved). Never re-issues."""
+    outcome = await _verify(reference, viewer, client_factory, sooperfare_factory)
+    if outcome.result == "issued":  # the supplier shows the ticket issued (and charged): check the balance again
+        await recheck_balance(reference, viewer, client_factory)
+    return outcome
+
+
+async def _verify(reference: str, viewer: BackOfficeUser, client_factory, sooperfare_factory) -> Outcome:
     _require(viewer)
     target = await run_in_threadpool(store.load, reference)
     _issuable_provider(target)
