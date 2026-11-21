@@ -787,3 +787,196 @@ async def resolve_mismatch(mismatch_id: str, body: ResolveMismatchRequest, viewe
                                                                viewer.visibility.cost_and_margin))
     except recon.ReconRefused as error:
         return _recon_error(error)
+
+
+# ------------------------------------------------------------------------------------------------ Ledger (#72)
+from app.db import ledger  # noqa: E402
+from app.schemas.finance import (  # noqa: E402
+    AccountBalance, AccountEntry, AccountStatement, AddLedgerAccountRequest, JournalLineView, JournalList, JournalView, LedgerAccountList,
+    LedgerAccountView, LedgerGap, LedgerGapList, LedgerPostResult, ManualJournalRequest, ProfitAndLoss, RejectJournalRequest, TrialBalance,
+    UpdateLedgerAccountRequest,
+)
+
+LedgerViewer = Annotated[BackOfficeUser, Depends(require_wallet_viewer)]  # Finance + cost and margin (cost of tickets, supplier accounts)
+
+
+def _ledger_error(error: ledger.LedgerRefused) -> HTTPException:
+    return HTTPException(error.status, error.message)
+
+
+def _account_view(a: dict) -> LedgerAccountView:
+    return LedgerAccountView(code=a["code"], name=a["name"], type=a["type"], system=bool(a["system_key"]),
+                             receiving_account=bool(a["payment_account_id"]), active=a["active"])
+
+
+@router.get("/ledger/accounts", response_model=LedgerAccountList)
+async def ledger_accounts(viewer: LedgerViewer) -> LedgerAccountList:
+    """The chart of accounts."""
+    return LedgerAccountList(accounts=[_account_view(a) for a in await run_in_threadpool(ledger.accounts)])
+
+
+@router.post("/ledger/accounts", response_model=LedgerAccountView, status_code=201, responses={409: {}, 422: {}})
+async def add_ledger_account(body: AddLedgerAccountRequest, viewer: LedgerViewer) -> LedgerAccountView:
+    try:
+        return _account_view(await run_in_threadpool(ledger.add_account, body.code, body.name, body.type, actor(viewer)))
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+
+
+@router.patch("/ledger/accounts/{code}", response_model=LedgerAccountView, responses={404: {}, 409: {}})
+async def update_ledger_account(code: str, body: UpdateLedgerAccountRequest, viewer: LedgerViewer) -> LedgerAccountView:
+    """Rename an account, or deactivate one no automatic journal uses. Audited."""
+    try:
+        return _account_view(await run_in_threadpool(lambda: ledger.update_account(code, actor(viewer), name=body.name, active=body.active)))
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+
+
+@router.post("/ledger/post", response_model=LedgerPostResult)
+async def post_ledger(viewer: LedgerViewer) -> LedgerPostResult:
+    """Post journals for everything not posted yet (also runs every 10 minutes). Safe to repeat."""
+    result = await run_in_threadpool(ledger.post_pending, actor(viewer))
+    return LedgerPostResult(journals=result.journals, gaps=result.gaps)
+
+
+def _journal_view(j: dict) -> JournalView:
+    return JournalView(id=j["id"], number=j["number"], posted_on=j["posted_on"], description=j["description"], source_type=j["source_type"],
+                       booking_reference=j["booking_reference"], status=j["status"], created_by_user_id=j["created_by_user_id"],
+                       approved_by_user_id=j["approved_by_user_id"], approved_at=j["approved_at"], rejected_reason=j["rejected_reason"],
+                       lines=[JournalLineView(account_code=l["account_code"], account_name=l["name"], debit=money(l["debit_minor"], "PKR"),
+                                              credit=money(l["credit_minor"], "PKR"), memo=l["memo"]) for l in j["lines"]])
+
+
+@router.get("/ledger/journals", response_model=JournalList)
+async def list_journals(viewer: LedgerViewer, date_from: date | None = None, date_to: date | None = None,
+                        status: str | None = Query(None, pattern="^(posted|pending_approval|rejected)$"),
+                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)) -> JournalList:
+    rows, total = await run_in_threadpool(lambda: ledger.journals(date_from, date_to, status, limit, offset))
+    return JournalList(journals=[_journal_view(j) for j in rows], total=total)
+
+
+@router.post("/ledger/journals", response_model=dict, status_code=201, responses={422: {}})
+async def create_manual_journal(body: ManualJournalRequest, viewer: LedgerViewer) -> dict:
+    """A manual journal, waiting for another Finance user's approval (maker/checker). Debits must equal credits."""
+    lines = [(l.account_code, l.debit_minor, l.credit_minor, l.memo) for l in body.lines]
+    if any((d > 0) == (c > 0) for _, d, c, _ in lines):
+        raise HTTPException(422, "Each line is either a debit or a credit.")
+    try:
+        journal_id = await run_in_threadpool(ledger.create_manual, actor(viewer), body.posted_on, body.description, lines)
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+    return {"id": journal_id, "status": "pending_approval"}
+
+
+@router.post("/ledger/journals/{journal_id}/approve", status_code=204, responses={403: {}, 404: {}, 409: {}})
+async def approve_journal(journal_id: str, viewer: LedgerViewer):
+    try:
+        await run_in_threadpool(ledger.decide_manual, journal_id, actor(viewer), True)
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+    return Response(status_code=204)
+
+
+@router.post("/ledger/journals/{journal_id}/reject", status_code=204, responses={403: {}, 404: {}, 409: {}})
+async def reject_journal(journal_id: str, body: RejectJournalRequest, viewer: LedgerViewer):
+    try:
+        await run_in_threadpool(ledger.decide_manual, journal_id, actor(viewer), False, body.reason)
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+    return Response(status_code=204)
+
+
+def _balance(r: dict) -> AccountBalance:
+    return AccountBalance(code=r["code"], name=r["name"], type=r["type"], debit=money(r["debit"], "PKR"), credit=money(r["credit"], "PKR"),
+                          balance=money(r["balance"], "PKR"))
+
+
+def build_trial_balance(date_to: date | None) -> TrialBalance:
+    rows = [r for r in ledger.balances(None, date_to) if r["debit"] or r["credit"]]
+    debit, credit = ledger.credit_and_debit_totals(rows)
+    return TrialBalance(date_to=date_to, accounts=[_balance(r) for r in rows], total_debit=money(debit, "PKR"), total_credit=money(credit, "PKR"),
+                        balanced=debit == credit)
+
+
+def build_pnl(date_from: date | None, date_to: date | None) -> ProfitAndLoss:
+    rows = [r for r in ledger.balances(date_from, date_to) if r["type"] in ("income", "expense") and (r["debit"] or r["credit"])]
+    income, expenses = [r for r in rows if r["type"] == "income"], [r for r in rows if r["type"] == "expense"]
+    ti, te = sum(r["balance"] for r in income), sum(r["balance"] for r in expenses)
+    return ProfitAndLoss(date_from=date_from, date_to=date_to, income=[_balance(r) for r in income], expenses=[_balance(r) for r in expenses],
+                         total_income=money(ti, "PKR"), total_expenses=money(te, "PKR"), net_profit=money(ti - te, "PKR"))
+
+
+@router.get("/ledger/trial-balance", response_model=TrialBalance)
+async def trial_balance(viewer: LedgerViewer, date_to: date | None = None) -> TrialBalance:
+    """Every account's debits, credits and balance from all posted journals up to date_to (all time by default)."""
+    return await run_in_threadpool(build_trial_balance, date_to)
+
+
+@router.get("/ledger/profit-and-loss", response_model=ProfitAndLoss)
+async def profit_and_loss(viewer: LedgerViewer, date_from: date | None = None, date_to: date | None = None) -> ProfitAndLoss:
+    """Income less expenses from posted journals in the range."""
+    return await run_in_threadpool(build_pnl, date_from, date_to)
+
+
+def build_statement(code: str, date_from: date | None, date_to: date | None) -> AccountStatement:
+    account, opening, entries = ledger.account_entries(code, date_from, date_to)
+    return AccountStatement(code=account["code"], name=account["name"], type=account["type"], opening=money(opening, "PKR"),
+                            entries=[AccountEntry(number=e["number"], posted_on=e["posted_on"], description=e["description"], source_type=e["source_type"],
+                                                  booking_reference=e["booking_reference"], debit=money(e["debit_minor"], "PKR"),
+                                                  credit=money(e["credit_minor"], "PKR"), balance=money(e["balance"], "PKR"), memo=e["memo"]) for e in entries],
+                            closing=money(entries[-1]["balance"] if entries else opening, "PKR"))
+
+
+@router.get("/ledger/accounts/{code}/entries", response_model=AccountStatement, responses={404: {}})
+async def account_statement(code: str, viewer: LedgerViewer, date_from: date | None = None, date_to: date | None = None) -> AccountStatement:
+    """Balance by account: opening balance, entries with a running balance, closing balance."""
+    try:
+        return await run_in_threadpool(build_statement, code, date_from, date_to)
+    except ledger.LedgerRefused as error:
+        raise _ledger_error(error) from None
+
+
+@router.get("/ledger/gaps", response_model=LedgerGapList)
+async def ledger_gaps(viewer: LedgerViewer) -> LedgerGapList:
+    """What existing data couldn't post (e.g. a ticket without a known supplier cost; test bookings)."""
+    return LedgerGapList(gaps=[LedgerGap(source_type=g["source_type"], booking_reference=g["booking_reference"], reason=g["reason"], detail=g["detail"],
+                                         created_at=g["created_at"]) for g in await run_in_threadpool(ledger.gaps)])
+
+
+def ledger_sheets(date_from: date | None, date_to: date | None) -> dict[str, list[list]]:
+    r = xlsx.rupees
+    tb, pnl = build_trial_balance(date_to), build_pnl(date_from, date_to)
+    rows, _ = ledger.journals(date_from, date_to, "posted", 5000, 0)
+    return {
+        "Trial balance": [["Code", "Account", "Type", "Debit (Rs)", "Credit (Rs)", "Balance (Rs)"]]
+        + [[a.code, a.name, a.type, r(a.debit.amount_minor), r(a.credit.amount_minor), r(a.balance.amount_minor)] for a in tb.accounts]
+        + [["", "Total", "", r(tb.total_debit.amount_minor), r(tb.total_credit.amount_minor), ""]],
+        "Profit and loss": [["Section", "Code", "Account", "Amount (Rs)"]]
+        + [["Income", a.code, a.name, r(a.balance.amount_minor)] for a in pnl.income]
+        + [["Expenses", a.code, a.name, r(a.balance.amount_minor)] for a in pnl.expenses]
+        + [["", "", "Net profit", r(pnl.net_profit.amount_minor)]],
+        "Journals": [["Number", "Date", "Description", "Source", "Booking", "Account", "Debit (Rs)", "Credit (Rs)", "Memo"]]
+        + [[j["number"], j["posted_on"].isoformat(), j["description"], j["source_type"], j["booking_reference"] or "", f"{l['account_code']} {l['name']}",
+            r(l["debit_minor"]), r(l["credit_minor"]), l["memo"] or ""] for j in rows for l in j["lines"]],
+    }
+
+
+@router.get("/ledger/export.xlsx", response_class=Response, responses={200: {"content": {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}}})
+async def export_ledger_xlsx(viewer: LedgerViewer, date_from: date | None = None, date_to: date | None = None) -> Response:
+    """Trial balance, profit and loss and journals as Excel sheets. Audited."""
+    sheets = await run_in_threadpool(ledger_sheets, date_from, date_to)
+    await run_in_threadpool(_export_audit, viewer, "ledger_xlsx", date_from=date_from, date_to=date_to)
+    return Response(xlsx.workbook(sheets), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="travelian-ledger-{date_from or "all"}-{date_to or "all"}.xlsx"'})
+
+
+@router.get("/ledger/export.csv", response_class=Response, responses={200: {"content": {"text/csv": {}}}})
+async def export_ledger_csv(viewer: LedgerViewer, report: str = Query("trial_balance", pattern="^(trial_balance|profit_and_loss|journals)$"),
+                            date_from: date | None = None, date_to: date | None = None) -> Response:
+    sheets = await run_in_threadpool(ledger_sheets, date_from, date_to)
+    header, *rows = sheets[{"trial_balance": "Trial balance", "profit_and_loss": "Profit and loss", "journals": "Journals"}[report]]
+    await run_in_threadpool(_export_audit, viewer, "ledger_csv", report=report, date_from=date_from, date_to=date_to)
+    body = csv_text(header, [[Number(str(v)) if isinstance(v, (int, Decimal)) and not isinstance(v, bool) else v for v in row] for row in rows])
+    return Response(body, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="travelian-{report}-{date_from or "all"}-{date_to or "all"}.csv"'})
