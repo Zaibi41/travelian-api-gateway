@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -174,11 +175,12 @@ def ses_send(to: str, email: t.Email) -> tuple[bool, str]:
     try:
         import boto3
 
-        boto3.client("ses", region_name=settings.ses_region).send_email(
+        answer = boto3.client("ses", region_name=settings.ses_region).send_email(
             Source=settings.notify_email_from, Destination={"ToAddresses": [to]}, ReplyToAddresses=[t.EMAIL],
             Message={"Subject": {"Data": email.subject[:200], "Charset": "UTF-8"},
                      "Body": {"Html": {"Data": email.html, "Charset": "UTF-8"}, "Text": {"Data": email.text, "Charset": "UTF-8"}}})
-        return True, "sent"
+        message_id = (answer or {}).get("MessageId") if isinstance(answer, dict) else None
+        return True, f"sent id={message_id}" if message_id else "sent"  # the id ties a later bounce to this email (#59)
     except Exception as error:  # noqa: BLE001 - never blocks a booking
         code = getattr(error, "response", {}).get("Error", {}).get("Code") if hasattr(error, "response") else None
         detail = (getattr(error, "response", {}).get("Error", {}).get("Message") or "") if hasattr(error, "response") else ""
@@ -200,9 +202,11 @@ def _masked(to: str | None) -> str | None:
 
 def _record(booking_id: str, kind: str, sent: bool, reason: str, to: str | None, method: str | None = None,
             actor: str | None = None) -> None:
+    message_id = reason[len("sent id="):] if sent and reason.startswith("sent id=") else None
     with agencies.application_engine().begin() as connection:
         _event(connection, booking_id, actor, "customer_email_sent" if sent else "customer_email_not_sent",
                {"email": kind, "to": _masked(to), **({"method": method} if method and kind == "payment_received" else {}),
+                **({"message_id": message_id} if message_id else {}),
                 **({"resent": True} if actor else {}), **({} if sent else {"reason": reason})})
 
 
@@ -236,11 +240,16 @@ def deliver(reference: str, kind: str, *, method: str = "card", resend_by: str |
             logger.warning("Booking link not created", extra={"reference": reference})
             link = None
         email = render(kind, booking_from(facts, link), method=method)
+        if _address_blocked(facts["id"]):
+            # Bounced for good, or marked as spam, and the address hasn't been changed since (#59): don't send again.
+            why = "address bounced or complained"
+            _record(facts["id"], kind, False, why, to, method, actor=resend_by)
+            return False, why
         sent, why = ses_send(to, email)
         _record(facts["id"], kind, sent, why, to, method, actor=resend_by)
         if not sent:
             logger.warning(f"Customer email not sent ({why})", extra={"reference": reference, "email_kind": kind})
-        return sent, why
+        return sent, "sent" if sent else why
     except Exception as error:  # noqa: BLE001
         logger.error("Customer email failed", extra={"reference": reference, "email_kind": kind, "error_type": type(error).__name__})
         return False, f"failed ({type(error).__name__})"
@@ -263,6 +272,8 @@ def plain_reason(reason: str | None) -> str | None:
     low = reason.lower()
     if "accessdenied" in low or "not verified" in low or "isn't verified" in low or "isn't approved yet" in low:
         return _BLOCKED
+    if reason == "address bounced or complained":
+        return "Not sent: this address bounced or marked our email as spam. Fix the email address, then resend."
     if reason == "no customer email on the booking":
         return "No email address on the booking. Add one or contact the customer by phone."
     if low.startswith("failed ("):
@@ -274,16 +285,73 @@ def _details(event) -> dict[str, Any]:
     return event.details if isinstance(event.details, dict) else json.loads(event.details or "{}")
 
 
+FIX_ADDRESS = "Contact the customer and fix the email address."
+
+
+def _bounce_reason(details: dict[str, Any]) -> str:
+    if details.get("type") == "complaint":
+        return f"The customer marked this email as spam. {FIX_ADDRESS}"
+    if details.get("bounce_type") == "Permanent":
+        return f"Bounced: the address doesn't accept email. {FIX_ADDRESS}"
+    return f"Bounced for now (mailbox full or not reachable). Try Resend later, or {FIX_ADDRESS[0].lower() + FIX_ADDRESS[1:]}"
+
+
 def email_problems(events) -> list[dict[str, Any]]:
-    """For the admin: customer emails whose last attempt wasn't sent (which email, to whom (masked), when, why)."""
+    """For the admin: customer emails whose last attempt wasn't sent or bounced (which email, to whom (masked), when,
+    why, whether the address needs fixing). Changing the customer's address (#59) clears 'fix the address'."""
     latest: dict[str, Any] = {}
+    changed_at = None
     for event in events:
-        if event.action in ("customer_email_sent", "customer_email_not_sent"):
+        if event.action in ("customer_email_sent", "customer_email_not_sent", "customer_email_bounced"):
             details = _details(event)
             latest[details.get("email") or details.get("kind") or "unknown"] = (event, details)
-    return [{"email": kind, "at": event.created_at, "to": details.get("to"), "reason": plain_reason(details.get("reason")),
-             "can_resend": kind in KINDS}
-            for kind, (event, details) in latest.items() if event.action == "customer_email_not_sent"]
+        elif event.action == "customer_email_changed":
+            changed_at = event.created_at
+    problems = []
+    for kind, (event, details) in latest.items():
+        if event.action == "customer_email_sent":
+            continue
+        bounced = event.action == "customer_email_bounced"
+        fixed = changed_at is not None and changed_at > event.created_at
+        reason = (_bounce_reason(details) if bounced else plain_reason(details.get("reason")))
+        if fixed and (bounced or details.get("reason") == "address bounced or complained"):
+            reason, bounced = "The email address has been changed since. Resend this email to the new address.", False
+        problems.append({"email": kind, "at": event.created_at, "to": details.get("to"), "reason": reason, "can_resend": kind in KINDS,
+                         "fix_address": (bounced and details.get("bounce_type") != "Transient")
+                                        or (not fixed and details.get("reason") == "address bounced or complained")})
+    return problems
+
+
+def _address_blocked(booking_id: str) -> bool:
+    """A permanent bounce or a complaint on this booking after its address was last changed."""
+    with agencies.application_engine().begin() as connection:
+        return bool(connection.scalar(text(
+            "SELECT 1 FROM booking_events b WHERE b.booking_id = :b AND b.action = 'customer_email_bounced'"
+            " AND (b.details ->> 'type' = 'complaint' OR b.details ->> 'bounce_type' = 'Permanent')"
+            " AND NOT EXISTS (SELECT 1 FROM booking_events c WHERE c.booking_id = :b AND c.action = 'customer_email_changed'"
+            " AND c.created_at > b.created_at) LIMIT 1"), {"b": booking_id}))
+
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def change_address(reference: str, email: str, actor_user_id: str) -> str:
+    """Staff fix the customer's email on this booking (#59). Logged (masked old and new). Returns the new address."""
+    email = (email or "").strip()
+    if not EMAIL_PATTERN.match(email) or len(email) > 254:
+        raise ResendRefused(422, "Enter a valid email address, e.g. name@example.com.")
+    facts = _facts(reference)
+    if facts is None:
+        raise ResendRefused(404, "Booking not found.")
+    old = (facts.get("c_email") or "").strip()
+    if old.lower() == email.lower():
+        raise ResendRefused(409, "That's the same address. Enter the corrected one.")
+    with agencies.application_engine().begin() as connection:
+        updated = connection.execute(text("UPDATE booking_customers SET email = :e WHERE booking_id = :b"), {"e": email, "b": facts["id"]}).rowcount
+        if not updated:
+            raise ResendRefused(409, "This booking has no customer record to update.")
+        _event(connection, facts["id"], actor_user_id, "customer_email_changed", {"from": _masked(old), "to": _masked(email)})
+    return email
 
 
 class ResendRefused(Exception):

@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     notify_email_enabled: bool = False
     notify_emails: str = ""
     notify_email_from: str = "Travelian <noreply@travelian.pk>"
+    # gateway#59: SNS topic ARNs (comma-separated) allowed to post SES bounces and complaints to /v1/webhooks/ses.
+    # Empty (default): every message is refused.
+    ses_sns_topic_arns: str = ""
     ses_region: str = "us-east-1"
     # Airlines never held automatically (D32): IATA codes, comma-separated. Read from Parameter Store
     # (<SSM_PARAMETER_PREFIX>/flights/restricted-airlines) when configured, refreshed every few minutes; else this value.

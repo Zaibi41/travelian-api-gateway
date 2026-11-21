@@ -266,6 +266,17 @@ class CustomerEmailProblem(BaseModel):
     to: str | None = Field(None, description="The address it went to, masked (a***@gmail.com).")
     reason: str | None = Field(None, description="Why, in plain words for staff.")
     can_resend: bool = Field(False, description="Resend email is offered (POST .../emails/{email}/resend).")
+    fix_address: bool = Field(False, description="Bounced for good or marked as spam: contact the customer and fix the address "
+                                                 "(PUT .../customer-email).")
+
+
+class CustomerEmailChange(BaseModel):
+    email: str = Field(min_length=3, max_length=254, description="The corrected customer email address.")
+
+
+class CustomerEmailChanged(BaseModel):
+    email: str
+    message: str
 
 
 class ResendEmailResult(BaseModel):

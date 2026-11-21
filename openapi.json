@@ -2976,6 +2976,40 @@
         "title": "CustomerCard",
         "type": "object"
       },
+      "CustomerEmailChange": {
+        "properties": {
+          "email": {
+            "description": "The corrected customer email address.",
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "CustomerEmailChange",
+        "type": "object"
+      },
+      "CustomerEmailChanged": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "message"
+        ],
+        "title": "CustomerEmailChanged",
+        "type": "object"
+      },
       "CustomerEmailProblem": {
         "description": "A customer email whose last attempt wasn't delivered to SES (e.g. the SES sandbox refuses unverified addresses).",
         "properties": {
@@ -2994,6 +3028,12 @@
             "description": "Which email: booking_held, bank_transfer, payment_received, ticket_issued, ...",
             "title": "Email",
             "type": "string"
+          },
+          "fix_address": {
+            "default": false,
+            "description": "Bounced for good or marked as spam: contact the customer and fix the address (PUT .../customer-email).",
+            "title": "Fix Address",
+            "type": "boolean"
           },
           "reason": {
             "anyOf": [
@@ -14196,6 +14236,70 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/customer-email": {
+      "put": {
+        "description": "Fix the customer's email on this booking after a bounce or complaint (gateway#59). Back office; logged (masked).\nLater emails go to the new address; Resend sends the bounced ones again.",
+        "operationId": "change_customer_email_v1_admin_bookings__booking_id__customer_email_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerEmailChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Same address, or no customer record."
+          },
+          "422": {
+            "description": "Not a valid email address."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Customer Email",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/emails/{email}/resend": {
       "post": {
         "description": "Send a customer email for this booking again (gateway#53), e.g. after SES refused it. Back office only; logged\non the booking with who resent it. Sending can still fail; the answer says why in plain words.",
@@ -24968,6 +25072,31 @@
         "summary": "Ready",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/v1/webhooks/ses": {
+      "post": {
+        "operationId": "ses_feedback_webhook_v1_webhooks_ses_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Not an SNS message."
+          },
+          "403": {
+            "description": "Not signed by SNS for our topic."
+          }
+        },
+        "summary": "Ses Feedback Webhook",
+        "tags": [
+          "webhooks"
         ]
       }
     }

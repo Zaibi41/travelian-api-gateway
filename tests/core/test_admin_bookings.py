@@ -454,3 +454,23 @@ def test_resend_email_route(monkeypatch):
     assert refused.status_code == 409 and "never sent" in refused.json()["detail"]
     assert client(monkeypatch).post("/v1/admin/bookings/TRV-NOPE/emails/booking_held/resend").status_code == 404
     assert client(monkeypatch, viewer=None).post(f"/v1/admin/bookings/{reference}/emails/booking_held/resend").status_code == 403
+
+
+def test_change_customer_email_route(monkeypatch):
+    """gateway#59: staff fix the customer's email after a bounce; refusals keep their status."""
+    from app.services import customer_emails
+    calls = []
+
+    def change(reference, email, actor):
+        calls.append((reference, email, actor))
+        if email == "bad":
+            raise customer_emails.ResendRefused(422, "Enter a valid email address, e.g. name@example.com.")
+        return email
+
+    monkeypatch.setattr(customer_emails, "change_address", change)
+    reference = ROWS[1].booking_id
+    ok = client(monkeypatch).put(f"/v1/admin/bookings/{reference}/customer-email", json={"email": "ali.new@example.invalid"})
+    assert ok.status_code == 200 and ok.json()["email"] == "ali.new@example.invalid" and calls[-1][2] == SUPER_ADMIN.user_id
+    assert client(monkeypatch).put(f"/v1/admin/bookings/{reference}/customer-email", json={"email": "bad"}).status_code == 422
+    assert client(monkeypatch).put("/v1/admin/bookings/TRV-NOPE/customer-email", json={"email": "a@b.co"}).status_code == 404
+    assert client(monkeypatch, viewer=None).put(f"/v1/admin/bookings/{reference}/customer-email", json={"email": "a@b.co"}).status_code == 403
