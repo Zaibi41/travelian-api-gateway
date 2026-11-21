@@ -200,6 +200,71 @@ def test_airline_refusal_and_unclear_answer():
     assert error.value.code == "not_confirmed_hold" and unclear.reservation.await_count == 1  # never retried
 
 
+# ---------- #47: every failing step shows SooperFare's real reason, and nothing is saved as held ----------
+
+def _held_fails(sf):
+    view, _ = search()
+    priced = reprice(view)
+    request = HoldRequest(quote_id=priced.quote_id, confirmed_total={"amount_minor": priced.selling_total.amount_minor, "currency": "PKR"},
+                          contact={"first_name": "Test", "last_name": "Customer", "email": "ops@example.invalid", "phone_code": "92", "phone": "3001234567"},
+                          passengers=[ADULT])
+    save = MagicMock(return_value="TRV-SF1")
+    with patch.object(sooperfare_holds.supplier_bookings, "save_hold", save), patch.object(flight_holds, "_save_people", MagicMock(return_value=[])), \
+         pytest.raises(flight_holds.HoldError) as error:
+        asyncio.run(flight_holds.hold(request, STAFF, sooperfare_factory=lambda: sf))
+    assert save.call_count == 0  # never saved, so never shown as held
+    return error.value
+
+
+def test_reprice_failure_at_hold_time_shows_sooperfares_reason_and_reserves_nothing():
+    sf = fake_sf()
+    sf.quote = AsyncMock(side_effect=SooperfareError("refused", "Fare has expired.", status=400))
+    error = _held_fails(sf)
+    assert error.code == "not_confirmed" and "SooperFare said: Fare has expired" in error.message and "Nothing was booked" in error.message
+    assert sf.reservation.await_count == 0
+
+
+def test_reservation_timeout_says_so_and_is_never_retried():
+    sf = fake_sf(resv_error=SooperfareError("timeout", "The flight supplier took too long to answer."))
+    error = _held_fails(sf)
+    assert error.code == "not_confirmed_hold" and "took too long to answer" in error.message
+    assert sf.reservation.await_count == 1 and sf.booking_list.await_count == 0
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"reservation_status": "failed"}, 'reservation status "failed"'),
+    ({"reservation_status": None}, "no reservation status"),
+    ({"providers": [{"pnr": None}]}, "no PNR"),
+    ({"uuid": None}, "no booking id"),
+    ({"expiry_at": None}, "no hold expiry"),
+])
+def test_reservation_answer_that_isnt_an_active_hold_is_not_saved(change, expected):
+    answer = reservation("22070.00")
+    answer["data"].update(change)
+    sf = fake_sf(resv=answer)
+    error = _held_fails(sf)
+    assert error.code == "not_confirmed_hold" and f"SooperFare answered with {expected}" in error.message
+    assert sf.booking_list.await_count == 0  # not verified, not saved
+
+
+def test_verify_failure_when_the_booking_list_cant_be_read():
+    sf = fake_sf()
+    sf.booking_list = AsyncMock(side_effect=SooperfareError("refused", "Too many requests.", status=429))
+    error = _held_fails(sf)
+    assert error.code == "total_unverified" and error.extra["pnr"] == "ZWHLZG"
+    assert "booking list couldn't be read (SooperFare said: Too many requests)" in error.message
+    assert sf.cancel.await_count == 1  # the unverified reservation isn't left open
+
+
+def test_verify_failure_when_the_booking_list_doesnt_show_it_active():
+    error = _held_fails(fake_sf(lst=listing(status="cancelled")))
+    assert error.code == "total_unverified" and 'shows it as "cancelled", not active' in error.message
+    missing = load("booking_list")
+    missing["data"][0]["uuid"] = "someone-else"
+    error = _held_fails(fake_sf(lst=missing))
+    assert error.code == "total_unverified" and "booking list didn't show it" in error.message
+
+
 def test_the_airline_list_is_reused_per_route_but_fares_are_searched_every_time():
     sf = fake_sf()
     search(sf=sf)
