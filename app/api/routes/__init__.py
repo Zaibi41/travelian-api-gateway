@@ -26,11 +26,13 @@ from app.api.routes.payment_accounts import finance_router as finance_payment_ac
 from app.api.routes.payment_accounts import router as payment_accounts_router
 from app.api.routes.public import router as public_router
 from app.api.routes.public_payments import router as public_payments_router
+from app.api.routes.ses_webhook import router as ses_webhook_router
 from app.api.routes.saved_people import booking_router as saved_people_booking_router
 from app.api.routes.saved_people import router as saved_people_router, travelers_router as saved_travelers_router
 
 router = APIRouter()
 router.include_router(operations_router)
+router.include_router(ses_webhook_router)
 router.include_router(identity_router)
 router.include_router(live_ticketing_router)
 router.include_router(group_holds_router)

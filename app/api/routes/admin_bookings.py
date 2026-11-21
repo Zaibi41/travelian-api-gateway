@@ -31,7 +31,7 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, ResendEmailResult, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
+    BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
@@ -324,6 +324,25 @@ async def resend_email(viewer: Viewer, booking_id: Annotated[str, Path(max_lengt
     except customer_emails.ResendRefused as error:
         raise HTTPException(error.status, error.message) from None
     return ResendEmailResult(sent=sent, message=message)
+
+
+@router.put("/{booking_id}/customer-email", response_model=CustomerEmailChanged,
+            responses={404: {"description": "No such booking."}, 409: {"description": "Same address, or no customer record."},
+                       422: {"description": "Not a valid email address."}})
+async def change_customer_email(viewer: Viewer, request: CustomerEmailChange, booking_id: Annotated[str, Path(max_length=64)]):
+    """Fix the customer's email on this booking after a bounce or complaint (gateway#59). Back office; logged (masked).
+    Later emails go to the new address; Resend sends the bounced ones again."""
+    from app.services import customer_emails
+
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    try:
+        email = await run_in_threadpool(customer_emails.change_address, booking.booking_id, request.email, viewer.user_id)
+    except customer_emails.ResendRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return CustomerEmailChanged(email=email, message="Email address updated. Resend the emails the customer missed.")
 
 
 def _result(outcome: issuance_service.Outcome) -> IssuanceResult:

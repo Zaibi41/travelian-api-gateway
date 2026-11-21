@@ -30,6 +30,7 @@ def wired(monkeypatch):
     monkeypatch.setattr(ce, "_facts", lambda reference: dict(FACTS))
     monkeypatch.setattr(ce, "_already_sent", lambda booking_id, kind: any(r[1] in ((kind,) if isinstance(kind, str) else kind) and r[2] for r in recorded))
     monkeypatch.setattr(ce, "create_link", lambda booking_id, itinerary, purpose: "tok123")
+    monkeypatch.setattr(ce, "_address_blocked", lambda booking_id: False)
     monkeypatch.setattr(ce, "_record", lambda booking_id, kind, ok, why, to, method=None, actor=None: recorded.append((booking_id, kind, ok, why, actor)))
     return recorded, sent
 
@@ -64,7 +65,7 @@ def test_ses_sandbox_refusal_is_recorded_for_the_admin(wired, monkeypatch):
     event = lambda action, kind, reason=None, at=NOW: SimpleNamespace(action=action, details={"email": kind, "reason": reason}, created_at=at)
     problems = ce.email_problems([event("customer_email_not_sent", "payment_received", why), event("customer_email_not_sent", "booking_held", "x"),
                                   event("customer_email_sent", "booking_held", at=NOW + timedelta(minutes=1))])
-    assert problems == [{"email": "payment_received", "at": NOW, "to": None, "reason": ce.plain_reason(why), "can_resend": True}]  # a later success clears it
+    assert problems == [{"email": "payment_received", "at": NOW, "to": None, "reason": ce.plain_reason(why), "can_resend": True, "fix_address": False}]  # a later success clears it
     assert problems[0]["reason"].startswith("Email blocked: AWS hasn't approved")
 
 
