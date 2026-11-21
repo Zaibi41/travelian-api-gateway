@@ -6,6 +6,9 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from sqlalchemy import text
 
+from types import SimpleNamespace
+
+from app.core.field_visibility import ALL, NONE, BackOfficeUser
 from app.db import duplicate_bookings as store
 from app.db import supplier_bookings
 from app.db.group_holds import create_pending
@@ -13,6 +16,9 @@ from app.services import duplicate_bookings as rule
 
 SEGMENT = {"direction": "outbound", "origin": "KHI", "destination": "ISB", "departure_local": "2026-12-10T09:00", "flight_number": "PK300"}
 KHI_ISB = {("KHI", "ISB", "2026-12-10")}
+ADMIN = BackOfficeUser("u1", "super_admin", ALL)
+STAFF = BackOfficeUser("u2", "staff", NONE)
+WEBSITE = SimpleNamespace(role="website", user_id="website", visibility=NONE)
 CUSTOMER = supplier_bookings.CustomerRecord(first_name="Ali", last_name="Raza", phone_code="92", phone="3001234567", email="a@example.invalid")
 
 
@@ -30,7 +36,7 @@ def held(travelers=None, expires=None, pnr="ABC123"):
 
 def refused(passengers=None, journeys=KHI_ISB, exclude=None):
     try:
-        asyncio.run(rule.check(passengers or [traveler(first=" ALI", last="raza ")], journeys, staff=True, exclude_reference=exclude))
+        asyncio.run(rule.check(passengers or [traveler(first=" ALI", last="raza ")], journeys, viewer=ADMIN, exclude_reference=exclude))
     except rule.DuplicateBooking as error:
         return error
     return None
@@ -86,3 +92,42 @@ def test_children_and_infants_and_names_with_extra_spaces(database):
     assert refused(passengers=[traveler(first="baby noor", kind="INF", dob=date(2026, 2, 1), document=None)]) is not None
     assert refused(passengers=[traveler(first="Baby Noor", kind="INF", dob=date(2025, 2, 1), document=None)]) is None
     assert store.travelers_named(["babynoorraza"])[0].first_name == "Baby  Noor"
+
+
+def check(viewer, contact=None):
+    return asyncio.run(rule.check([traveler()], KHI_ISB, viewer=viewer, contact=contact))
+
+
+def test_an_unpaid_website_hold_warns_staff_and_a_paid_one_refuses(database):
+    connection, _, _ = database
+    reference = held()
+    connection.execute(text("UPDATE bookings SET channel = 'website' WHERE reference = :r"), {"r": reference})
+    warnings = check(STAFF)
+    assert len(warnings) == 1 and reference in warnings[0] and warnings[0].startswith("Possible double booking")
+    status(connection, reference, "payment_received", "paid")
+    with pytest.raises(rule.DuplicateBooking):
+        check(STAFF)
+
+
+def test_the_website_is_refused_only_by_the_same_contacts_booking(database):
+    held()  # contact a@example.invalid, 92 3001234567
+    stranger = SimpleNamespace(email="someone@example.invalid", phone_code="92", phone="3330000000")
+    assert check(WEBSITE, stranger) == []
+    by_email = SimpleNamespace(email="A@example.invalid", phone_code="92", phone="3330000000")
+    by_phone = SimpleNamespace(email="other@example.invalid", phone_code="+92", phone="300-1234567")
+    for contact in (by_email, by_phone):
+        with pytest.raises(rule.DuplicateBooking) as error:
+            check(WEBSITE, contact)
+        assert error.value.message == rule.WEBSITE_MESSAGE and error.value.reference is None
+
+
+def test_an_unrecorded_hold_is_named_only_to_viewers_with_supplier_access(database):
+    connection, _, _ = database
+    reference = held()
+    status(connection, reference, "hold_unrecorded")
+    with pytest.raises(rule.DuplicateBooking) as staff:
+        check(STAFF)
+    assert reference not in staff.value.message and staff.value.reference is None
+    with pytest.raises(rule.DuplicateBooking) as admin:
+        check(ADMIN)
+    assert admin.value.reference == reference

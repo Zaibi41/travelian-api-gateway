@@ -40,11 +40,11 @@ async def create(request: HoldRequest, viewer: BackOfficeUser, channel: str = "s
         raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
     request, links = await run_in_threadpool(flight_holds.resolve_saved, request, None)
     with ExitStack() as stack:
-        await flight_holds.no_double_booking(request, viewer, quote.request, stack)
-        return await _save(request, viewer, quote, links, channel)
+        warnings = await flight_holds.no_double_booking(request, viewer, quote.request, stack)
+        return await _save(request, viewer, quote, links, channel, warnings)
 
 
-async def _save(request: HoldRequest, viewer: BackOfficeUser, quote, links, channel: str) -> RequestView:
+async def _save(request: HoldRequest, viewer: BackOfficeUser, quote, links, channel: str, warnings: list[str]) -> RequestView:
     restricted = any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs)
     selling = {kind: selling for kind, _, _, selling in quote.passengers}
     costs = {kind: cost for kind, _, cost, _ in quote.passengers}
@@ -64,6 +64,7 @@ async def _save(request: HoldRequest, viewer: BackOfficeUser, quote, links, chan
     await notifications.booking_event(
         "restricted_request" if restricted else "booking_requested", reference=reference, passenger=flight_holds._lead_name(request),
         route=flight_holds._route(quote.refs), fare_minor=quote.selling_total_minor, currency=quote.currency, pnr=None,
-        hold_expires_at=None, note="Not held at the supplier. Contact the customer to confirm the fare and payment, then book it in the admin.",
+        hold_expires_at=None, note=" ".join(["Not held at the supplier. Contact the customer to confirm the fare and payment, then book it in the admin.",
+                                             *warnings]),
     )
     return RequestView(booking_id=reference, selling_total=FlightMoney(amount_minor=quote.selling_total_minor, currency=quote.currency))

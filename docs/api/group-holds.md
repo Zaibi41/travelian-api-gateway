@@ -21,8 +21,7 @@ Passport numbers and dates of birth are stored as in the Flights holds (plain te
 ## No double booking (issue #17)
 
 Before our record is written and before any supplier call, every hold and request (staff and website, flights and group
-tickets, checked against each other) is refused with `409 duplicate_booking` when a passenger already has an active booking
-on the same route and departure date (`app/services/duplicate_bookings.py`):
+tickets, checked against each other) is checked against active bookings (`app/services/duplicate_bookings.py`):
 
 - same passenger: first + last name equal ignoring case and spaces, and the same date of birth or the same passport /
   CNIC number; adults, children and infants alike;
@@ -31,10 +30,18 @@ on the same route and departure date (`app/services/duplicate_bookings.py`):
   and `hold_pending` younger than 60 minutes. Not `requested`, `hold_failed`, `cancelled`, `expired`, nor an unpaid hold past
   its time limit. A re-hold of a booking is not refused by that booking itself.
 
-Staff see the existing booking's reference ("Ali Raza already has booking TRV-… on KHI → ISB on 10 Dec 2026. …"); the
-website gets a plain sentence with no other booking's details. If bookings can't be read, nothing is booked
-(`503 duplicate_check_failed`). An identical second call while the first is still running is refused the same way.
-No migration and no override.
+Who is refused by what:
+
+| Caller | Refused (`409 duplicate_booking`) by | Otherwise |
+| --- | --- | --- |
+| Website (guest) | the same contact's own active booking (same email, or same phone code + number) | someone else's booking changes nothing: same answer as no booking (no enumeration, a stranger can't block a guest) |
+| Staff | a paid, confirmed or ticketed booking (any channel), or a hold/request made by staff | an unpaid website hold is a **warning**, not a refusal (anyone can type a name on the website): flight holds return it in `warnings` (shown on the hold result); group holds and requests put it in the staff notification |
+
+Staff messages name the existing reference only when the viewer may see that booking (as the admin booking list:
+back office, and a `hold_unrecorded` booking only with supplier access); otherwise "<name> already has a booking on
+<route> on <date>." The website gets one plain sentence with no other booking's details. If bookings can't be read,
+nothing is booked (`503 duplicate_check_failed`). An identical second call while the first is still running (staff, or the
+same website contact) is refused the same way. No migration and no staff override.
 
 ## Dhillu & Sahi listing setting
 

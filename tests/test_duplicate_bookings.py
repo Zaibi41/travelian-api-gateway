@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.field_visibility import ALL, NONE, BackOfficeUser
 from app.db import duplicate_bookings as store
 from app.services import duplicate_bookings as rule
 from app.services.duplicate_bookings import DuplicateBooking, Person
@@ -19,16 +20,25 @@ BACK = {"direction": "return", "origin": "ISB", "destination": "KHI", "departure
 KHI_ISB = ("KHI", "ISB", "2026-12-10")
 
 
-def existing(first="Ali", last="Raza", dob=date(1988, 3, 14), document="AB1234567", itinerary=(OUT,), reference="TRV-OLD111", product="flight"):
+def existing(first="Ali", last="Raza", dob=date(1988, 3, 14), document="AB1234567", itinerary=(OUT,), reference="TRV-OLD111", product="flight",
+             status="held", payment="unpaid", channel="staff", email="ali@example.invalid", phone="923001234567"):
     return store.ExistingTraveler(reference=reference, product=product, itinerary=list(itinerary), first_name=first, last_name=last,
-                                  date_of_birth=dob, document_number=document)
+                                  date_of_birth=dob, document_number=document, booking_status=status, payment_status=payment,
+                                  channel=channel, contact_email=email, contact_phone=phone)
+
+
+ADMIN = BackOfficeUser("u1", "super_admin", ALL)
+STAFF = BackOfficeUser("u2", "staff", NONE)       # no supplier access
+WEBSITE = SimpleNamespace(role="website", user_id="website", visibility=NONE)
+GUEST = SimpleNamespace(email=" Ali@Example.invalid ", phone_code="92", phone="3001234567")  # the guest's own contact
+STRANGER = SimpleNamespace(email="someone@example.invalid", phone_code="92", phone="3330000000")
 
 
 def passenger(first="Ali", last="Raza", dob=date(1988, 3, 14), document="AB1234567", kind="ADT"):
     return SimpleNamespace(type=kind, first_name=first, last_name=last, date_of_birth=dob, document_number=document)
 
 
-def check(passengers, journeys, rows, staff=True, exclude=None):
+def check(passengers, journeys, rows, viewer=ADMIN, exclude=None, contact=None):
     seen = {}
 
     def named(names, exclude_reference=None):
@@ -36,7 +46,7 @@ def check(passengers, journeys, rows, staff=True, exclude=None):
         return rows
 
     with patch.object(store, "travelers_named", named):
-        asyncio.run(rule.check(passengers, journeys, staff=staff, exclude_reference=exclude))
+        seen["warnings"] = asyncio.run(rule.check(passengers, journeys, viewer=viewer, contact=contact, exclude_reference=exclude))
     return seen
 
 
@@ -50,9 +60,9 @@ def test_same_passenger_same_route_same_day_is_refused_with_the_reference_for_st
                                    "A second booking for the same passenger, route and date isn't allowed. Nothing was booked.")
 
 
-def test_the_website_gets_a_plain_sentence_without_the_other_booking():
+def test_the_website_gets_a_plain_sentence_for_the_guests_own_booking():
     with pytest.raises(DuplicateBooking) as error:
-        check([passenger()], {KHI_ISB}, [existing()], staff=False)
+        check([passenger()], {KHI_ISB}, [existing()], viewer=WEBSITE, contact=GUEST)
     assert error.value.status == 409 and error.value.reference is None and error.value.message == rule.WEBSITE_MESSAGE
     assert "TRV-" not in error.value.message and "Raza" not in error.value.message
 
@@ -128,21 +138,24 @@ def test_no_booking_is_made_when_bookings_cannot_be_read():
         raise RuntimeError("database down")
 
     with patch.object(store, "travelers_named", broken), pytest.raises(DuplicateBooking) as error:
-        asyncio.run(rule.check([passenger()], {KHI_ISB}, staff=True))
+        asyncio.run(rule.check([passenger()], {KHI_ISB}, viewer=ADMIN))
     assert error.value.status == 503 and error.value.code == "duplicate_check_failed"
 
 
 def test_two_identical_bookings_at_the_same_time_the_second_is_refused():
-    with rule.booking([passenger()], {KHI_ISB}, staff=True):
-        with pytest.raises(DuplicateBooking) as error, rule.booking([passenger(first="ALI ")], {KHI_ISB}, staff=True):
+    with rule.booking([passenger()], {KHI_ISB}, viewer=ADMIN):
+        with pytest.raises(DuplicateBooking) as error, rule.booking([passenger(first="ALI ")], {KHI_ISB}, viewer=STAFF):
             pass
         assert error.value.status == 409 and "already being booked" in error.value.message
-        with pytest.raises(DuplicateBooking) as public, rule.booking([passenger()], {KHI_ISB}, staff=False):
+        with rule.booking([passenger(first="Sara")], {KHI_ISB}, viewer=ADMIN):  # someone else: fine
             pass
-        assert public.value.message == rule.WEBSITE_MESSAGE
-        with rule.booking([passenger(first="Sara")], {KHI_ISB}, staff=True):  # someone else: fine
-            pass
-    with rule.booking([passenger()], {KHI_ISB}, staff=True):  # released once the first finished
+        with rule.booking([passenger()], {KHI_ISB}, viewer=WEBSITE, contact=GUEST):  # a guest is never blocked by staff
+            with pytest.raises(DuplicateBooking) as public, rule.booking([passenger()], {KHI_ISB}, viewer=WEBSITE, contact=GUEST):
+                pass
+            assert public.value.message == rule.WEBSITE_MESSAGE                     # the same guest's double click
+            with rule.booking([passenger()], {KHI_ISB}, viewer=WEBSITE, contact=STRANGER):  # another guest: not blocked
+                pass
+    with rule.booking([passenger()], {KHI_ISB}, viewer=ADMIN):  # released once the first finished
         pass
     assert rule._in_flight == {}
 
@@ -220,7 +233,8 @@ def test_group_hold_is_refused_before_the_record_or_the_supplier(website):
     ticket = group.stock()[0].tickets[0]
     journey = sorted(rule.itinerary_journeys(group_holds._itinerary(ticket)))[0]
     rows = [existing(first="Ali", last="Raza", dob=date(1988, 3, 14), itinerary=(
-        {"direction": "outbound", "origin": journey[0], "destination": journey[1], "departure_local": journey[2]},), reference="TRV-GRP-OLD111")]
+        {"direction": "outbound", "origin": journey[0], "destination": journey[1], "departure_local": journey[2]},), reference="TRV-GRP-OLD111",
+        email="a@example.invalid")]
     provider = group.Provider()
     create = MagicMock()
     with patch.object(group.store, "create_pending", create), \
@@ -269,3 +283,113 @@ def test_the_longest_names_keep_the_message_short_enough_for_the_admin_to_show()
         check([passenger(first=long_first, last=long_last)], {KHI_ISB},
               [existing(first=long_first, last=long_last, reference="TRV-GRP-ABCDEF")])
     assert len(error.value.message) <= 300
+
+
+# ---------- security review: no enumeration, no blocking by strangers, reference only when visible ----------
+
+@pytest.mark.parametrize("row", [
+    existing(),                                                              # a staff hold for someone else's contact
+    existing(channel="website", payment="paid", status="payment_received"),  # someone else's paid website booking
+    existing(email=None, phone=None),                                        # no contact recorded
+])
+def test_the_website_is_never_refused_by_another_customers_booking(row):
+    """Same answer as when nobody is booked: the website can't be used to learn whether someone else travels."""
+    assert check([passenger()], {KHI_ISB}, [row], viewer=WEBSITE, contact=STRANGER)["warnings"] == []
+    assert check([passenger()], {KHI_ISB}, [], viewer=WEBSITE, contact=STRANGER)["warnings"] == []
+
+
+@pytest.mark.parametrize("contact", [GUEST, SimpleNamespace(email="other@example.invalid", phone_code="+92", phone="300 1234567"),
+                                     SimpleNamespace(email="ALI@example.invalid", phone_code=None, phone=None)])
+def test_the_website_is_refused_by_the_same_contacts_own_booking_by_email_or_phone(contact):
+    with pytest.raises(DuplicateBooking) as error:
+        check([passenger()], {KHI_ISB}, [existing(channel="website")], viewer=WEBSITE, contact=contact)
+    assert error.value.message == rule.WEBSITE_MESSAGE and error.value.reference is None
+
+
+@pytest.mark.parametrize("row,blocks", [
+    (existing(channel="staff"), True),                                                      # staff-made hold
+    (existing(channel="website", payment="paid"), True),                                     # paid website booking
+    (existing(channel="website", status="confirmed"), True),
+    (existing(channel="website", status="ticket_issued", payment="paid"), True),
+    (existing(channel="website", status="paid_not_ticketed", payment="paid"), True),
+    (existing(channel="website"), False),                                                    # unpaid website hold: warning
+    (existing(channel="website", status="pending_payment"), False),
+])
+def test_staff_are_refused_by_paid_or_staff_bookings_and_warned_about_unpaid_website_holds(row, blocks):
+    if blocks:
+        with pytest.raises(DuplicateBooking):
+            check([passenger()], {KHI_ISB}, [row], viewer=STAFF)
+        return
+    warnings = check([passenger()], {KHI_ISB}, [row], viewer=ADMIN)["warnings"]
+    assert warnings == ["Possible double booking: Ali Raza has an unpaid website hold (TRV-OLD111) on KHI → ISB on 10 Dec 2026. "
+                        "Check with the customer that it isn't the same trip before taking payment."]
+
+
+def test_a_stranger_typing_a_name_on_the_website_cannot_block_staff():
+    warnings = check([passenger()], {KHI_ISB}, [existing(channel="website", email="someone@example.invalid", phone="923330000000")],
+                     viewer=STAFF)["warnings"]
+    assert len(warnings) == 1 and warnings[0].startswith("Possible double booking")
+
+
+def test_the_reference_is_named_only_when_the_viewer_may_see_that_booking():
+    unrecorded = existing(status="hold_unrecorded")
+    with pytest.raises(DuplicateBooking) as hidden:           # staff without supplier access don't see unrecorded holds
+        check([passenger()], {KHI_ISB}, [unrecorded], viewer=STAFF)
+    assert "TRV-" not in hidden.value.message and hidden.value.reference is None
+    assert hidden.value.message.startswith("Ali Raza already has a booking on KHI → ISB on 10 Dec 2026.")
+    with pytest.raises(DuplicateBooking) as shown:            # super admin (supplier access) does
+        check([passenger()], {KHI_ISB}, [unrecorded], viewer=ADMIN)
+    assert shown.value.reference == "TRV-OLD111"
+    with pytest.raises(DuplicateBooking) as staff:            # an ordinary hold: staff see it in Bookings
+        check([passenger()], {KHI_ISB}, [existing()], viewer=STAFF)
+    assert staff.value.reference == "TRV-OLD111"
+    agency = BackOfficeUser("u3", "agency_owner", NONE)        # not back office: never a reference
+    with pytest.raises(DuplicateBooking) as other:
+        check([passenger()], {KHI_ISB}, [existing()], viewer=agency)
+    assert "TRV-" not in other.value.message
+    hidden_warning = check([passenger()], {KHI_ISB}, [existing(channel="website", status="hold_unrecorded")], viewer=STAFF)["warnings"]
+    assert hidden_warning and "TRV-" not in hidden_warning[0]
+
+
+def test_staff_flight_hold_carries_the_warning_and_still_holds():
+    from app.core.config import settings
+    from app.services import flight_holds
+    from tests.southair import test_hold as southair
+
+    southair.live_flights._quotes.clear()
+    southair.make_quote()
+    row = existing(first="Test", last="Passenger", dob=date(1990, 1, 1), channel="website", itinerary=(
+        {"direction": "outbound", "origin": "KHI", "destination": "MUX", "departure_local": "2026-11-27T23:00"},))
+    with patch.object(settings, "southair_booking_enabled", True), patch.object(settings, "flight_markup_percent", Decimal("2")), \
+         patch.object(settings, "flight_markup_fixed_minor", 0), patch.object(store, "travelers_named", lambda names, exclude_reference=None: [row]), \
+         patch.object(flight_holds.supplier_bookings, "save_hold", MagicMock(return_value="TRV-NEW001")):
+        view = asyncio.run(flight_holds.hold(southair.hold_request(), southair.STAFF, client_factory=southair.fake_client))
+    assert view.booking_id == "TRV-NEW001" and any(w.startswith("Possible double booking: Test Passenger") for w in view.warnings)
+
+
+def test_website_flight_hold_ignores_a_strangers_booking_and_goes_ahead():
+    from app.core.config import settings
+    from app.services import flight_holds
+    from app.services.public_booking import WEBSITE_SEARCH_VIEWER
+    from tests.southair import test_hold as southair
+
+    southair.live_flights._quotes.clear()
+    quote = southair.make_quote()
+    southair.live_flights._store_quote(replace(quote, user_id=WEBSITE_SEARCH_VIEWER.user_id))
+    row = existing(first="Test", last="Passenger", dob=date(1990, 1, 1), channel="staff", payment="paid", status="confirmed",
+                   email="someone@example.invalid", phone="923330000000", itinerary=(
+        {"direction": "outbound", "origin": "KHI", "destination": "MUX", "departure_local": "2026-11-27T23:00"},))
+    with patch.object(settings, "southair_booking_enabled", True), patch.object(settings, "flight_markup_percent", Decimal("2")), \
+         patch.object(settings, "flight_markup_fixed_minor", 0), patch.object(store, "travelers_named", lambda names, exclude_reference=None: [row]), \
+         patch.object(flight_holds.supplier_bookings, "save_hold", MagicMock(return_value="TRV-NEW002")), \
+         patch.object(flight_holds, "_save_people", lambda *a, **kw: []):
+        view = asyncio.run(flight_holds.hold(southair.hold_request(), WEBSITE_SEARCH_VIEWER, client_factory=southair.fake_client))
+    assert view.booking_id == "TRV-NEW002" and view.warnings == []  # the request's contact (ops@example.invalid, 92 3001234567) isn't the row's
+    # The same guest (same phone) booking the same traveler again is refused, before any supplier call.
+    own = replace(row, contact_phone="923001234567")
+    client = southair.fake_client()
+    southair.live_flights._store_quote(replace(quote, user_id=WEBSITE_SEARCH_VIEWER.user_id))
+    with patch.object(settings, "southair_booking_enabled", True), patch.object(store, "travelers_named", lambda names, exclude_reference=None: [own]), \
+         pytest.raises(flight_holds.HoldError) as error:
+        asyncio.run(flight_holds.hold(southair.hold_request(), WEBSITE_SEARCH_VIEWER, client_factory=lambda: client))
+    assert error.value.message == rule.WEBSITE_MESSAGE and client.search.await_count == 0 and client.booking.await_count == 0
