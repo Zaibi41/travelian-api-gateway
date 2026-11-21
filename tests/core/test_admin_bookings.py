@@ -474,3 +474,22 @@ def test_change_customer_email_route(monkeypatch):
     assert client(monkeypatch).put(f"/v1/admin/bookings/{reference}/customer-email", json={"email": "bad"}).status_code == 422
     assert client(monkeypatch).put("/v1/admin/bookings/TRV-NOPE/customer-email", json={"email": "a@b.co"}).status_code == 404
     assert client(monkeypatch, viewer=None).put(f"/v1/admin/bookings/{reference}/customer-email", json={"email": "a@b.co"}).status_code == 403
+
+
+def test_lists_carry_the_airline_for_the_logo():
+    """#75: the Bookings list, a person's bookings and notifications show the airline logo."""
+    from app.services.admin_bookings import airline_of
+    legs = [{"airline_code": "pa", "airline_name": "Airblue", "flight_number": "PA401"},
+            {"airline_code": "PA", "airline_name": "Airblue", "flight_number": "PA402"}]
+    assert airline_of(legs) == {"airline_code": "PA", "airline_name": "Airblue", "flight_number": "PA401 / PA402"}
+    assert airline_of([{"carrier": "Z8", "flight_number": "Z8266"}]) == {"airline_code": "Z8", "flight_number": "Z8266"}
+    assert airline_of(None) == {} and airline_of([]) == {} and airline_of(["junk"]) == {}
+
+
+def test_bookings_list_items_have_the_airline(monkeypatch):
+    rows = [booking(1, itinerary=[{"origin": "LHE", "destination": "KHI", "airline_code": "PA", "airline_name": "Airblue", "flight_number": "PA401"}]),
+            booking(2)]
+    items = client(monkeypatch, rows=rows).get("/v1/admin/bookings").json()["items"]
+    by_id = {item["booking_id"]: item for item in items}
+    assert (by_id["TRV-1"]["airline_code"], by_id["TRV-1"]["airline_name"], by_id["TRV-1"]["flight_number"]) == ("PA", "Airblue", "PA401")
+    assert "airline_code" not in by_id["TRV-2"]

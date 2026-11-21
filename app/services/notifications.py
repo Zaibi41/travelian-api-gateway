@@ -174,7 +174,10 @@ async def red_alert(kind: str, *, reference: str, subject: str, lines: list[str]
 def recent(limit: int = 50) -> list[dict[str, Any]]:
     with agencies.application_engine().begin() as connection:
         rows = connection.execute(
-            text("SELECT id, kind, reference, title, details, emailed, created_at FROM admin_notifications ORDER BY created_at DESC LIMIT :l"),
+            # The booking's flights come along for the airline logo on each alert (#75).
+            text("SELECT n.id, n.kind, n.reference, n.title, n.details, n.emailed, n.created_at, b.itinerary"
+                 " FROM admin_notifications n LEFT JOIN bookings b ON b.reference = n.reference"
+                 " ORDER BY n.created_at DESC LIMIT :l"),
             {"l": max(1, min(limit, 200))},
         ).mappings().all()
     return [dict(row) for row in rows]

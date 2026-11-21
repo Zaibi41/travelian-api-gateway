@@ -257,6 +257,7 @@ def build_list(
             booking_id=b.booking_id, pnr=visible_pnr(b, visibility), product=b.product, customer_or_agency=customer_or_agency(b),
             statuses=_statuses(b), amount=_money(b.total_minor, b.currency),
             created_at=b.created_at, expires_at=b.hold_expires_at, sample=is_sample(b), data_label=data_label(b),
+            **airline_of(b.itinerary),
         )
         if visibility.supplier_names and b.provider:
             item.provider = b.provider
@@ -281,12 +282,26 @@ def route_of(itinerary: list[dict] | None) -> str | None:
     return " → ".join(airports) or None
 
 
+def airline_of(itinerary: list | None) -> dict:
+    """The airline of the first flight and the flight numbers in order, for the airline logo on lists (#75). Empty
+    when the flights weren't recorded. The airline flown is shown to staff; it is not the supplier."""
+    legs = [leg for leg in itinerary or [] if isinstance(leg, dict)]
+    if not legs:
+        return {}
+    first = legs[0]
+    code = (first.get("airline_code") or first.get("carrier") or "").strip().upper() or None
+    numbers = [str(leg.get("flight_number")).strip() for leg in legs if leg.get("flight_number")]
+    return {key: value for key, value in (("airline_code", code), ("airline_name", (first.get("airline_name") or "").strip() or None),
+                                          ("flight_number", " / ".join(dict.fromkeys(numbers)) or None)) if value}
+
+
 def person_booking(booking: BookingRow, visibility: FieldVisibility, ticket_numbers: list[str]) -> dict:
     """A saved person's booking history row (Customers & Travelers). Cost and profit only with cost and margin."""
     row = {
         "pnr": visible_pnr(booking, visibility), "product": booking.product, "route": route_of(booking.itinerary),
         "departure_local": (booking.itinerary or [{}])[0].get("departure_local"), "statuses": _statuses(booking),
         "ticket_numbers": ticket_numbers, "selling_price": _money(booking.total_minor, booking.currency),
+        **airline_of(booking.itinerary),
     }
     if visibility.cost_and_margin:
         if cost_unknown(booking.import_source, booking.supplier_cost_minor, booking.total_minor, booking.cost_known):

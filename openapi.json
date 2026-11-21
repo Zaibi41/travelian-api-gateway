@@ -1654,6 +1654,30 @@
       },
       "BookingListItem": {
         "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's airline (IATA), for the logo (#75).",
+            "title": "Airline Code"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's airline name (the airline flown, not the supplier).",
+            "title": "Airline Name"
+          },
           "amount": {
             "$ref": "#/components/schemas/BookingMoney"
           },
@@ -1709,6 +1733,18 @@
               }
             ],
             "title": "Expires At"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flight number(s) in travel order, e.g. 'PA401 / PA402'.",
+            "title": "Flight Number"
           },
           "pnr": {
             "anyOf": [
@@ -8174,6 +8210,29 @@
       },
       "NotificationView": {
         "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The booking's first airline (IATA), for the logo (#75).",
+            "title": "Airline Code"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -8187,6 +8246,17 @@
           "emailed": {
             "title": "Emailed",
             "type": "boolean"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
           },
           "id": {
             "title": "Id",
@@ -10496,6 +10566,30 @@
       "SavedPersonBooking": {
         "description": "One booking of a saved person's history. Cost and profit only with the cost and margin permission.",
         "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's airline (IATA), for the logo (#75).",
+            "title": "Airline Code"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's airline name (the airline flown, not the supplier).",
+            "title": "Airline Name"
+          },
           "booking_id": {
             "title": "Booking Id",
             "type": "string"
@@ -10528,6 +10622,18 @@
             ],
             "description": "First flight's local departure, e.g. 2026-11-19T00:25.",
             "title": "Departure Local"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flight number(s) in travel order, e.g. 'PA401 / PA402'.",
+            "title": "Flight Number"
           },
           "pnr": {
             "anyOf": [
