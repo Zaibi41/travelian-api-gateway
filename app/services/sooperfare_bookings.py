@@ -24,6 +24,11 @@ from app.vendors.flights.sooperfare import client as sooperfare
 
 logger = logging.getLogger(__name__)
 
+#: Why SooperFare gave no clear answer, in words (SooperfareError.error_code).
+NO_ANSWER = {"timeout": "took too long to answer", "unreachable": "couldn't be reached",
+             "invalid_response": "answered in a way Travelian couldn't read", "login_failed": "refused Travelian's sign-in",
+             "not_configured": "isn't set up on this server"}
+
 CLOSED = {"cancelled", "canceled", "expired", "void", "voided"}
 
 
@@ -146,11 +151,15 @@ async def cancel(reference: str, actor: str | None, factory=None) -> dict[str, A
         answer = await client.cancel(record.supplier_ref, record.reference, amount, record.currency,
                                      f"Travelian booking {record.reference}: cancel this unpaid reservation")
     except sooperfare.SooperfareError as error:
-        message = f"SooperFare refused the cancel: {error.public_message}" if error.status else f"SooperFare didn't answer the cancel ({error.error_code})."
+        if error.error_code == "refused":
+            message, after = f"SooperFare refused the cancel: {error.public_message}", " Nothing was changed."
+        else:  # no clear answer: the cancel may or may not have reached SooperFare
+            message = f"SooperFare {NO_ANSWER.get(error.error_code, NO_ANSWER['unreachable'])}, so the cancel may not have gone through."
+            after = " The booking is still held here. Press Check with SooperFare before trying again."
         await run_in_threadpool(_save, record, actor, "supplier_cancel_failed",
                                 {"supplier": "sooperfare", "error": error.error_code, "http_status": error.status, "message": error.public_message},
                                 cancel={"state": "failed", "at": _now(), "message": message})
-        raise SupplierCancelError(502, message + " Nothing was changed.", "cancel_failed") from None
+        raise SupplierCancelError(502, message + after, "cancel_failed") from None
     transaction = ((answer.get("data") or {}).get("transaction") or {}) if isinstance(answer.get("data"), dict) else {}
     answered = {"message": answer.get("message"), "transaction_id": transaction.get("uuid"), "txn_ref_id": transaction.get("txn_ref_id"),
                 "transaction_status": transaction.get("status"), "description": transaction.get("description")}
