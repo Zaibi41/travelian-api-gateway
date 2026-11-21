@@ -94,8 +94,9 @@ def test_children_and_infants_and_names_with_extra_spaces(database):
     assert store.travelers_named(["babynoorraza"])[0].first_name == "Baby  Noor"
 
 
-def check(viewer, contact=None):
-    return asyncio.run(rule.check([traveler()], KHI_ISB, viewer=viewer, contact=contact))
+def check(viewer):
+    flags = asyncio.run(rule.check([traveler()], KHI_ISB, viewer=viewer))
+    return rule.warnings_for(flags, viewer) if viewer is not WEBSITE else flags
 
 
 def test_an_unpaid_website_hold_warns_staff_and_a_paid_one_refuses(database):
@@ -109,16 +110,18 @@ def test_an_unpaid_website_hold_warns_staff_and_a_paid_one_refuses(database):
         check(STAFF)
 
 
-def test_the_website_is_refused_only_by_the_same_contacts_booking(database):
-    held()  # contact a@example.invalid, 92 3001234567
-    stranger = SimpleNamespace(email="someone@example.invalid", phone_code="92", phone="3330000000")
-    assert check(WEBSITE, stranger) == []
-    by_email = SimpleNamespace(email="A@example.invalid", phone_code="92", phone="3330000000")
-    by_phone = SimpleNamespace(email="other@example.invalid", phone_code="+92", phone="300-1234567")
-    for contact in (by_email, by_phone):
-        with pytest.raises(rule.DuplicateBooking) as error:
-            check(WEBSITE, contact)
-        assert error.value.message == rule.WEBSITE_MESSAGE and error.value.reference is None
+def test_the_website_is_never_refused_and_the_match_is_recorded_on_the_new_booking(database):
+    connection, _, _ = database
+    existing_ref = held()
+    status(connection, existing_ref, "ticket_issued", "paid")
+    flags = check(WEBSITE)                                   # no refusal, whatever the other booking is
+    assert len(flags) == 1
+    new_ref = held(pnr="DEF456")
+    asyncio.run(rule.flag_for_staff(new_ref, flags, actor=None))
+    event = connection.execute(text("SELECT e.action, e.details FROM booking_events e JOIN bookings b ON b.id = e.booking_id"
+                                    " WHERE b.reference = :r AND e.action = 'possible_double_booking'"), {"r": new_ref}).one()
+    assert event.details == {"journeys": ["KHI-ISB 2026-12-10"], "matches": 1, "existing_paid": True}
+    assert existing_ref not in str(event.details) and "Raza" not in str(event.details)
 
 
 def test_an_unrecorded_hold_is_named_only_to_viewers_with_supplier_access(database):

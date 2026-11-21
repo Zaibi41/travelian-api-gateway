@@ -98,6 +98,7 @@ async def booking_event(kind: str, *, reference: str, passenger: str | None, rou
         "auto_issue_failed": "Paid by card: automatic issuance failed, issue by hand",
         "paid_not_ticketed": "Paid, not ticketed: refund or rebook",
         "payment_slip_uploaded": "Payment slip uploaded: check and confirm",
+        "possible_double_booking": "Possible double booking: check before taking payment",
     }
     title = f"{titles.get(kind, 'Booking')}: {reference}"
     details = {"reference": reference, "passenger": passenger, "route": route, "fare": _money(fare_minor, currency),

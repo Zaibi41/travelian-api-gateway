@@ -640,10 +640,8 @@ async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, reques
     # before our record is written and before any supplier call. The passengers stay claimed until the record exists.
     journeys = duplicate_bookings.itinerary_journeys(_itinerary(ticket))
     try:
-        stack.enter_context(duplicate_bookings.booking(resolved.passengers, journeys, viewer=viewer, contact=resolved.contact,
-                                                       nothing="Nothing was held."))
-        warnings = await duplicate_bookings.check(resolved.passengers, journeys, viewer=viewer, contact=resolved.contact,
-                                                  nothing="Nothing was held.")
+        stack.enter_context(duplicate_bookings.booking(resolved.passengers, journeys, viewer=viewer, nothing="Nothing was held."))
+        flags = await duplicate_bookings.check(resolved.passengers, journeys, viewer=viewer, nothing="Nothing was held.")
     except duplicate_bookings.DuplicateBooking as error:
         raise GroupHoldError(error.status, error.message, error.code) from None
 
@@ -683,7 +681,8 @@ async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, reques
     if request_only:  # a request: staff confirm the fare and hold it from the admin
         await notifications.booking_event("booking_requested", reference=reference, passenger=lead, route=ticket.sector,
                                           fare_minor=selling_each * request.adults, currency=currency, pnr=None, hold_expires_at=None,
-                                          note=" ".join(["Website request: nothing is held at the supplier yet.", *warnings]))
+                                          note="Website request: nothing is held at the supplier yet.")
+        await duplicate_bookings.flag_for_staff(reference, flags, actor=viewer.user_id, passenger=lead)
         # B23: website customers are saved to (or matched with) Customers & Travelers too.
         await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
         return await read(reference, viewer)
@@ -736,7 +735,8 @@ async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, reques
         raise await _unrecorded(booking_id, reference, held, provider, ticket.vendor, request.adults, viewer, error_reason(error)) from None
     await notifications.booking_event("hold_created", reference=reference, passenger=lead, route=ticket.sector,
                                       fare_minor=selling.amount_minor * request.adults, currency=selling.currency, pnr=held.pnr,
-                                      hold_expires_at=expires_at, note=" ".join(warnings) or None)
+                                      hold_expires_at=expires_at)
+    await duplicate_bookings.flag_for_staff(reference, flags, actor=viewer.user_id, passenger=lead)
     # B23: every booking saves (or matches) its customer and travelers in Customers & Travelers, website ones included
     # (same duplicate rules: a matching passport or CNIC links; a likely match is left for staff to choose).
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)

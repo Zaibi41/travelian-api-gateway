@@ -309,14 +309,16 @@ def save(into: str | None, **values) -> str:
                                           selling_total_minor=values["selling_total_minor"], supplier_response=values["supplier_response"])
 
 
-async def no_double_booking(request: HoldRequest, viewer: BackOfficeUser, search, stack: ExitStack, into: str | None = None) -> list[str]:
+async def no_double_booking(request: HoldRequest, viewer: BackOfficeUser, search, stack: ExitStack,
+                            into: str | None = None) -> list[duplicate_bookings.Flag]:
     """Issue #17: refuse a passenger who already has an active booking on this route and date, before any supplier call
-    (who is refused by what: app.services.duplicate_bookings.decide). Returns warnings for staff. The passengers stay
-    claimed (in `stack`) until the booking is saved, so an identical call meanwhile is refused too."""
+    (who is refused by what: app.services.duplicate_bookings.decide). Returns the possible double bookings let through
+    (flag them with duplicate_bookings.flag_for_staff once saved). Staff passengers stay claimed (in `stack`) until the
+    booking is saved, so an identical staff call meanwhile is refused too."""
     journeys = duplicate_bookings.search_journeys(search.origin, search.destination, search.departure_date, search.return_date)
     try:
-        stack.enter_context(duplicate_bookings.booking(request.passengers, journeys, viewer=viewer, contact=request.contact))
-        return await duplicate_bookings.check(request.passengers, journeys, viewer=viewer, contact=request.contact, exclude_reference=into)
+        stack.enter_context(duplicate_bookings.booking(request.passengers, journeys, viewer=viewer))
+        return await duplicate_bookings.check(request.passengers, journeys, viewer=viewer, exclude_reference=into)
     except duplicate_bookings.DuplicateBooking as error:
         raise HoldError(error.status, error.message, code=error.code) from None
 
@@ -368,11 +370,15 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
     # Ages are taken on the last travel date (the return date of a round trip), as the airlines rule (issue #52).
     passengers = _supplier_passengers(request, quote.request.return_date or quote.request.departure_date)
     warnings = passport_warnings(request, quote.request)
-    warnings = warnings + await no_double_booking(request, viewer, quote.request, stack, into)
+    flags = await no_double_booking(request, viewer, quote.request, stack, into)
+    warnings = warnings + duplicate_bookings.warnings_for(flags, viewer)  # staff only; the website's answer never differs
 
     if quote.provider == live_flights.SOOPERFARE:
-        return await sooperfare_holds.hold(request, viewer, quote, card=card, owner=owner, links=links, warnings=warnings,
+        view = await sooperfare_holds.hold(request, viewer, quote, card=card, owner=owner, links=links, warnings=warnings,
                                            factory=sooperfare_factory, into=into)
+        if not into:
+            await duplicate_bookings.flag_for_staff(view.booking_id, flags, actor=actor(viewer), passenger=_lead_name(request))
+        return view
 
     client = (client_factory or configured_client)()
     # 1. Fresh reprice: the supplier total must still match what the user confirmed.
@@ -473,6 +479,7 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
         await notifications.booking_event(
             "hold_created", reference=reference, passenger=_lead_name(request), route=_route(fresh), fare_minor=selling_total,
             currency=currency, pnr=pnr, hold_expires_at=time_limit)
+        await duplicate_bookings.flag_for_staff(reference, flags, actor=actor(viewer), passenger=_lead_name(request))
     view = HoldView(booking_id=reference, pnr=pnr, time_limit=time_limit,
                     selling_total=FlightMoney(amount_minor=selling_total, currency=currency), warnings=warnings, saved_people=saved_outcomes)
     if viewer.visibility.cost_and_margin:

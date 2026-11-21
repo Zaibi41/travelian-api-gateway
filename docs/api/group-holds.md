@@ -34,14 +34,18 @@ Who is refused by what:
 
 | Caller | Refused (`409 duplicate_booking`) by | Otherwise |
 | --- | --- | --- |
-| Website (guest) | the same contact's own active booking (same email, or same phone code + number) | someone else's booking changes nothing: same answer as no booking (no enumeration, a stranger can't block a guest) |
-| Staff | a paid, confirmed or ticketed booking (any channel), or a hold/request made by staff | an unpaid website hold is a **warning**, not a refusal (anyone can type a name on the website): flight holds return it in `warnings` (shown on the hold result); group holds and requests put it in the staff notification |
+| Website (guest) | **never**: contact details typed on the website prove nothing, so the public answer never depends on another booking | every match is accepted as usual and flagged for staff |
+| Staff | a paid, confirmed or ticketed booking (any channel), or a hold/request made by staff | an unpaid website hold is a **warning** (flight holds: `warnings`, shown on the hold result) and is flagged for staff |
 
-Staff messages name the existing reference only when the viewer may see that booking (as the admin booking list:
-back office, and a `hold_unrecorded` booking only with supplier access); otherwise "<name> already has a booking on
-<route> on <date>." The website gets one plain sentence with no other booking's details. If bookings can't be read,
-nothing is booked (`503 duplicate_check_failed`). An identical second call while the first is still running (staff, or the
-same website contact) is refused the same way. No migration and no staff override.
+Flagged for staff: an audit entry `possible_double_booking` on the new booking (journeys and counts only: no names, no
+other reference) and a staff notification "Possible double booking" that names the passenger and route but **never another
+booking's reference** (notifications reach staff who may not be allowed to see it).
+
+A staff refusal or warning names the existing reference only when the viewer may see that booking (as the admin booking
+list: back office, and a `hold_unrecorded` booking only with supplier access); otherwise "<name> already has a booking on
+<route> on <date>." If bookings can't be read, staff get `503 duplicate_check_failed` and nothing is booked; the website
+goes ahead unflagged (logged). An identical second staff call while the first is still running is refused. No migration
+and no staff override.
 
 ## Dhillu & Sahi listing setting
 

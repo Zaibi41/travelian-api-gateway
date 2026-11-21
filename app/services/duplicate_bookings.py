@@ -8,13 +8,13 @@ each other.
   CNIC number (when both bookings have one). Adults, children and infants alike.
 - Same route: a journey of the new booking (outbound, and the return of a round trip) has the same origin, destination
   and departure date as a journey of an active booking (app.db.duplicate_bookings.ACTIVE_STATUSES).
-- Who is refused by what (see `decide`): the website only by the same contact's own booking; staff by a paid, confirmed
-  or ticketed booking or a staff-made hold, while an unpaid website hold only warns them.
-- Refused with 409 `duplicate_booking`. Staff see the existing booking's reference when they may see that booking; the
-  website gets a plain sentence with no other booking's details.
+- Who is refused by what (see `decide`): the website never (a match is accepted and flagged for staff: an audit entry
+  and a staff notification, no difference in the public answer); staff by a paid, confirmed or ticketed booking or a
+  staff-made hold, while an unpaid website hold is a warning.
+- Refused with 409 `duplicate_booking`. Staff see the existing booking's reference only when they may see that booking;
+  staff notifications never carry it.
 
-Two identical requests arriving together are refused too: while a check-and-book is running for a passenger and journey,
-another one for the same passenger and journey (staff, or the same website contact, in this gateway process) is refused.
+Two identical staff requests arriving together are refused too (in this gateway process).
 """
 
 from __future__ import annotations
@@ -33,8 +33,6 @@ from app.db import duplicate_bookings as store
 logger = logging.getLogger(__name__)
 
 CODE = "duplicate_booking"
-WEBSITE_MESSAGE = ("One of these travelers already has a booking on this route and date, so nothing was booked. "
-                   "If you need help, contact Travelian.")
 CHECK_FAILED = "Existing bookings couldn't be checked right now, so nothing was booked. Try again."
 
 #: The public website's viewer role (app.services.flight_holds.WEBSITE_ROLE).
@@ -150,19 +148,6 @@ def is_website(viewer: Any) -> bool:
     return getattr(viewer, "role", None) == WEBSITE_ROLE
 
 
-def contact_keys(contact: Any) -> tuple[str | None, str | None]:
-    """(email, phone digits with code) of a HoldContact-like contact, as compared with booking_customers."""
-    if contact is None:
-        return None, None
-    email = (getattr(contact, "email", None) or "").strip().lower() or None
-    phone = "".join(ch for ch in f"{getattr(contact, 'phone_code', None) or ''}{getattr(contact, 'phone', None) or ''}" if ch.isdigit()) or None
-    return email, phone
-
-
-def same_contact(row: store.ExistingTraveler, email: str | None, phone: str | None) -> bool:
-    return bool((email and row.contact_email == email) or (phone and row.contact_phone == phone))
-
-
 def paid_or_confirmed(row: store.ExistingTraveler) -> bool:
     return row.payment_status == "paid" or row.booking_status in PAID_STATUSES
 
@@ -182,8 +167,7 @@ def reference_visible(row: store.ExistingTraveler, viewer: Any) -> bool:
 
 
 def _refusal(person: Person, row: store.ExistingTraveler, journey: Journey, viewer: Any, nothing: str) -> DuplicateBooking:
-    if is_website(viewer):
-        return DuplicateBooking(409, WEBSITE_MESSAGE)
+    """Staff only (the website is never refused)."""
     if reference_visible(row, viewer):
         return DuplicateBooking(409, f"{_name(person)} already has booking {row.reference} on {_route(journey)}. "
                                      f"A second booking for the same passenger, route and date isn't allowed. {nothing}", reference=row.reference)
@@ -191,15 +175,41 @@ def _refusal(person: Person, row: store.ExistingTraveler, journey: Journey, view
                                  f"A second booking for the same passenger, route and date isn't allowed. {nothing}")
 
 
-def _warning(person: Person, row: store.ExistingTraveler, journey: Journey, viewer: Any) -> str:
-    booking = f"an unpaid website hold ({row.reference})" if reference_visible(row, viewer) else "an unpaid website hold"
-    return (f"Possible double booking: {_name(person)} has {booking} on {_route(journey)}. "
-            "Check with the customer that it isn't the same trip before taking payment.")
+@dataclass(frozen=True)
+class Flag:
+    """A possible double booking that was let through: the new passenger, the existing booking row and the journey."""
+    person: Person
+    row: store.ExistingTraveler
+    journey: Journey
+
+    def __repr__(self) -> str:  # never print identity data
+        return f"Flag(journey={self.journey})"
 
 
-def matches(passengers: list[Person], journeys: set[Journey], existing: list[store.ExistingTraveler]
-            ) -> list[tuple[Person, store.ExistingTraveler, Journey]]:
-    """Each (passenger, existing booking row, shared journey) where a passenger already travels on one of these journeys."""
+CHECK_ADVICE = "Check with the customer that it isn't the same trip before taking payment."
+
+
+def warnings_for(flags: list[Flag], viewer: Any) -> list[str]:
+    """The warnings in a staff viewer's own API response: the existing reference only when that viewer may see it. The
+    website never gets them."""
+    if is_website(viewer):
+        return []
+    texts = []
+    for flag in flags:
+        booking = f"an unpaid website hold ({flag.row.reference})" if reference_visible(flag.row, viewer) else "an unpaid website hold"
+        texts.append(f"Possible double booking: {_name(flag.person)} has {booking} on {_route(flag.journey)}. {CHECK_ADVICE}")
+    return list(dict.fromkeys(texts))
+
+
+def notification_note(flags: list[Flag]) -> str:
+    """For the staff notification and email: never a reference (its readers may not be allowed to see that booking)."""
+    lines = [f"Possible double booking: {_name(flag.person)} already has an active booking on {_route(flag.journey)}."
+             for flag in flags]
+    return " ".join([*dict.fromkeys(lines), CHECK_ADVICE])
+
+
+def matches(passengers: list[Person], journeys: set[Journey], existing: list[store.ExistingTraveler]) -> list[Flag]:
+    """Each passenger who already travels on one of these journeys, with the existing booking row and the journey."""
     found = []
     for traveler in existing:
         theirs = Person(traveler.first_name, traveler.last_name, traveler.date_of_birth, traveler.document_number)
@@ -208,61 +218,67 @@ def matches(passengers: list[Person], journeys: set[Journey], existing: list[sto
             continue
         for passenger in passengers:
             if same_person(passenger, theirs):
-                found.append((passenger, traveler, sorted(shared)[0]))
+                found.append(Flag(passenger, traveler, sorted(shared)[0]))
     return found
 
 
 def decide(passengers: list[Person], journeys: set[Journey], existing: list[store.ExistingTraveler], viewer: Any,
-           contact: Any = None, nothing: str = "Nothing was booked.") -> list[str]:
-    """The rule (issue #17 and its security review). Raises DuplicateBooking, or returns warnings for staff.
+           nothing: str = "Nothing was booked.") -> list[Flag]:
+    """The rule (issue #17 and its two security reviews). Raises DuplicateBooking (staff only), or returns the flags.
 
-    - Website: refused only by a booking of the same contact (email or phone): the guest's own booking. Someone else's
-      booking never changes the answer, so the website can't be used to learn who is booked or to block a stranger.
-    - Staff: refused by a paid, confirmed or ticketed booking, or by a staff-made hold; an unpaid website hold is a warning.
-      The existing reference is named only when the viewer may see that booking."""
-    warnings: list[str] = []
+    - Website: never refused. Contact details a guest types prove nothing, so any answer that depended on another booking
+      would tell a stranger whether someone is booked. Every match is accepted and flagged for staff.
+    - Staff: refused by a paid, confirmed or ticketed booking, or by a staff-made hold; an unpaid website hold (anyone can
+      type a name on the website) is flagged, not refused. The existing reference is named only when the viewer may see it."""
+    found = matches(passengers, journeys, existing)
     if is_website(viewer):
-        email, phone = contact_keys(contact)
-        for person, row, journey in matches(passengers, journeys, existing):
-            if same_contact(row, email, phone):
-                raise _refusal(person, row, journey, viewer, nothing)
-        return warnings
-    for person, row, journey in matches(passengers, journeys, existing):
-        if blocks_staff(row):
-            raise _refusal(person, row, journey, viewer, nothing)
-        warnings.append(_warning(person, row, journey, viewer))
-    return list(dict.fromkeys(warnings))
+        return found
+    for flag in found:
+        if blocks_staff(flag.row):
+            raise _refusal(flag.person, flag.row, flag.journey, viewer, nothing)
+    return found
 
 
-# Check-and-book calls now running in this process: (scope, name key, journey) -> the passengers being booked. The scope is
-# "staff", or the website contact, so a guest's double click is refused but a stranger's booking never is.
-_in_flight: dict[tuple[str, str, Journey], list[Person]] = {}
+async def flag_for_staff(reference: str, flags: list[Flag], *, actor: str | None, passenger: str | None = None) -> None:
+    """Tell staff about a possible double booking that was let through: an audit entry on the new booking (no personal
+    data, no other reference) and a staff notification (no reference of the other booking). Never raises."""
+    if not flags:
+        return
+    from app.services import notifications
+
+    details = {"journeys": sorted({f"{o}-{d} {day}" for o, d, day in (flag.journey for flag in flags)}),
+               "matches": len(flags), "existing_paid": any(paid_or_confirmed(flag.row) for flag in flags)}
+    try:
+        await run_in_threadpool(store.record_flag, reference, actor, details)
+    except Exception as error:  # noqa: BLE001 - the booking is saved; the flag must not break it
+        logger.error("Possible double booking not recorded", extra={"reference": reference, "error_type": type(error).__name__})
+    first = flags[0].journey
+    await notifications.booking_event("possible_double_booking", reference=reference, passenger=passenger or _name(flags[0].person),
+                                      route=f"{first[0]} → {first[1]}", fare_minor=None, currency=None, pnr=None, hold_expires_at=None,
+                                      note=notification_note(flags))
 
 
-def _scope(viewer: Any, contact: Any) -> str:
-    if not is_website(viewer):
-        return "staff"
-    email, phone = contact_keys(contact)
-    return f"website:{email or ''}:{phone or ''}"
+# Check-and-book calls by staff now running in this process: (name key, journey) -> the passengers being booked.
+_in_flight: dict[tuple[str, Journey], list[Person]] = {}
 
 
 @contextmanager
-def booking(passengers: Iterable[Any], journeys: set[Journey], *, viewer: Any, contact: Any = None,
-            nothing: str = "Nothing was booked.") -> Iterator[None]:
-    """Hold this passenger and journey while the booking is being made: a second identical call meanwhile (staff, or the
-    same website contact) is refused. Use around the whole check-and-book."""
-    scope = _scope(viewer, contact)
+def booking(passengers: Iterable[Any], journeys: set[Journey], *, viewer: Any, nothing: str = "Nothing was booked.") -> Iterator[None]:
+    """Staff: hold this passenger and journey while the booking is being made; a second identical staff call meanwhile is
+    refused. Use around the whole check-and-book. The website is never refused, so this does nothing for it."""
+    if is_website(viewer):
+        yield
+        return
     persons = [person for person in people(passengers) if person.key]
     for person in persons:
         for journey in sorted(journeys):
-            if any(same_person(person, other) for other in _in_flight.get((scope, person.key, journey), [])):
-                raise DuplicateBooking(409, WEBSITE_MESSAGE if is_website(viewer) else
-                                       f"{_name(person)} is already being booked on {_route(journey)}. {nothing}")
-    added: list[tuple[tuple[str, str, Journey], Person]] = []
+            if any(same_person(person, other) for other in _in_flight.get((person.key, journey), [])):
+                raise DuplicateBooking(409, f"{_name(person)} is already being booked on {_route(journey)}. {nothing}")
+    added: list[tuple[tuple[str, Journey], Person]] = []
     for person in persons:
         for journey in sorted(journeys):
-            _in_flight.setdefault((scope, person.key, journey), []).append(person)
-            added.append(((scope, person.key, journey), person))
+            _in_flight.setdefault((person.key, journey), []).append(person)
+            added.append(((person.key, journey), person))
     try:
         yield
     finally:
@@ -274,20 +290,23 @@ def booking(passengers: Iterable[Any], journeys: set[Journey], *, viewer: Any, c
                 _in_flight.pop(key, None)
 
 
-async def check(passengers: Iterable[Any], journeys: set[Journey], *, viewer: Any, contact: Any = None,
-                exclude_reference: str | None = None, nothing: str = "Nothing was booked.") -> list[str]:
-    """Refuse (DuplicateBooking, 409) per `decide`, or return warnings for staff. exclude_reference: the booking being
-    re-held itself. Fails closed (503) when bookings can't be read."""
+async def check(passengers: Iterable[Any], journeys: set[Journey], *, viewer: Any, exclude_reference: str | None = None,
+                nothing: str = "Nothing was booked.") -> list[Flag]:
+    """Refuse (DuplicateBooking, 409) per `decide`, or return the flags to pass to `warnings_for` / `flag_for_staff`.
+    exclude_reference: the booking being re-held itself. Staff: fails closed (503) when bookings can't be read; the website
+    is never refused, so then it goes ahead unflagged (logged)."""
     persons = [person for person in people(passengers) if person.key]
     if not persons or not journeys:
         return []
     try:
         existing = await run_in_threadpool(store.travelers_named, sorted({person.key for person in persons}), exclude_reference)
-    except Exception as error:  # noqa: BLE001 - never book without the check
-        logger.error("Double-booking check failed; nothing booked", extra={"error_type": type(error).__name__})
+    except Exception as error:  # noqa: BLE001
+        logger.error("Double-booking check failed", extra={"error_type": type(error).__name__, "website": is_website(viewer)})
+        if is_website(viewer):
+            return []
         raise DuplicateBooking(503, CHECK_FAILED, "duplicate_check_failed") from None
     try:
-        return decide(persons, journeys, existing, viewer, contact, nothing)
+        return decide(persons, journeys, existing, viewer, nothing)
     except DuplicateBooking as error:
         logger.info("Double booking refused", extra={"existing_reference": error.reference})
         raise

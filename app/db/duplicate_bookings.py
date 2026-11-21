@@ -66,3 +66,13 @@ def travelers_named(names: list[str], exclude_reference: str | None = None) -> l
                              contact_email=(row.email or "").strip().lower() or None,
                              contact_phone="".join(ch for ch in f"{row.phone_code or ''}{row.phone or ''}" if ch.isdigit()) or None)
             for row in rows]
+
+
+def record_flag(reference: str, actor: str | None, details: dict[str, Any]) -> None:
+    """Audit entry `possible_double_booking` on the new booking (journeys and counts only: no names, no other reference)."""
+    from app.db.supplier_bookings import _event
+
+    with agencies.application_engine().begin() as connection:
+        booking_id = connection.execute(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference}).scalar_one_or_none()
+        if booking_id is not None:
+            _event(connection, booking_id, actor, "possible_double_booking", details)
