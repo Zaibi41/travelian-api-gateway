@@ -1,7 +1,8 @@
 """Customer emails (approved templates: app/services/email_templates.py) and the signed links they carry.
 
 When: the hold (card, Book Only, bank transfer, JazzCash), the verified payment, the issued ticket, a paid booking that
-isn't ticketed yet, and a paid booking that can't be ticketed. Sent through SES to the booking's customer email when
+isn't ticketed yet, a paid booking that can't be ticketed, a hold that ended, and a cancellation the supplier confirmed
+(SooperFare cancel/check, a released group hold; only if the customer paid or was emailed about the booking before). Sent through SES to the booking's customer email when
 NOTIFY_EMAIL_ENABLED is on. Every attempt is recorded on the booking (customer_email_sent / customer_email_not_sent with the
 reason, e.g. SES sandbox refusing an unverified address), so the admin shows "Email not sent" and staff contact the
 customer. Never raises: an email never changes or blocks a booking.
@@ -229,6 +230,9 @@ def deliver(reference: str, kind: str, *, method: str = "card", resend_by: str |
             return False, "already sent"
         if kind == "hold_expired" and (facts.get("paid_minor") or not _already_sent(facts["id"], HOLD_KINDS)):
             # Only an unpaid hold the customer was emailed about (a paid one follows the paid-not-ticketed path).
+            return False, "not needed"
+        if kind == "booking_cancelled" and not (facts.get("paid_minor") or _already_sent(facts["id"], tuple(KINDS - {"booking_cancelled"}))):
+            # The same rule as the hold-ended email: no surprise email for a staff hold the customer was never told about.
             return False, "not needed"
         to = (facts.get("c_email") or "").strip()
         if not to:

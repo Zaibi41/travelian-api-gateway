@@ -833,6 +833,12 @@ async def release(reference: str, viewer: BackOfficeUser) -> GroupHoldView:
         await run_in_threadpool(store.mark_released, reference, viewer.user_id, _now())
     except store.GroupHoldRefused as error:
         raise _refused(error) from None
+    try:  # the supplier confirmed the release: the booking is cancelled, so the customer is told (once)
+        from app.services import customer_emails
+
+        await customer_emails.send(reference, "booking_cancelled")
+    except Exception:  # noqa: BLE001 - never changes the release
+        logger.warning("Booking cancelled email not sent", extra={"reference": reference})
     return await read(reference, viewer)
 
 

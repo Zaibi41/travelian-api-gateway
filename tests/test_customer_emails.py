@@ -143,6 +143,25 @@ def test_hold_ended_email_not_sent_when_money_was_paid(wired, monkeypatch):
     assert ce.deliver("TRV-1", "hold_expired") == (False, "not needed") and len(sent) == 1
 
 
+def test_cancelled_email_only_when_the_customer_paid_or_was_emailed_and_only_once(wired, monkeypatch):
+    recorded, sent = wired
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (sent.append((to, email)), (True, "sent"))[1])
+    # A staff hold the customer was never told about: no surprise email, nothing recorded.
+    assert ce.deliver("TRV-1", "booking_cancelled") == (False, "not needed") and sent == [] and recorded == []
+    assert ce.deliver("TRV-1", "booking_held")[0] is True
+    assert ce.deliver("TRV-1", "booking_cancelled") == (True, "sent") and sent[-1][1].subject == "Booking TRV-1 is cancelled"
+    assert "SooperFare" not in sent[-1][1].html and "Nothing was charged." in sent[-1][1].text
+    assert ce.deliver("TRV-1", "booking_cancelled") == (False, "already sent") and len(sent) == 2
+
+
+def test_cancelled_email_goes_to_a_customer_who_paid_even_without_an_earlier_email(wired, monkeypatch):
+    recorded, sent = wired
+    monkeypatch.setattr(ce, "_facts", lambda reference: {**FACTS, "paid_minor": 1_000_000})
+    monkeypatch.setattr(ce, "ses_send", lambda to, email: (sent.append((to, email)), (True, "sent"))[1])
+    assert ce.deliver("TRV-1", "booking_cancelled") == (True, "sent")
+    assert "Our team will contact you about the refund." in sent[-1][1].text
+
+
 @pytest.mark.parametrize("paid,words", [(0, "Nothing was charged."), (2_407_000, "Our team will contact you about the refund.")])
 def test_cancelled_email_says_what_happens_to_the_money(paid, words):
     booking = ce.booking_from({**FACTS, "paid_minor": paid}, "https://travelian.pk/my-bookings/view/tok")
