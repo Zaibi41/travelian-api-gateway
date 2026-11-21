@@ -653,8 +653,6 @@ from app.schemas.finance import (  # noqa: E402
 )
 from app.services import statement_csv  # noqa: E402
 
-#: Supplier mismatches carry supplier cost: cost and margin permission only.
-SUPPLIER_KINDS = {"ticket_without_charge", "charge_differs_from_cost", "supplier_line_not_found", "supplier_statement_differs"}
 
 
 def _recon_error(error: recon.ReconRefused | statement_csv.StatementError) -> JSONResponse:
@@ -715,16 +713,18 @@ async def list_statement_imports(viewer: Annotated[BackOfficeUser, Depends(requi
     rows = await run_in_threadpool(recon.list_imports, kind)
     if not viewer.visibility.cost_and_margin:
         rows = [r for r in rows if r["kind"] != "supplier"]
+    if not viewer.visibility.supplier_names:
+        rows = [{**r, "provider_id": None} for r in rows]
     return StatementImportList(imports=[StatementImportView(**r) for r in rows])
 
 
 @router.get("/reconciliation/imports/{import_id}/lines", response_model=StatementLineList)
 async def list_statement_lines(import_id: str, viewer: Annotated[BackOfficeUser, Depends(require_finance)],
                                status: str | None = Query(None, pattern="^(matched|suggested|unmatched|ignored)$")) -> StatementLineList:
-    kinds = {r["id"]: r["kind"] for r in await run_in_threadpool(recon.list_imports, None)}
-    if kinds.get(import_id) == "supplier" and not viewer.visibility.cost_and_margin:
-        raise HTTPException(403, "Supplier statements need the cost and margin permission.")
-    rows = await run_in_threadpool(recon.list_lines, import_id, status)
+    try:
+        rows = await run_in_threadpool(recon.list_lines, import_id, status, viewer.visibility.cost_and_margin)
+    except recon.ReconRefused as error:
+        raise HTTPException(error.status, error.message) from None
     pkr = lambda minor: None if minor is None else money(minor, "PKR")  # noqa: E731
     return StatementLineList(lines=[StatementLineView(
         id=r["id"], line_no=r["line_no"], reference=r["reference"], description=r["description"], occurred_on=r["occurred_on"],
@@ -771,10 +771,11 @@ async def list_mismatches(viewer: Annotated[BackOfficeUser, Depends(require_fina
                           status: str | None = Query("open", pattern="^(open|explained|resolved|all)$"), kind: str | None = Query(None, max_length=40),
                           limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)) -> MismatchList:
     """One list of differences to work through; supplier ones need cost and margin."""
-    rows, total = await run_in_threadpool(lambda: recon.list_mismatches(None if status == "all" else status, kind, limit, offset))
-    if not viewer.visibility.cost_and_margin:
-        hidden = [r for r in rows if r["kind"] in SUPPLIER_KINDS]
-        rows, total = [r for r in rows if r["kind"] not in SUPPLIER_KINDS], total - len(hidden)
+    try:
+        rows, total = await run_in_threadpool(lambda: recon.list_mismatches(None if status == "all" else status, kind, limit, offset,
+                                                                            viewer.visibility.cost_and_margin))
+    except recon.ReconRefused as error:
+        raise HTTPException(error.status, error.message) from None
     return MismatchList(mismatches=[_mismatch_view(r) for r in rows], total=total)
 
 

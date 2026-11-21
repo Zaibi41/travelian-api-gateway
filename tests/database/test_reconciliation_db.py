@@ -75,6 +75,9 @@ def test_supplier_check_and_mismatch_resolution(database):
     finance.add_supplier_charge(other, WHO, amount_minor=40_000, reason="Portal")
     assert recon.check_supplier_charges(WHO) == 2
     assert recon.check_supplier_charges(WHO) == 0  # listed once
+    assert recon.list_mismatches("open", see_cost=False) == ([], 0)  # filtered in SQL, count included
+    with pytest.raises(recon.ReconRefused):
+        recon.list_mismatches("open", "ticket_without_charge", see_cost=False)
     mismatches, total = recon.list_mismatches("open")
     assert total == 2 and {m["kind"] for m in mismatches} == {"ticket_without_charge", "charge_differs_from_cost"}
     target = mismatches[0]
@@ -102,4 +105,8 @@ def test_supplier_statement_import(database):
     result = recon.import_supplier("sooperfare", "sf.csv", b"sf-1", {"reference": "PNR"}, [line(2, "sf7777", 45_790), line(3, "NOPE", 100)], WHO)
     assert (result.matched, result.unmatched) == (1, 1)
     assert sorted(m["kind"] for m in recon.list_mismatches("open")[0]) == ["supplier_line_not_found", "supplier_statement_differs"]
+    with pytest.raises(recon.ReconRefused):
+        recon.list_lines(result.import_id, see_cost=False)
+    with pytest.raises(recon.ReconRefused, match="not found"):
+        recon.list_lines("00000000-0000-4000-8000-000000000000")
     assert date.today() is not None

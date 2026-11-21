@@ -28,6 +28,7 @@ from app.services.statement_csv import Line
 
 BANK_DAYS = 5
 KINDS = ("payfast", "bank", "supplier")
+SUPPLIER_KINDS = frozenset({"ticket_without_charge", "charge_differs_from_cost", "supplier_line_not_found", "supplier_statement_differs"})
 
 
 class ReconRefused(Exception):
@@ -275,8 +276,13 @@ def list_imports(kind: str | None = None) -> list[dict]:
             + (" WHERE i.kind = :k" if kind else "") + " GROUP BY i.id, a.label ORDER BY i.imported_at DESC LIMIT 200"), {"k": kind}).mappings().all()]
 
 
-def list_lines(import_id: str, status: str | None = None) -> list[dict]:
+def list_lines(import_id: str, status: str | None = None, see_cost: bool = True) -> list[dict]:
     with agencies.application_engine().begin() as connection:
+        kind = connection.scalar(text("SELECT kind FROM recon_imports WHERE id = :i"), {"i": import_id})
+        if kind is None:
+            raise ReconRefused(404, "Import not found.")
+        if kind == "supplier" and not see_cost:
+            raise ReconRefused(403, "Supplier statements need the cost and margin permission.")
         return [dict(r) for r in connection.execute(text(
             "SELECT l.id, l.line_no, l.reference, l.description, l.occurred_on, l.amount_minor, l.fee_minor, l.net_minor, l.payout_on, l.status,"
             " b.reference AS booking_reference, p.reference AS payment_reference, p.amount_minor AS payment_amount_minor"
@@ -285,8 +291,14 @@ def list_lines(import_id: str, status: str | None = None) -> list[dict]:
             {"i": import_id, "s": status}).mappings().all()]
 
 
-def list_mismatches(status: str | None = "open", kind: str | None = None, limit: int = 200, offset: int = 0) -> tuple[list[dict], int]:
+def list_mismatches(status: str | None = "open", kind: str | None = None, limit: int = 200, offset: int = 0,
+                    see_cost: bool = True) -> tuple[list[dict], int]:
     where, params = ["true"], {"limit": limit, "offset": offset}
+    if not see_cost:
+        if kind in SUPPLIER_KINDS:
+            raise ReconRefused(403, "Supplier mismatches need the cost and margin permission.")
+        where.append("NOT (m.kind = ANY(:hidden))")
+        params["hidden"] = list(SUPPLIER_KINDS)
     if status:
         where.append("m.status = :s")
         params["s"] = status
@@ -300,9 +312,6 @@ def list_mismatches(status: str | None = "open", kind: str | None = None, limit:
             "SELECT m.*, b.reference AS booking_reference FROM recon_mismatches m LEFT JOIN bookings b ON b.id = m.booking_id"
             f" WHERE {clause} ORDER BY m.created_at DESC LIMIT :limit OFFSET :offset"), params).mappings().all()]
     return rows, total
-
-
-SUPPLIER_KINDS = frozenset({"ticket_without_charge", "charge_differs_from_cost", "supplier_line_not_found", "supplier_statement_differs"})
 
 
 def resolve_mismatch(mismatch_id: str, actor: finance.Actor, status: str, reason: str, see_cost: bool = True) -> dict:
