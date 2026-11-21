@@ -96,3 +96,21 @@ Build and upload the frontend only after step 5 works.
   DNS record.
 - When `/content/*` has moved into the gateway, delete the legacy `handle` block and
   retire the Lambda and DynamoDB.
+
+## Changing the Caddyfile later
+
+CI deploys (`deploy/deploy.sh`) install the gateway code only; they never touch
+`/etc/caddy/Caddyfile`. After a change to `deploy/Caddyfile` is merged, an administrator
+applies it on the server from the active release (it already holds the merged file):
+
+```bash
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak
+sudo install -m 644 /opt/travelian-api/current/deploy/Caddyfile /etc/caddy/Caddyfile
+sudo systemctl show caddy -p Environment   # LEGACY_API_TARGET and ACME_EMAIL must be listed
+sudo env $(systemctl show caddy -p Environment --value) \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl reload caddy
+```
+
+If `validate` fails, do not reload: `sudo cp /etc/caddy/Caddyfile.bak /etc/caddy/Caddyfile`.
+Re-running `deploy/server-setup.sh` also installs the file.

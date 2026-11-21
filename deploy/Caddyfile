@@ -6,6 +6,10 @@
 #   Retired (B14, 19 Nov 2026): the Lambda's PayFast routes (/payments/payfast/*: its callback marked bookings
 #   paid without verification) and its group-ticketing feed (/group-ticketing/*: it exposed supplier codes).
 #   Payments and group fares go through the gateway (/v1/public/...). Answer 410 Gone; nothing reaches the Lambda.
+#   Retired (gateway#82, 21 Nov 2026): the Lambda's /content/bookings* and /content/booking-requests* (read and
+#   write with no sign-in; they returned traveler contact details and supplier cost). No screen uses them; bookings
+#   are in the gateway (/v1/admin/bookings, /v1/public/...). One prefix covers both routes, their /{id} paths,
+#   trailing slashes and encoded variants (Caddy matches the unescaped path, case-insensitively, slashes merged).
 #
 # LEGACY_API_TARGET is the "API Gateway domain name" of the api.travelian.pk custom
 # domain (d-xxxxxxxxxx.execute-api.us-east-1.amazonaws.com). It is set in
@@ -31,6 +35,12 @@
 	handle @retired {
 		header Content-Type application/json
 		respond `{"error":"GONE","message":"This endpoint was retired. Use https://api.travelian.pk/v1/public."}` 410
+	}
+
+	@retired_content path /content/booking*
+	handle @retired_content {
+		header Content-Type application/json
+		respond `{"error":"GONE","message":"This endpoint was retired."}` 410
 	}
 
 	handle {
