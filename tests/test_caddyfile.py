@@ -91,11 +91,16 @@ BLOCKED_CONTENT = [
     "/content/booking-requests",
     "/content/booking-requests/",
     "/content/booking-requests/req-1",
+    "/content/customers",
+    "/content/customers/",
+    "/content/customers/cus-1",
+    "/Content/Customers",
 ]
 
 # Still served by the legacy Lambda (other screens and the legacy search) or by the gateway.
 NOT_BLOCKED = [
     "/content/blog-posts",
+    "/content/customersfoo",
     "/content/blog-posts/some-slug",
     "/content/packages",
     "/content/hotels",
