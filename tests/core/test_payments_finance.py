@@ -164,3 +164,47 @@ def test_public_card_fee_quote_is_worked_out_by_the_gateway(monkeypatch):
     body = TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 4_670_000, "product": "flight"}).json()
     assert body == {"percent": "3%", "fee": {"amount_minor": 140_100, "currency": "PKR"}, "total": {"amount_minor": 4_810_100, "currency": "PKR"}}
     assert TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 0}).status_code == 422
+
+
+def test_public_contact_change_needs_the_token_or_the_booking_contact(monkeypatch):
+    """travelian#56: the customer changes mobile / email before paying; same access as the slip routes; no re-hold."""
+    from app.db import public_bookings
+    from app.services import booking_contact
+
+    monkeypatch.setattr(public_bookings, "guest_can_open", lambda reference, token: token == "good-token-123")
+    monkeypatch.setattr(public_bookings, "lookup", lambda reference, contact, trusted=False: {"reference": reference} if contact == "a@b.pk" else None)
+    calls = []
+
+    def change(reference, *, email, phone_code, phone, actor_user_id, website):
+        calls.append((reference, email, phone_code, phone, actor_user_id, website))
+        booking_contact.clean(email, phone_code, phone)
+        if reference == "TRV-PAID01":
+            raise booking_contact.ContactRefused(409, "This booking can't be changed online any more.", "closed")
+        return booking_contact.Contact(email=email or "a@b.pk", phone_code=phone_code, phone=phone)
+
+    monkeypatch.setattr(booking_contact, "change", change)
+    client = TestClient(app)
+    url = "/v1/public/bookings/TRV-ABC123/contact"
+    body = {"phone_code": "+92", "phone": "3009876543", "email": "new@b.pk"}
+    assert client.put(url, json=body).status_code == 404
+    assert client.put(url, json={**body, "contact": "x@y.pk"}).status_code == 404
+    ok = client.put(url, json=body, headers={"X-Booking-Token": "good-token-123"})
+    assert ok.status_code == 200 and ok.json()["phone"] == "3009876543" and ok.json()["email"] == "new@b.pk"
+    assert calls[-1] == ("TRV-ABC123", "new@b.pk", "+92", "3009876543", None, True)
+    assert client.put(url, json={**body, "contact": "a@b.pk"}).status_code == 200
+    bad = client.put(url, json={**body, "phone": "30a"}, headers={"X-Booking-Token": "good-token-123"})
+    assert bad.status_code == 422 and bad.json()["code"] == "invalid_phone"
+    closed = client.put("/v1/public/bookings/TRV-PAID01/contact", json=body, headers={"X-Booking-Token": "good-token-123"})
+    assert closed.status_code == 409 and closed.json()["code"] == "closed"
+
+
+def test_contact_values_are_checked():
+    from app.services import booking_contact
+
+    assert booking_contact.clean(" a@b.pk ", "+92", "300 123 4567") == ("a@b.pk", "+92", "3001234567")
+    assert booking_contact.clean("", "+971", "501234567") == (None, "+971", "501234567")
+    for email, code, phone in (("nope", "+92", "3001234567"), (None, "+9200", "3001234567"), (None, "+92", "12345"), (None, "+92", "3001234567890123")):
+        with pytest.raises(booking_contact.ContactRefused):
+            booking_contact.clean(email, code, phone)
+    assert booking_contact._masked_phone("+92", "3001234567") == "+92 ***567"
+    assert booking_contact._masked_email("ali@example.invalid") == "a***@example.invalid"

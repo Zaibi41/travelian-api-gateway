@@ -17,6 +17,7 @@ No login. The gateway decides prices and what a guest sees; the page only displa
 | `POST /group-ticketing/bookings` | Book as a guest. 5 per IP per hour. Answers with the reference and a private `access_token` (shown once; only its SHA-256 is stored). The guest can't set a price. |
 | `GET /bookings/{reference}` | Header `X-Booking-Token`. Status, total, paid, hold time, flights, traveler names; final PNR and ticket numbers once issued. |
 | `POST /bookings/{reference}/payments/payfast` | Header `X-Booking-Token`. The PayFast checkout form (`action`, `fields`) for the amount due; the browser posts it. Only for a live hold that can take payment. |
+| `PUT /bookings/{reference}/contact` | Header `X-Booking-Token`, or `contact` (the email or phone booked with, My Bookings). Change the mobile number (`phone_code`, `phone`) and email before paying (travelian#56). No re-hold: the airline hold and price stay. Refused (409 `closed`) once paid, issued, cancelled or expired. Logged on the booking, masked (`customer_contact_changed`). Staff: `PUT /v1/admin/bookings/{id}/customer-contact`, at any time. Names, dates of birth and passports are not changed here (they need supplier cancel + re-hold, gateway#44 / #48). |
 | `GET/POST /payments/payfast/notify` | PayFast's server notification (`CHECKOUT_URL`). Not in the API docs. |
 | `POST /payments/payfast/return` | The website forwards the parameters PayFast sent the customer back with. |
 

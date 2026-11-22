@@ -31,7 +31,7 @@ from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
 from app.schemas.admin_bookings import (
-    BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
+    BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, CustomerContactChange, CustomerContactChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
 )
@@ -343,6 +343,26 @@ async def change_customer_email(viewer: Viewer, request: CustomerEmailChange, bo
     except customer_emails.ResendRefused as error:
         raise HTTPException(error.status, error.message) from None
     return CustomerEmailChanged(email=email, message="Email address updated. Resend the emails the customer missed.")
+
+
+@router.put("/{booking_id}/customer-contact", response_model=CustomerContactChanged,
+            responses={404: {"description": "No such booking."}, 422: {"description": "Not a valid phone or email."}})
+async def change_customer_contact(viewer: Viewer, request: CustomerContactChange, booking_id: Annotated[str, Path(max_length=64)]):
+    """Change the customer's mobile number and email on this booking (travelian#56), e.g. on the Payments tab before the
+    payment is recorded. No re-hold: the airline hold and the price stay. Back office; logged (masked)."""
+    from app.services import booking_contact
+
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    try:
+        saved = await run_in_threadpool(lambda: booking_contact.change(
+            booking.booking_id, email=request.email, phone_code=request.phone_code, phone=request.phone,
+            actor_user_id=viewer.user_id, website=False))
+    except booking_contact.ContactRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return CustomerContactChanged(phone=f"{saved.phone_code} {saved.phone}", email=saved.email, message="Contact details saved.")
 
 
 def _result(outcome: issuance_service.Outcome) -> IssuanceResult:

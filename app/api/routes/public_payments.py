@@ -127,3 +127,35 @@ async def choose_account(reference: str, body: ChooseAccountRequest, request: Re
     except payment_slips.SlipRefused as error:
         return _error(error.status, error.message, error.code)
     return Response(status_code=204)
+
+
+class PublicContactChange(Access):
+    """The customer's new contact details (travelian#56). Names, dates of birth and passports are not changed here."""
+
+    phone_code: str = Field(max_length=4, description='Country code, e.g. "+92".')
+    phone: str = Field(max_length=20, description="Mobile number, digits only, without the country code.")
+    email: str | None = Field(None, max_length=254, description="Left out or empty: the email on the booking stays.")
+
+
+class PublicContactView(BaseModel):
+    phone_code: str
+    phone: str
+    email: str
+    message: str
+
+
+@router.put("/contact", response_model=PublicContactView, responses={404: {}, 409: {"description": "Paid, issued or closed."}, 422: {}, 429: {}})
+async def change_contact(reference: str, body: PublicContactChange, request: Request, token: OptionalToken = None):
+    """Change the mobile number and email on a booking that still waits for payment. The airline hold and the price
+    stay as they are (no re-hold). Logged on the booking, masked."""
+    from app.services import booking_contact
+
+    if (refused := await _check(reference, token, body.contact, request)) is not None:
+        return refused
+    try:
+        saved = await run_in_threadpool(lambda: booking_contact.change(
+            reference, email=body.email, phone_code=body.phone_code, phone=body.phone, actor_user_id=None, website=True))
+    except booking_contact.ContactRefused as error:
+        return _error(error.status, error.message, error.code)
+    return PublicContactView(phone_code=saved.phone_code, phone=saved.phone, email=saved.email,
+                       message="Contact details saved. Your booking and price stay the same.")
