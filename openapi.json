@@ -463,6 +463,71 @@
         "title": "AgencyUpdate",
         "type": "object"
       },
+      "AnnouncementList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AnnouncementList",
+        "type": "object"
+      },
+      "AnnouncementView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Plain text, 2 to 240 characters.",
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          }
+        },
+        "required": [
+          "id",
+          "message",
+          "created_at"
+        ],
+        "title": "AnnouncementView",
+        "type": "object"
+      },
       "AttentionItem": {
         "properties": {
           "booking_id": {
@@ -2775,6 +2840,47 @@
         "title": "ConfirmSlipRequest",
         "type": "object"
       },
+      "CreateAnnouncementRequest": {
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional; with a time zone, in the future and after starts_at.",
+            "title": "Ends At"
+          },
+          "message": {
+            "description": "Plain text. Extra spaces and line breaks are removed; < and > are refused.",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional; with a time zone. Shown from then on.",
+            "title": "Starts At"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "CreateAnnouncementRequest",
+        "type": "object"
+      },
       "CurrencyAmount": {
         "properties": {
           "amount_minor": {
@@ -3166,6 +3272,25 @@
           "business"
         ],
         "title": "DashboardSummary",
+        "type": "object"
+      },
+      "DeletedAnnouncement": {
+        "properties": {
+          "deleted": {
+            "const": true,
+            "default": true,
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DeletedAnnouncement",
         "type": "object"
       },
       "DestinationSuggestRequest": {
@@ -8085,6 +8210,94 @@
           "next_steps"
         ],
         "title": "LookupView",
+        "type": "object"
+      },
+      "ManagedAnnouncement": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Plain text, 2 to 240 characters.",
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "status": {
+            "description": "active: in the top bar now; scheduled: its start time is ahead; ended: ended by hand or its end time passed.",
+            "enum": [
+              "active",
+              "scheduled",
+              "ended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message",
+          "created_at",
+          "status"
+        ],
+        "title": "ManagedAnnouncement",
+        "type": "object"
+      },
+      "ManagedAnnouncementList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAnnouncement"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ManagedAnnouncementList",
         "type": "object"
       },
       "MarkRefundPaidRequest": {
@@ -14718,6 +14931,230 @@
         "summary": "Revoke",
         "tags": [
           "agency integrations"
+        ]
+      }
+    },
+    "/v1/admin/announcements": {
+      "get": {
+        "description": "What the admin top bar shows, newest first. Empty list when there are none.",
+        "operationId": "list_announcements_v1_admin_announcements_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller may not do this (reading: back office only; changes: Super Admin only)."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Announcements",
+        "tags": [
+          "admin announcements"
+        ]
+      },
+      "post": {
+        "description": "Post an announcement. All staff see it in the top bar within a minute (the page checks every minute).",
+        "operationId": "create_announcement_v1_admin_announcements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnnouncementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAnnouncement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller may not do this (reading: back office only; changes: Super Admin only)."
+          },
+          "422": {
+            "description": "Message not 2 to 240 characters of plain text, or the start/end times don't make sense."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Announcement",
+        "tags": [
+          "admin announcements"
+        ]
+      }
+    },
+    "/v1/admin/announcements/all": {
+      "get": {
+        "description": "The Announcements page: every announcement not deleted, newest first.",
+        "operationId": "list_all_announcements_v1_admin_announcements_all_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAnnouncementList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller may not do this (reading: back office only; changes: Super Admin only)."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List All Announcements",
+        "tags": [
+          "admin announcements"
+        ]
+      }
+    },
+    "/v1/admin/announcements/{announcement_id}": {
+      "delete": {
+        "description": "Remove it from the top bar and the list.",
+        "operationId": "delete_announcement_v1_admin_announcements__announcement_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "announcement_id",
+            "required": true,
+            "schema": {
+              "title": "Announcement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedAnnouncement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller may not do this (reading: back office only; changes: Super Admin only)."
+          },
+          "404": {
+            "description": "No announcement with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Announcement",
+        "tags": [
+          "admin announcements"
+        ]
+      }
+    },
+    "/v1/admin/announcements/{announcement_id}/end": {
+      "post": {
+        "description": "Take it off the top bar now. It stays in the list as ended.",
+        "operationId": "end_announcement_v1_admin_announcements__announcement_id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "announcement_id",
+            "required": true,
+            "schema": {
+              "title": "Announcement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAnnouncement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller may not do this (reading: back office only; changes: Super Admin only)."
+          },
+          "404": {
+            "description": "No active announcement with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "End Announcement",
+        "tags": [
+          "admin announcements"
         ]
       }
     },
