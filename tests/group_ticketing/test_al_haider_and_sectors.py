@@ -13,6 +13,7 @@ from pydantic import SecretStr
 from app.core.config import settings
 from app.core.field_visibility import ALL, NONE, FieldVisibility
 from app.services.group_ticketing_view import baggage_text, inventory_view, ticket_view
+from app.services import group_holds
 from app.vendors.group_ticketing.al_haider import inventory as al_haider
 from app.vendors.group_ticketing.dhillu_sahi import inventory as dhillu
 from app.vendors.group_ticketing.dhillu_sahi.auth import DhilluSahiAuthClient
@@ -199,3 +200,38 @@ def test_every_id_failing_fails_the_supplier(ds_configured):
     with pytest.raises(Exception) as raised:
         asyncio.run(dhillu.fetch_inventory(ds_client(answers, [])))
     assert getattr(raised.value, "error_code", "").startswith("upstream_http_")
+
+
+# #152: the live LHE-MCT-JED SalamAir row (read 22 Nov 2026), one-way with a connection in Muscat.
+LHE_MCT_JED = al_group(3561, "LHE-MCT-JED", details=[
+    {"id": 71820, "group_id": 3561, "sr": 1, "flight_no": "OV-522", "flight_date": "2026-11-27", "origin": "Lahore", "destination": "Muscat",
+     "baggage": "20+5", "dept_time": "03:25:00", "arv_time": "05:40:00"},
+    {"id": 71821, "group_id": 3561, "sr": 2, "flight_no": "OV-287", "flight_date": "2026-11-27", "origin": "Muscat", "destination": "Jeddah",
+     "baggage": "20+5", "dept_time": "07:30:00", "arv_time": "10:00:00"}])
+LHE_MCT_JED["airline"].update({"airline_name": "SALAM AIR", "short_name": "OV"})
+
+
+def test_connecting_one_way_keeps_every_flight_outbound_with_its_arrival_date():
+    ticket = al_haider.normalize([LHE_MCT_JED])[0].tickets[0]
+    assert ticket.sector == "LHE - MCT - JED"
+    assert [(leg.direction, leg.flight_number, leg.origin, leg.destination, leg.departure_date, leg.departure_time, leg.arrival_date, leg.arrival_time)
+            for leg in ticket.legs] == [
+        ("outbound", "OV522", "LHE", "MCT", "2026-11-27", "03:25", "2026-11-27", "05:40"),
+        ("outbound", "OV287", "MCT", "JED", "2026-11-27", "07:30", "2026-11-27", "10:00")]
+
+
+def test_overnight_flight_lands_the_next_day():
+    overnight = al_group(3562, "LHE-JED", details=[
+        {"id": 71830, "group_id": 3562, "sr": 1, "flight_no": "PA-470", "flight_date": "2026-12-31", "origin": "Lahore", "destination": "Jeddah",
+         "baggage": "20+7", "dept_time": "23:00:00", "arv_time": "03:15:00"}])
+    [leg] = al_haider.normalize([overnight])[0].tickets[0].legs
+    assert (leg.departure_date, leg.arrival_date) == ("2026-12-31", "2027-01-01")
+    segments = group_holds._itinerary(al_haider.normalize([overnight])[0].tickets[0])
+    assert segments[0]["arrival_local"] == "2027-01-01T03:15"
+
+
+def test_arrival_date_without_times_or_date_is_the_flight_date():
+    _arrival_date = al_haider._arrival_date
+    assert _arrival_date("2026-12-01", None, "03:15") == "2026-12-01"
+    assert _arrival_date(None, "23:00", "03:15") is None
+    assert _arrival_date("not a date", "23:00", "03:15") == "not a date"
