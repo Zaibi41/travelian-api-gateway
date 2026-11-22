@@ -18,6 +18,35 @@ Staff see `stock` (`supplier` or `owned`), never `supplier`, unless granted "see
 Group identity: each search result and each hold carry `group_source` (`provider`, `provider_name`, `supplier_pnr`, `supplier_group_id`, `supplier_ticket_id`) only for viewers with the supplier names permission (Super Admin; staff when granted). When a hold is created the listing row's identity is copied onto the booking (`supplier_response -> 'source'`; the hold's PNR when the supplier gives one, else the listing's). Dhillu & Sahi: the ticket's `pnr`, the first subpart's `group_id` and `id`. Skypass: `airline_pnr` and the ticket `id`; Skypass sends no group ID, and `open_seats_slot` (hold-only) is never returned. In Bookings, a group booking's `pnr` (the supplier's) is also left out, and not searchable, without that permission.
 Passport numbers and dates of birth are stored as in the Flights holds (plain text for the sandbox phase, masked on read; docs/pii-storage.md).
 
+## No double booking (issue #17)
+
+Before our record is written and before any supplier call, every hold and request (staff and website, flights and group
+tickets, checked against each other) is checked against active bookings (`app/services/duplicate_bookings.py`):
+
+- same passenger: first + last name equal ignoring case and spaces, and the same date of birth or the same passport /
+  CNIC number; adults, children and infants alike;
+- same route: a journey (outbound, or the return of a round trip) with the same origin, destination and departure date;
+- active: `held`, `pending_payment`, `payment_received`, `confirmed`, `ticket_issued`, `paid_not_ticketed`, `hold_unrecorded`,
+  and `hold_pending` younger than 60 minutes. Not `requested`, `hold_failed`, `cancelled`, `expired`, nor an unpaid hold past
+  its time limit. A re-hold of a booking is not refused by that booking itself.
+
+Who is refused by what:
+
+| Caller | Refused (`409 duplicate_booking`) by | Otherwise |
+| --- | --- | --- |
+| Website (guest) | **never**: contact details typed on the website prove nothing, so the public answer never depends on another booking | every match is accepted as usual and flagged for staff |
+| Staff | a paid, confirmed or ticketed booking (any channel), or a hold/request made by staff | an unpaid website hold is a **warning** (flight holds: `warnings`, shown on the hold result) and is flagged for staff |
+
+Flagged for staff: an audit entry `possible_double_booking` on the new booking (journeys and counts only: no names, no
+other reference) and a staff notification "Possible double booking" that names the passenger and route but **never another
+booking's reference** (notifications reach staff who may not be allowed to see it).
+
+A staff refusal or warning names the existing reference only when the viewer may see that booking (as the admin booking
+list: back office, and a `hold_unrecorded` booking only with supplier access); otherwise "<name> already has a booking on
+<route> on <date>." If bookings can't be read, staff get `503 duplicate_check_failed` and nothing is booked; the website
+goes ahead unflagged (logged). For the website the flagging runs in the background, so the response time never depends on a match. An identical second staff call while the first is still running is refused. No migration
+and no staff override.
+
 ## Dhillu & Sahi listing setting
 
 `DHILLU_SAHI_SECTOR_GROUP_IDS`: the sector group ids sent as `my_sector_id` to the listing call, comma-separated, read exactly as written (items trimmed, empty items ignored). There is no default. Unset or empty: the Dhillu & Sahi listing is never called, its fares are left out (as for any unconfigured supplier), so it can't be held either, and one warning naming the setting is logged at startup. Example only, not a default:

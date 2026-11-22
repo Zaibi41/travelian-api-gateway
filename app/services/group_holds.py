@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
@@ -43,7 +44,7 @@ from app.schemas.group_holds import (
 )
 from app.schemas.group_ticketing import GroupInventory, GroupSource, GroupTicket
 from app.schemas.live_flights import HoldContact, HoldPassenger
-from app.services import flight_holds, group_terms, notifications, pricing
+from app.services import duplicate_bookings, flight_holds, group_terms, notifications, pricing
 from app.services.group_ticketing_status import ticketing_status
 from app.services.group_ticketing import TicketNotFound, find_ticket, sector_codes, stock_label
 from app.services import baggage as bags
@@ -581,6 +582,11 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
                fetch: Callable[[], Awaitable[list[GroupInventory]]] | None = None, request_only: bool = False) -> GroupHoldView:
     """Hold seats at the supplier. request_only (website, live booking off): the same checks and record, saved as
     'requested', and the supplier is never called."""
+    with ExitStack() as stack:
+        return await _hold(request, viewer, fetch, request_only, stack)
+
+
+async def _hold(request: GroupHoldRequest, viewer: BackOfficeUser, fetch, request_only: bool, stack: ExitStack) -> GroupHoldView:
     website = viewer.role == WEBSITE_ROLE  # a guest on the public site (app.services.public_booking)
     if viewer.role not in BACK_OFFICE_ROLES and not website:
         raise GroupHoldError(403, "Only back-office users can hold group seats.", "not_allowed")
@@ -630,6 +636,15 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         raise GroupHoldError(422, "This fare needs a passport for every traveler: number and expiry date.", "invalid_passengers",
                              [(["passengers", index, field], "A passport is needed for this fare.") for index, field in missing])
 
+    # Issue #17: no second booking for a passenger already booked on this route and date (flights or groups), checked
+    # before our record is written and before any supplier call. The passengers stay claimed until the record exists.
+    journeys = duplicate_bookings.itinerary_journeys(_itinerary(ticket))
+    try:
+        stack.enter_context(duplicate_bookings.booking(resolved.passengers, journeys, viewer=viewer, nothing="Nothing was held."))
+        flags = await duplicate_bookings.check(resolved.passengers, journeys, viewer=viewer, nothing="Nothing was held.")
+    except duplicate_bookings.DuplicateBooking as error:
+        raise GroupHoldError(error.status, error.message, error.code) from None
+
     # The selling price per adult: the staff's (whole rupees, not below the supplier cost) or the default
     # (supplier price + the group markup; markup 0 when unset). Shared rule: app.services.pricing.
     listing_cost = supplier_cost(ticket)
@@ -667,6 +682,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
         await notifications.booking_event("booking_requested", reference=reference, passenger=lead, route=ticket.sector,
                                           fare_minor=selling_each * request.adults, currency=currency, pnr=None, hold_expires_at=None,
                                           note="Website request: nothing is held at the supplier yet.")
+        await duplicate_bookings.flag(reference, flags, viewer=viewer, actor=viewer.user_id, passenger=lead)
         # B23: website customers are saved to (or matched with) Customers & Travelers too.
         await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)
         return await read(reference, viewer)
@@ -720,6 +736,7 @@ async def hold(request: GroupHoldRequest, viewer: BackOfficeUser,
     await notifications.booking_event("hold_created", reference=reference, passenger=lead, route=ticket.sector,
                                       fare_minor=selling.amount_minor * request.adults, currency=selling.currency, pnr=held.pnr,
                                       hold_expires_at=expires_at)
+    await duplicate_bookings.flag(reference, flags, viewer=viewer, actor=viewer.user_id, passenger=lead)
     # B23: every booking saves (or matches) its customer and travelers in Customers & Travelers, website ones included
     # (same duplicate rules: a matching passport or CNIC links; a likely match is left for staff to choose).
     outcomes = await run_in_threadpool(flight_holds._save_people, resolved, reference, viewer.user_id, owner, links, document)

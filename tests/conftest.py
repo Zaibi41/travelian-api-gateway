@@ -61,3 +61,17 @@ def _no_real_notifications(request, monkeypatch):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_notifications: write staff notifications to the test database instead of stubbing them")
+
+
+@pytest.fixture(autouse=True)
+def _no_existing_bookings(request, monkeypatch):
+    """The double-booking check (app.services.duplicate_bookings) finds no existing booking in unit tests, which have no
+    database. Tests with the disposable `database` fixture read the real bookings table."""
+    from app.services import duplicate_bookings
+
+    duplicate_bookings._in_flight.clear()
+    if "database" in request.fixturenames:
+        return
+    from app.db import duplicate_bookings as store
+
+    monkeypatch.setattr(store, "travelers_named", lambda names, exclude_reference=None: [])

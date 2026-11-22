@@ -20,6 +20,10 @@ No login. The gateway decides prices and what a guest sees; the page only displa
 | `GET/POST /payments/payfast/notify` | PayFast's server notification (`CHECKOUT_URL`). Not in the API docs. |
 | `POST /payments/payfast/return` | The website forwards the parameters PayFast sent the customer back with. |
 
+A guest's booking is never refused as a double booking, and the answer never depends on other bookings. When a traveler
+already has an active booking on the same route and date, the booking goes ahead and staff are flagged ("Possible double
+booking": docs/api/group-holds.md, "No double booking").
+
 ## PayFast (sandbox `https://ipguat.apps.net.pk`)
 
 Contract: the PayFast Postman collection (frontend `docs/postman/PayFast.postman_collection.json`, not committed) and
