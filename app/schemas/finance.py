@@ -454,3 +454,140 @@ class MismatchList(BaseModel):
 class ResolveMismatchRequest(BaseModel):
     status: Literal["explained", "resolved"]
     reason: str = Field(min_length=1, max_length=1000)
+
+
+LedgerType = Literal["asset", "liability", "equity", "income", "expense"]
+
+
+class LedgerAccountView(BaseModel):
+    code: str
+    name: str
+    type: LedgerType
+    system: bool = Field(description="Automatic journals post here: it can be renamed, not deactivated.")
+    receiving_account: bool = False
+    active: bool
+
+
+class LedgerAccountList(BaseModel):
+    accounts: list[LedgerAccountView]
+
+
+class AddLedgerAccountRequest(BaseModel):
+    code: str = Field(pattern=r"^[0-9]{4,10}$")
+    name: str = Field(min_length=1, max_length=120)
+    type: LedgerType
+
+
+class UpdateLedgerAccountRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=120)
+    active: bool | None = None
+
+
+class JournalLineView(BaseModel):
+    account_code: str
+    account_name: str
+    debit: BookingMoney
+    credit: BookingMoney
+    memo: str | None = None
+
+
+class JournalView(BaseModel):
+    id: str
+    number: int
+    posted_on: date
+    description: str
+    source_type: str
+    booking_reference: str | None = None
+    status: Literal["posted", "pending_approval", "rejected"]
+    created_by_user_id: str | None = None
+    approved_by_user_id: str | None = None
+    approved_at: datetime | None = None
+    rejected_reason: str | None = None
+    lines: list[JournalLineView]
+
+
+class JournalList(BaseModel):
+    journals: list[JournalView]
+    total: int
+
+
+class ManualJournalLine(BaseModel):
+    account_code: str = Field(pattern=r"^[0-9]{4,10}$")
+    debit_minor: int = Field(0, ge=0)
+    credit_minor: int = Field(0, ge=0)
+    memo: str | None = Field(None, max_length=200)
+
+
+class ManualJournalRequest(BaseModel):
+    posted_on: date
+    description: str = Field(min_length=1, max_length=300)
+    lines: list[ManualJournalLine] = Field(min_length=2, max_length=50)
+
+
+class RejectJournalRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AccountBalance(BaseModel):
+    code: str
+    name: str
+    type: LedgerType
+    debit: BookingMoney
+    credit: BookingMoney
+    balance: BookingMoney = Field(description="On the account's normal side (assets and expenses: debit - credit; others: credit - debit).")
+
+
+class TrialBalance(BaseModel):
+    date_to: date | None = None
+    accounts: list[AccountBalance]
+    total_debit: BookingMoney
+    total_credit: BookingMoney
+    balanced: bool
+
+
+class ProfitAndLoss(BaseModel):
+    date_from: date | None = None
+    date_to: date | None = None
+    income: list[AccountBalance]
+    expenses: list[AccountBalance]
+    total_income: BookingMoney
+    total_expenses: BookingMoney
+    net_profit: BookingMoney
+
+
+class AccountEntry(BaseModel):
+    number: int
+    posted_on: date
+    description: str
+    source_type: str
+    booking_reference: str | None = None
+    debit: BookingMoney
+    credit: BookingMoney
+    balance: BookingMoney
+    memo: str | None = None
+
+
+class AccountStatement(BaseModel):
+    code: str
+    name: str
+    type: LedgerType
+    opening: BookingMoney
+    entries: list[AccountEntry]
+    closing: BookingMoney
+
+
+class LedgerGap(BaseModel):
+    source_type: str
+    booking_reference: str | None = None
+    reason: str
+    detail: str
+    created_at: datetime
+
+
+class LedgerGapList(BaseModel):
+    gaps: list[LedgerGap]
+
+
+class LedgerPostResult(BaseModel):
+    journals: int
+    gaps: int

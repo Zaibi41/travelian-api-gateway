@@ -32,12 +32,16 @@ async def lifespan(app: FastAPI):
     from app.services.supplier_wallets import run_forever as run_supplier_balance_checks
 
     balances = asyncio.create_task(run_supplier_balance_checks(stop))
+    # Ledger (travelian#72): journals for new payments, tickets, charges, fees, refunds and top-ups every 10 minutes.
+    from app.services.ledger_job import run_forever as run_ledger_posting
+
+    ledger_job = asyncio.create_task(run_ledger_posting(stop))
     try:
         yield
     finally:
         app.state.ready = False
         stop.set()
-        for task in (job, recovery, balances):
+        for task in (job, recovery, balances, ledger_job):
             task.cancel()
             try:
                 await task

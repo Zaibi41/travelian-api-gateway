@@ -1,6 +1,191 @@
 {
   "components": {
     "schemas": {
+      "AccountBalance": {
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "On the account's normal side (assets and expenses: debit - credit; others: credit - debit)."
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "credit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "debit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "type",
+          "debit",
+          "credit",
+          "balance"
+        ],
+        "title": "AccountBalance",
+        "type": "object"
+      },
+      "AccountEntry": {
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "credit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "debit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "memo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "posted_on": {
+            "format": "date",
+            "title": "Posted On",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "posted_on",
+          "description",
+          "source_type",
+          "debit",
+          "credit",
+          "balance"
+        ],
+        "title": "AccountEntry",
+        "type": "object"
+      },
+      "AccountStatement": {
+        "properties": {
+          "closing": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AccountEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "opening": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "type": {
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "type",
+          "opening",
+          "entries",
+          "closing"
+        ],
+        "title": "AccountStatement",
+        "type": "object"
+      },
+      "AddLedgerAccountRequest": {
+        "properties": {
+          "code": {
+            "pattern": "^[0-9]{4,10}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "type"
+        ],
+        "title": "AddLedgerAccountRequest",
+        "type": "object"
+      },
       "AddPaymentFeeRequest": {
         "properties": {
           "amount_minor": {
@@ -7902,6 +8087,172 @@
         "title": "IssueTicketRequest",
         "type": "object"
       },
+      "JournalLineView": {
+        "properties": {
+          "account_code": {
+            "title": "Account Code",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "credit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "debit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "memo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          }
+        },
+        "required": [
+          "account_code",
+          "account_name",
+          "debit",
+          "credit"
+        ],
+        "title": "JournalLineView",
+        "type": "object"
+      },
+      "JournalList": {
+        "properties": {
+          "journals": {
+            "items": {
+              "$ref": "#/components/schemas/JournalView"
+            },
+            "title": "Journals",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "journals",
+          "total"
+        ],
+        "title": "JournalList",
+        "type": "object"
+      },
+      "JournalView": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By User Id"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/JournalLineView"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "posted_on": {
+            "format": "date",
+            "title": "Posted On",
+            "type": "string"
+          },
+          "rejected_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected Reason"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "posted",
+              "pending_approval",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "posted_on",
+          "description",
+          "source_type",
+          "status",
+          "lines"
+        ],
+        "title": "JournalView",
+        "type": "object"
+      },
       "JourneyView": {
         "properties": {
           "destination": {
@@ -7935,6 +8286,142 @@
           "flights"
         ],
         "title": "JourneyView",
+        "type": "object"
+      },
+      "LedgerAccountList": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerAccountView"
+            },
+            "title": "Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "title": "LedgerAccountList",
+        "type": "object"
+      },
+      "LedgerAccountView": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "receiving_account": {
+            "default": false,
+            "title": "Receiving Account",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Automatic journals post here: it can be renamed, not deactivated.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "type",
+          "system",
+          "active"
+        ],
+        "title": "LedgerAccountView",
+        "type": "object"
+      },
+      "LedgerGap": {
+        "properties": {
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "reason",
+          "detail",
+          "created_at"
+        ],
+        "title": "LedgerGap",
+        "type": "object"
+      },
+      "LedgerGapList": {
+        "properties": {
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gaps"
+        ],
+        "title": "LedgerGapList",
+        "type": "object"
+      },
+      "LedgerPostResult": {
+        "properties": {
+          "gaps": {
+            "title": "Gaps",
+            "type": "integer"
+          },
+          "journals": {
+            "title": "Journals",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "journals",
+          "gaps"
+        ],
+        "title": "LedgerPostResult",
         "type": "object"
       },
       "LoginRequest": {
@@ -8085,6 +8572,75 @@
           "next_steps"
         ],
         "title": "LookupView",
+        "type": "object"
+      },
+      "ManualJournalLine": {
+        "properties": {
+          "account_code": {
+            "pattern": "^[0-9]{4,10}$",
+            "title": "Account Code",
+            "type": "string"
+          },
+          "credit_minor": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Credit Minor",
+            "type": "integer"
+          },
+          "debit_minor": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Debit Minor",
+            "type": "integer"
+          },
+          "memo": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          }
+        },
+        "required": [
+          "account_code"
+        ],
+        "title": "ManualJournalLine",
+        "type": "object"
+      },
+      "ManualJournalRequest": {
+        "properties": {
+          "description": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ManualJournalLine"
+            },
+            "maxItems": 50,
+            "minItems": 2,
+            "title": "Lines",
+            "type": "array"
+          },
+          "posted_on": {
+            "format": "date",
+            "title": "Posted On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "posted_on",
+          "description",
+          "lines"
+        ],
+        "title": "ManualJournalRequest",
         "type": "object"
       },
       "MarkRefundPaidRequest": {
@@ -8881,6 +9437,66 @@
           "total_sales"
         ],
         "title": "ProductResults",
+        "type": "object"
+      },
+      "ProfitAndLoss": {
+        "properties": {
+          "date_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "expenses": {
+            "items": {
+              "$ref": "#/components/schemas/AccountBalance"
+            },
+            "title": "Expenses",
+            "type": "array"
+          },
+          "income": {
+            "items": {
+              "$ref": "#/components/schemas/AccountBalance"
+            },
+            "title": "Income",
+            "type": "array"
+          },
+          "net_profit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_expenses": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_income": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "income",
+          "expenses",
+          "total_income",
+          "total_expenses",
+          "net_profit"
+        ],
+        "title": "ProfitAndLoss",
         "type": "object"
       },
       "ProfitView": {
@@ -9997,6 +10613,21 @@
           "message"
         ],
         "title": "ReholdResult",
+        "type": "object"
+      },
+      "RejectJournalRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectJournalRequest",
         "type": "object"
       },
       "RejectRefundRequest": {
@@ -13078,6 +13709,77 @@
           "expires_in"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "TrialBalance": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountBalance"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "balanced": {
+            "title": "Balanced",
+            "type": "boolean"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "total_credit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_debit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "accounts",
+          "total_debit",
+          "total_credit",
+          "balanced"
+        ],
+        "title": "TrialBalance",
+        "type": "object"
+      },
+      "UpdateLedgerAccountRequest": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "UpdateLedgerAccountRequest",
         "type": "object"
       },
       "UpdatePaymentSettings": {
@@ -17414,6 +18116,891 @@
           }
         ],
         "summary": "Add Supplier Charge",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/accounts": {
+      "get": {
+        "description": "The chart of accounts.",
+        "operationId": "ledger_accounts_v1_admin_finance_ledger_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerAccountList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ledger Accounts",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "operationId": "add_ledger_account_v1_admin_finance_ledger_accounts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddLedgerAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Ledger Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/accounts/{code}": {
+      "patch": {
+        "description": "Rename an account, or deactivate one no automatic journal uses. Audited.",
+        "operationId": "update_ledger_account_v1_admin_finance_ledger_accounts__code__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLedgerAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerAccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Ledger Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/accounts/{code}/entries": {
+      "get": {
+        "description": "Balance by account: opening balance, entries with a running balance, closing balance.",
+        "operationId": "account_statement_v1_admin_finance_ledger_accounts__code__entries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountStatement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Account Statement",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/export.csv": {
+      "get": {
+        "operationId": "export_ledger_csv_v1_admin_finance_ledger_export_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "report",
+            "required": false,
+            "schema": {
+              "default": "trial_balance",
+              "pattern": "^(trial_balance|profit_and_loss|journals)$",
+              "title": "Report",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Ledger Csv",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/export.xlsx": {
+      "get": {
+        "description": "Trial balance, profit and loss and journals as Excel sheets. Audited.",
+        "operationId": "export_ledger_xlsx_v1_admin_finance_ledger_export_xlsx_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Ledger Xlsx",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/gaps": {
+      "get": {
+        "description": "What existing data couldn't post (e.g. a ticket without a known supplier cost; test bookings).",
+        "operationId": "ledger_gaps_v1_admin_finance_ledger_gaps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerGapList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ledger Gaps",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/journals": {
+      "get": {
+        "operationId": "list_journals_v1_admin_finance_ledger_journals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(posted|pending_approval|rejected)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Journals",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "description": "A manual journal, waiting for another Finance user's approval (maker/checker). Debits must equal credits.",
+        "operationId": "create_manual_journal_v1_admin_finance_ledger_journals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualJournalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Manual Journal V1 Admin Finance Ledger Journals Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Manual Journal",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/journals/{journal_id}/approve": {
+      "post": {
+        "operationId": "approve_journal_v1_admin_finance_ledger_journals__journal_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "journal_id",
+            "required": true,
+            "schema": {
+              "title": "Journal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Journal",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/journals/{journal_id}/reject": {
+      "post": {
+        "operationId": "reject_journal_v1_admin_finance_ledger_journals__journal_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "journal_id",
+            "required": true,
+            "schema": {
+              "title": "Journal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectJournalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Journal",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/post": {
+      "post": {
+        "description": "Post journals for everything not posted yet (also runs every 10 minutes). Safe to repeat.",
+        "operationId": "post_ledger_v1_admin_finance_ledger_post_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerPostResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Ledger",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/profit-and-loss": {
+      "get": {
+        "description": "Income less expenses from posted journals in the range.",
+        "operationId": "profit_and_loss_v1_admin_finance_ledger_profit_and_loss_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfitAndLoss"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Profit And Loss",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ledger/trial-balance": {
+      "get": {
+        "description": "Every account's debits, credits and balance from all posted journals up to date_to (all time by default).",
+        "operationId": "trial_balance_v1_admin_finance_ledger_trial_balance_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialBalance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller doesn't have the Finance permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trial Balance",
         "tags": [
           "admin finance"
         ]
