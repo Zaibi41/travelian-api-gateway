@@ -64,3 +64,33 @@ def test_the_route_sends_an_attachment():
     assert response.status_code == 200 and response.content == PNG
     assert response.headers["content-disposition"] == 'attachment; filename="travelian-ubl-qr.png"'
     assert response.headers["content-type"] == "image/png" and response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_checkout_accounts_carry_the_bank_logo_only_when_uploaded(monkeypatch):
+    """travelian#76: the uploaded logo's public URL; no logo -> None (the website shows the bank's initials)."""
+    from dataclasses import replace
+
+    monkeypatch.setattr(payment_accounts, "list_accounts", lambda include_inactive=False: [replace(UBL, logo_asset_key="bank-logo/ubl.png"), NO_QR])
+    accounts = service.bank_accounts()
+    assert accounts[0].logo_url == "https://bucket.s3.ap-southeast-1.amazonaws.com/bank-logo/ubl.png"
+    assert accounts[1].logo_url is None
+
+
+def test_bank_logo_is_its_own_upload_purpose():
+    from app.services import assets
+
+    assert assets.PURPOSES["bank_logo"] == "bank-logo"
+    assert assets.valid_key("bank-logo/abc.png", "bank_logo")
+    for bad in ("payment-qr/abc.png", "site/logo.png", "bank-logo/../site/x.png"):
+        assert not assets.valid_key(bad, "bank_logo")
+
+
+def test_admin_routes_refuse_a_logo_key_that_was_not_uploaded_as_a_logo():
+    from fastapi import HTTPException
+
+    from app.api.routes import payment_accounts as routes
+
+    assert routes._logo_key(None) is None and routes._logo_key("bank-logo/x.webp") == "bank-logo/x.webp"
+    with pytest.raises(HTTPException) as refused:
+        routes._logo_key("payment-qr/x.png")
+    assert refused.value.status_code == 422

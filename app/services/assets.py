@@ -17,7 +17,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 #: Purpose -> S3 folder. Images only (no SVG: it can carry script).
-PURPOSES = {"site_logo": "site", "payment_qr": "payment-qr", "payment_proof": "payment-proof"}
+PURPOSES = {"site_logo": "site", "payment_qr": "payment-qr", "payment_proof": "payment-proof", "bank_logo": "bank-logo"}
 TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 MAX_BYTES = 2 * 1024 * 1024
 
