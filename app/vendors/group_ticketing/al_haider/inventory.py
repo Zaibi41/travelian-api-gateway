@@ -13,6 +13,7 @@ baggage ("20+5"), dept_time, arv_time}], airline: {airline_name, short_name, log
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -86,6 +87,17 @@ def _clock(value: str | None) -> str | None:
     return value[:5] if value and len(value) >= 5 and value[2] == ":" else value or None
 
 
+def _arrival_date(flight_date: str | None, departure: str | None, arrival: str | None) -> str | None:
+    """Al Haider sends one date per flight (the departure). It lands the same day, or the next day when it lands at
+    an earlier clock time than it left ('23:00' -> '03:15'). Without a readable date or both times: the flight date."""
+    if not flight_date or not departure or not arrival or arrival >= departure:
+        return flight_date
+    try:
+        return (date.fromisoformat(flight_date[:10]) + timedelta(days=1)).isoformat()
+    except ValueError:
+        return flight_date
+
+
 def _flight_number(value: str | None) -> str | None:
     """'9P-710' -> '9P710' (as the other suppliers show it)."""
     return (value or "").replace("-", "").replace(" ", "").upper() or None
@@ -111,6 +123,7 @@ def _legs(group: AlHaiderGroup, codes: list[str]) -> list[GroupLeg]:
             direction="outbound", flight_number=_flight_number(leg.flight_no),
             origin=codes[index] if by_codes else leg.origin, destination=codes[index + 1] if by_codes else leg.destination,
             departure_date=leg.flight_date, departure_time=_clock(leg.dept_time), arrival_time=_clock(leg.arv_time),
+            arrival_date=_arrival_date(leg.flight_date, _clock(leg.dept_time), _clock(leg.arv_time)),
             baggage=checked, hand_carry=hand, meal=group.meal,
         ))
     outbound = outbound_codes(codes)
