@@ -9,6 +9,7 @@ from app.api.routes import router
 from app.api.routes.operations import router as operations_router
 from app.core.config import settings
 from app.core.parameter_store import load_parameter_store_settings
+from app.core.robots import NoIndexMiddleware
 from app.services.flight_payments import run_forever as run_flight_issuance_recovery
 from app.services.group_hold_expiry import run_forever as run_group_hold_expiry
 from app.vendors.group_ticketing.dhillu_sahi.inventory import warn_if_ids_missing as warn_if_dhillu_sahi_ids_missing
@@ -69,5 +70,7 @@ if settings.cors_allowed_origins:
         allow_headers=["Authorization", "Content-Type", "X-Booking-Token"],
         max_age=600,
     )
+# Added last, so it is outermost: CORS preflights and error responses get the header too.
+app.add_middleware(NoIndexMiddleware)
 app.include_router(operations_router)
 app.include_router(router, prefix=settings.api_prefix)

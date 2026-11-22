@@ -152,3 +152,24 @@ def test_both_sites_use_the_same_routes():
     for site in ("api.travelian.pk {", "gw-test.travelian.pk {"):
         site_block = text[text.index(site):]
         assert "import travelian_routes" in site_block.split("}", 1)[0]
+
+
+# gateway#81: robots.txt comes from the gateway, not the legacy Lambda; every response gets X-Robots-Tag: noindex.
+@pytest.mark.parametrize("request_path", ["/robots.txt", "/ROBOTS.TXT", "//robots.txt"])
+def test_robots_txt_reaches_the_gateway(request_path):
+    assert _first_handle(request_path) == "/robots.txt"
+    body = dict(_handle_blocks(_routes_block()))["/robots.txt"]
+    assert "reverse_proxy {$GATEWAY_UPSTREAM:127.0.0.1:8000}" in body
+
+
+@pytest.mark.parametrize("request_path", ["/robots.txt.bak", "/robots", "/content/robots.txt"])
+def test_only_the_exact_robots_path_moves(request_path):
+    assert _first_handle(request_path) == "legacy"
+
+
+def test_noindex_header_on_every_route():
+    block = _routes_block()
+    # Snippet level (outside any handle), so the legacy Lambda and 410 answers get it too. `?` sets it only when
+    # the upstream did not, so gateway responses keep exactly one value.
+    top_level = re.sub(r"\thandle[^\n]*\{.*?\n\t\}", "", block, flags=re.DOTALL)
+    assert re.search(r"^\theader \?X-Robots-Tag noindex$", top_level, flags=re.MULTILINE)
