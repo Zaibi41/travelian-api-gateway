@@ -86,3 +86,18 @@ def test_list_is_read_from_parameter_store_when_configured():
         restricted_airlines._cache = None
         assert restricted_airlines.codes() == frozenset({"EY", "QR"})
     assert client.get_parameter.call_args.kwargs["Name"] == "/travelian/gateway/flights/restricted-airlines"
+
+
+def test_empty_list_restricts_nothing():
+    """Owner decision 22 Nov 2026: no airlines restricted by default; the setting still works when one is added."""
+    with patch.object(settings, "restricted_airlines", ""):
+        restricted_airlines._cache = None
+        assert restricted_airlines.codes() == frozenset()
+        assert not restricted_airlines.segment_restricted({"airline_code": "QR", "operating_codes": ["EY"]})
+    restricted_airlines._cache = None
+
+
+def test_code_default_is_empty():
+    from app.core.config import Settings
+
+    assert Settings.model_fields["restricted_airlines"].default == ""
