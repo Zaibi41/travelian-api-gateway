@@ -357,9 +357,9 @@ async def change_customer_contact(viewer: Viewer, request: CustomerContactChange
     if booking is None or not service.visible_to(booking, viewer.visibility):
         raise HTTPException(404, "Booking not found.")
     try:
-        saved = await run_in_threadpool(lambda: booking_contact.change(
+        saved = (await run_in_threadpool(lambda: booking_contact.change(
             booking.booking_id, email=request.email, phone_code=request.phone_code, phone=request.phone,
-            actor_user_id=viewer.user_id, website=False))
+            actor_user_id=viewer.user_id, website=False))).contact
     except booking_contact.ContactRefused as error:
         raise HTTPException(error.status, error.message) from None
     return CustomerContactChanged(phone=f"{saved.phone_code} {saved.phone}", email=saved.email, message="Contact details saved.")

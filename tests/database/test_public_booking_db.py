@@ -154,44 +154,51 @@ def test_a_website_flight_request_is_marked_and_shown_to_the_guest_without_the_g
     assert view.travelers and all(name for name in view.travelers)
 
 
+
 def _customer(connection, booking_id, email="ali@example.invalid", code="+92", phone="3001234567"):
     connection.execute(sa.text(
         "INSERT INTO booking_customers (booking_id, first_name, last_name, phone_code, phone, email)"
         " VALUES (:b, 'Ali', 'Khan', :pc, :p, :e)"), {"b": booking_id, "pc": code, "p": phone, "e": email})
 
 
-def test_contact_change_saves_logs_masked_and_keeps_the_hold(database):
-    """travelian#56: contact details change on the booking, logged masked; the hold and total are untouched."""
+def test_contact_change_saves_audits_masked_and_keeps_the_hold(database):
+    """travelian#56: contact details change on the booking, an audit row (who, when, masked old -> new); hold and total untouched."""
     from app.services import booking_contact
 
     connection, _, _ = database
     booking_id, reference = _booking(connection)
     _customer(connection, booking_id)
-    saved = booking_contact.change(reference, email="new@example.invalid", phone_code="+971", phone="501234567", actor_user_id=None, website=True)
-    assert saved == booking_contact.Contact(email="new@example.invalid", phone_code="+971", phone="501234567")
+    changed = booking_contact.change(reference, email="new@example.invalid", phone_code="+971", phone="501234567", actor_user_id=None, website=True)
+    assert changed.contact == booking_contact.Contact(email="new@example.invalid", phone_code="+971", phone="501234567")
+    assert (changed.fields, changed.old_email, changed.booking_id) == (("email", "phone"), "ali@example.invalid", booking_id)
     row = connection.execute(sa.text("SELECT email, phone_code, phone FROM booking_customers WHERE booking_id = :b"), {"b": booking_id}).one()
     assert tuple(row) == ("new@example.invalid", "+971", "501234567")
     booking = connection.execute(sa.text("SELECT booking_status, total_minor FROM bookings WHERE id = :b"), {"b": booking_id}).one()
     assert tuple(booking) == ("held", 1399700)
-    details = connection.scalar(sa.text("SELECT details FROM booking_events WHERE booking_id = :b AND action = 'customer_contact_changed'"), {"b": booking_id})
-    assert details == {"via": "website", "email": {"from": "a***@example.invalid", "to": "n***@example.invalid"},
-                       "phone": {"from": "+92 ***567", "to": "+971 ***567"}}
-    # Unchanged: nothing logged again. Email left out: the one on the booking stays.
-    booking_contact.change(reference, email=None, phone_code="+971", phone="501234567", actor_user_id=None, website=True)
+    audit = connection.execute(sa.text("SELECT actor_user_id, details, created_at FROM booking_events WHERE booking_id = :b AND action = 'customer_contact_changed'"),
+                               {"b": booking_id}).one()
+    assert audit.actor_user_id is None and audit.created_at is not None
+    assert audit.details == {"via": "website", "by": "customer (booking access token)",
+                             "email": {"from": "a***@example.invalid", "to": "n***@example.invalid"}, "phone": {"from": "+92 ***567", "to": "+971 ***567"}}
+    again = booking_contact.change(reference, email=None, phone_code="+971", phone="501234567", actor_user_id=None, website=True)
+    assert again.fields == ()
     assert connection.scalar(sa.text("SELECT COUNT(*) FROM booking_events WHERE booking_id = :b AND action = 'customer_contact_changed'"), {"b": booking_id}) == 1
 
 
-def test_contact_change_refused_online_once_paid_but_staff_can(database):
+def test_contact_change_online_only_on_open_unpaid_website_bookings(database):
     from app.services import booking_contact
 
     connection, _, _ = database
-    booking_id, reference = _booking(connection)
-    _customer(connection, booking_id)
-    connection.execute(sa.text("UPDATE bookings SET payment_status = 'paid' WHERE id = :b"), {"b": booking_id})
-    try:
-        booking_contact.change(reference, email=None, phone_code="+92", phone="3007654321", actor_user_id=None, website=True)
-        raise AssertionError("expected a refusal")
-    except booking_contact.ContactRefused as error:
-        assert (error.status, error.code) == (409, "closed")
-    staff = booking_contact.change(reference, email=None, phone_code="+92", phone="3007654321", actor_user_id=None, website=False)
-    assert staff.phone == "3007654321"
+    cases = [("held", "part_paid", "website"), ("held", "paid", "website"), ("cancelled", "unpaid", "website"),
+             ("expired", "unpaid", "website"), ("held", "unpaid", "back_office")]
+    for status, payment, channel in cases:
+        booking_id, reference = _booking(connection, status=status, channel=channel)
+        _customer(connection, booking_id)
+        connection.execute(sa.text("UPDATE bookings SET payment_status = :p WHERE id = :b"), {"p": payment, "b": booking_id})
+        try:
+            booking_contact.change(reference, email=None, phone_code="+92", phone="3007654321", actor_user_id=None, website=True)
+            raise AssertionError(f"expected a refusal for {status}/{payment}/{channel}")
+        except booking_contact.ContactRefused as error:
+            assert (error.status, error.code) == (409, "closed")
+        staff = booking_contact.change(reference, email=None, phone_code="+92", phone="3007654321", actor_user_id=None, website=False)
+        assert staff.contact.phone == "3007654321"

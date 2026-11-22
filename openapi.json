@@ -9425,19 +9425,6 @@
       "PublicContactChange": {
         "description": "The customer's new contact details (travelian#56). Names, dates of birth and passports are not changed here.",
         "properties": {
-          "contact": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "My Bookings: the email or phone the booking was made with.",
-            "title": "Contact"
-          },
           "email": {
             "anyOf": [
               {
@@ -26423,7 +26410,7 @@
     },
     "/v1/public/bookings/{reference}/contact": {
       "put": {
-        "description": "Change the mobile number and email on a booking that still waits for payment. The airline hold and the price\nstay as they are (no re-hold). Logged on the booking, masked.",
+        "description": "Change the mobile number and email on a website booking that still waits for payment. Needs the booking's private\naccess token (X-Booking-Token, issued when it was made); the reference and an email or phone are not enough. The\nairline hold and the price stay as they are (no re-hold). Logged on the booking (masked); the old email is told.",
         "operationId": "change_contact_v1_public_bookings__reference__contact_put",
         "parameters": [
           {
@@ -26475,10 +26462,10 @@
             "description": "Successful Response"
           },
           "404": {
-            "description": "Not Found"
+            "description": "No booking for this reference and access token (the same answer either way)."
           },
           "409": {
-            "description": "Paid, issued or closed."
+            "description": "Not open for changes: paid, part paid, issued, closed or any other state."
           },
           "422": {
             "description": "Unprocessable Content"

@@ -543,7 +543,7 @@ def test_change_customer_contact_route(monkeypatch):
     def change(reference, *, email, phone_code, phone, actor_user_id, website):
         calls.append((reference, email, phone_code, phone, actor_user_id, website))
         booking_contact.clean(email, phone_code, phone)
-        return booking_contact.Contact(email=email or "ali@example.invalid", phone_code=phone_code, phone=phone)
+        return booking_contact.Changed(contact=booking_contact.Contact(email=email or "ali@example.invalid", phone_code=phone_code, phone=phone))
 
     monkeypatch.setattr(booking_contact, "change", change)
     reference = ROWS[1].booking_id
