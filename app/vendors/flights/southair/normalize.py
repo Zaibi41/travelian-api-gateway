@@ -56,6 +56,9 @@ class Fare:
     refund: str | None = None
     time_limit: str | None = None
     baggage: Baggage = field(default_factory=Baggage)
+    #: Each child's / infant's own total when the fare sends one (TARRIF.CHD.TOTAL / TARRIF.INF.TOTAL, per passenger).
+    #: Live UAT sends only the adult's ACC, so these are often missing: the total for such a mix is then unknown.
+    other_totals: dict[str, Amount] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -169,10 +172,18 @@ def _fare(code: str, raw: Any, uat_shape: bool) -> Fare | None:
         if base_fare and base_fare.currency:
             total = Amount(total.value, base_fare.currency)
     features = _features(raw)
+    tariff = raw.get("TARRIF") if isinstance(raw.get("TARRIF"), dict) else {}
+    others: dict[str, Amount] = {}
+    for kind in ("CHD", "INF"):
+        section = tariff.get(kind)
+        amount = parse_amount(section.get("TOTAL")) if isinstance(section, dict) else None
+        if amount is not None:
+            others[kind] = amount
     return Fare(
         code=str(code)[:16], fare_hash=fare_hash.strip(), adult_total=total,
         meal=features.get("meal"), refund=features.get("refund"), time_limit=features.get("time limit"),
         baggage=from_southair(features.get("baggage"), next((features[t] for t in _HAND_CARRY_TITLES if features.get(t)), None)),
+        other_totals=others,
     )
 
 

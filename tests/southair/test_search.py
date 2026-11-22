@@ -78,7 +78,11 @@ def test_staff_and_agency_get_opaque_ids_and_selling_price_only(role):
     assert [f["flight_number"] for f in flights] == ["MM114", "MM112"]  # earliest first
     fare = flights[1]["fares"][0]
     assert fare["selling_price"] == {"amount_minor": 46_700, "currency": "PKR"}  # 457.70 + 2% = 466.85 -> 467
-    assert set(fare) <= {"id", "name", "meal", "baggage", "baggage_detail", "refund", "time_limit", "selling_price", "booking_mode"}
+    assert set(fare) <= {"id", "name", "meal", "baggage", "baggage_detail", "refund", "time_limit", "selling_price", "total_price",
+                         "passenger_prices", "booking_mode"}
+    # travelian#113: the total for the one adult searched, with its breakdown.
+    assert fare["total_price"] == {"amount_minor": 46_700, "currency": "PKR"}
+    assert fare["passenger_prices"] == [{"type": "ADT", "count": 1, "selling_each": {"amount_minor": 46_700, "currency": "PKR"}}]
     # The UAT fare had no currency: the account's profile currency is used.
     assert flights[0]["fares"][0]["selling_price"] == {"amount_minor": 30_600, "currency": "PKR"}
     assert "providers" not in body

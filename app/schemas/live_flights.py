@@ -30,6 +30,11 @@ class FareView(BaseModel):
     refund: str | None = None
     time_limit: str | None = Field(None, description="Supplier's hold time text, e.g. '1 hours for domestic'.")
     selling_price: FlightMoney | None = Field(None, description="Per adult. Omitted when no markup is configured or the supplier sent no total.")
+    total_price: FlightMoney | None = Field(None, description="Selling total of this fare for every traveler searched (adults, "
+                                            "children, infants), each passenger type at the supplier's own price for it. Omitted "
+                                            "when the supplier didn't price every type searched.")
+    passenger_prices: list["PassengerPrice"] | None = Field(None, description="The total's breakdown per passenger type "
+                                                             "(count and selling price each). Sent with total_price.")
     supplier: str | None = Field(None, description="Only with the supplier names permission.")
     supplier_cost: FlightMoney | None = Field(None, description="Per adult. Only with the cost and margin permission.")
     booking_mode: Literal["hold", "request"] = Field("hold", description="request: a restricted airline (D32). No supplier hold "
@@ -220,3 +225,6 @@ class HoldView(BaseModel):
     label: str | None = Field(None, description="Not used: holds carry no label (issue #79).")
     warnings: list[str] = Field(default_factory=list, description="Not errors: e.g. passport valid for under 6 months on an international route.")
     saved_people: list[SaveOutcomeView] = Field(default_factory=list, description="What happened to the saved customer and travelers (never blocks the hold).")
+
+
+FareView.model_rebuild()  # passenger_prices refers to PassengerPrice, defined further down
