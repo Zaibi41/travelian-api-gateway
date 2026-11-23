@@ -31,23 +31,28 @@ def test_migration_sql_adds_nullable_then_backfills_then_requires():
     assert "UPDATE bookings SET total_minor" not in sql and "booking_payments" not in sql  # no total or payment changes
 
 
-def _booking(connection, reference, total, cost, travelers=2, status="held"):
+def _booking(connection, reference, total, cost, travelers=2, status="held", priced=True):
+    """A booking with its travelers. `priced`: the schema is at 0021 or later, where each traveler needs a selling price and
+    cost (an even split here; tests that care set their own). Before 0021 (the backfill test) those columns don't exist."""
     booking_id = f"00000000-0000-4000-8000-{reference[-12:]:0>12}"
     connection.execute(sa.text("INSERT INTO bookings (id, reference, product, booking_status, payment_status, issuance_status, currency, total_minor,"
                                " supplier_cost_minor) VALUES (:id, :r, 'group', :s, 'unpaid', 'not_issued', 'PKR', :t, :c)"),
                        {"id": booking_id, "r": reference, "s": status, "t": total, "c": cost})
+    prices = ", selling_minor, cost_minor" if priced else ""
+    values = ", :sell, :cost" if priced else ""
     for position in range(travelers):
-        connection.execute(sa.text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name, date_of_birth, id_type)"
-                                   " VALUES (:id, :b, :p, 'ADT', 'MR', 'Sample', 'Traveler', '1990-01-01', 'PSPT')"),
-                           {"id": f"{booking_id[:-2]}{position:02d}", "b": booking_id, "p": position})
+        connection.execute(sa.text(f"INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name, date_of_birth, id_type{prices})"
+                                   f" VALUES (:id, :b, :p, 'ADT', 'MR', 'Sample', 'Traveler', '1990-01-01', 'PSPT'{values})"),
+                           {"id": f"00000000-0000-4000-9000-{reference[-10:]}{position:02d}", "b": booking_id, "p": position,  # unique per booking
+                            "sell": total // travelers, "cost": (cost or total) // travelers})
     return booking_id
 
 
 def test_migration_backfill_keeps_real_costs_and_fills_missing_ones(database):
     connection, _, config = database
     command.downgrade(config, "0020_group_hold_states")
-    _booking(connection, "TRV-000000000001", 176_000_00, None)          # no cost: cost = total
-    _booking(connection, "TRV-000000000002", 180_001, 170_000, travelers=2)  # a real cost: kept
+    _booking(connection, "TRV-000000000001", 176_000_00, None, priced=False)          # no cost: cost = total
+    _booking(connection, "TRV-000000000002", 180_001, 170_000, travelers=2, priced=False)  # a real cost: kept
     command.upgrade(config, "0021_selling_price")
     rows = connection.execute(sa.text("SELECT reference, total_minor, supplier_cost_minor FROM bookings ORDER BY reference")).all()
     assert [tuple(r) for r in rows] == [("TRV-000000000001", 176_000_00, 176_000_00), ("TRV-000000000002", 180_001, 170_000)]

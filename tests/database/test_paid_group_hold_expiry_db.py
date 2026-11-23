@@ -16,7 +16,7 @@ from app.services import admin_bookings, group_hold_expiry, group_holds
 from app.services.group_holds import NO_RELEASE_SOURCES
 from tests.database.test_group_hold_expiry import fake, place_at, run  # noqa: F401 - fixture
 from tests.database.test_booking_people import ACTOR
-from tests.database.test_group_holds import ADMIN, tickets
+from tests.database.test_group_holds import ADMIN, ADULT_1, ADULT_2, request, tickets
 
 TOTAL = 210_000_00  # 2 adults x (100,000 + 5%)
 
@@ -29,9 +29,15 @@ def pay(reference, amount):
                                    payer_reference=f"TXN-{reference}", received_at=datetime.now(timezone.utc), actor_user_id=ACTOR)
 
 
+_SURNAMES = iter(["Raza", "Khan", "Malik", "Butt", "Sheikh", "Qureshi", "Ahmed", "Iqbal", "Hussain", "Chaudhry"] * 3)
+
+
 def placed(fake_provider, paid: int):
-    """A hold made 25 minutes ago (30-minute hold time) with `paid` recorded while it was open."""
-    view = place_at(datetime.now(timezone.utc) - timedelta(minutes=25))
+    """A hold made 25 minutes ago (30-minute hold time) with `paid` recorded while it was open. Each hold has its own
+    travelers: the double-booking check refuses the same passengers on the same route and date."""
+    surname = next(_SURNAMES)
+    travelers = [{**ADULT_1, "last_name": surname}, {**ADULT_2, "last_name": surname}]
+    view = place_at(datetime.now(timezone.utc) - timedelta(minutes=25), request(passengers=travelers))
     if paid:
         pay(view.booking_id, paid)
     return view.booking_id

@@ -29,10 +29,11 @@ VENDOR = "dhillu_sahi"
 SUPPLIER_REF = "SUPPLIER-HOLD-SECRET-77"
 
 
+# Live Dhillu & Sahi rows name each flight's sector in its subpart (departure_sector_name); the legs are read from there.
 def inventory(remaining=12):
     return normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
         "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": remaining, "baggage": "20+7",
-        "subpart": [{"departure_time": "06:40"}]}]}])
+        "subpart": [{"departure_sector_name": "ISB - JED", "departure_time": "06:40"}]}]}])
 
 
 TICKET_ID = group_ticket_id(inventory()[0].tickets[0])
@@ -127,7 +128,8 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
     connection, _, _ = database
     event = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"),
                                {"r": view.booking_id}).scalars().all()
-    assert event == ["hold_created"]
+    # The hold is requested (with the fare terms the customer accepted), then created (same transaction, any order).
+    assert sorted(event) == ["fare_terms_acknowledged", "hold_created", "hold_requested"]
     assert connection.scalar(text("SELECT product FROM bookings WHERE reference = :r"), {"r": view.booking_id}) == "group"
 
 
@@ -140,7 +142,7 @@ def test_no_markup_set_holds_at_the_listing_price(provider):
 def test_held_flight_baggage_shows_hand_carry_first(provider):
     stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
         "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "30", "departure_handcarry": "10",
-        "subpart": [{"departure_time": "06:40"}]}]}])
+        "subpart": [{"departure_sector_name": "ISB - JED", "departure_time": "06:40"}]}]}])
     req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
     assert place(req=req, stock=stock).flight.baggage == "10+30 kg"
 
@@ -159,7 +161,7 @@ def test_hold_copies_the_group_identity_onto_the_booking(provider, database):
     connection, _, _ = database
     stock = normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
         "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": 12, "baggage": "20+7",
-        "subpart": [{"id": 10817, "group_id": 3056, "departure_time": "06:40"}]}]}])
+        "subpart": [{"id": 10817, "group_id": 3056, "departure_sector_name": "ISB - JED", "departure_time": "06:40"}]}]}])
     req = request().model_copy(update={"ticket_id": UUID(group_ticket_id(stock[0].tickets[0]))})
     view = place(req=req, stock=stock)
     kept = connection.execute(text("SELECT supplier_response -> 'source' FROM bookings WHERE reference = :r"), {"r": view.booking_id}).scalar_one()
@@ -320,6 +322,12 @@ def test_cost_above_selling_needs_explicit_confirmation(provider):
 
 
 def test_price_changed_and_customer_declines_releases_the_hold(provider, database):
+    # The fake stands for a source with a release call (e.g. Skypass); Dhillu & Sahi itself has none (NO_RELEASE_SOURCES).
+    with patch.object(group_holds, "NO_RELEASE_SOURCES", set()):
+        _price_changed_and_customer_declines(provider, database)
+
+
+def _price_changed_and_customer_declines(provider, database):
     view = place()
     provider.cost = 99_000_00
     assert run(group_holds.price_check(view.booking_id, ADMIN)).difference.amount_minor < 0
@@ -329,7 +337,7 @@ def test_price_changed_and_customer_declines_releases_the_hold(provider, databas
     connection, _, _ = database
     actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
                                       " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
-    assert actions == ["hold_created", "hold_released"]
+    assert sorted(actions[:3]) == ["fare_terms_acknowledged", "hold_created", "hold_requested"] and actions[3:] == ["hold_released"]
     with pytest.raises(GroupHoldError) as error:
         run(group_holds.release(view.booking_id, ADMIN))
     assert error.value.code == "not_held"

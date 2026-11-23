@@ -27,10 +27,13 @@ TRAVELERS = [
 ]
 
 
+# A hold that hasn't run out (a fixed date in the past made payments refuse "The hold has expired" once it passed).
+HOLD_EXPIRES_AT = datetime(2036, 11, 20, 13, 18, tzinfo=timezone.utc)
+
 def save(connection, metadata, **overrides):
     if not connection.execute(text("SELECT 1 FROM users WHERE id=:id"), {"id": ACTOR}).first():
         connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
-    args = dict(provider="southair", pnr="63B55C", supplier_ref="REF", hold_expires_at=datetime(2026, 11, 20, 13, 18, tzinfo=timezone.utc),
+    args = dict(provider="southair", pnr="63B55C", supplier_ref="REF", hold_expires_at=HOLD_EXPIRES_AT,
                 currency="PKR", selling_total_minor=46_700, supplier_total_minor=45_770, supplier_response={}, actor_user_id=ACTOR,
                 audit={"pnr": "63B55C", "pax_count": 2}, customer=CUSTOMER, travelers=TRAVELERS)
     return supplier_bookings.save_hold(**{**args, **overrides})

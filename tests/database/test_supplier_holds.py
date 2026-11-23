@@ -10,11 +10,15 @@ from app.db import supplier_bookings
 from app.services import admin_bookings
 
 
+# A hold that hasn't run out (a fixed date in the past made payments refuse "The hold has expired" once it passed).
+HOLD_EXPIRES_AT = datetime(2036, 11, 20, 13, 18, tzinfo=timezone.utc)
+
+
 def test_hold_is_saved_as_an_ordinary_booking_with_an_audit_entry(database):
     connection, metadata, _ = database
     connection.execute(metadata.tables["users"].insert().values(id="11111111-1111-4111-8111-111111111111", cognito_issuer="https://t.invalid", cognito_sub="s"))
     reference = supplier_bookings.save_hold(
-        provider="southair", pnr="63B55C", supplier_ref="TICKET-REF-SECRET", hold_expires_at=datetime(2026, 11, 20, 13, 18, tzinfo=timezone.utc),
+        provider="southair", pnr="63B55C", supplier_ref="TICKET-REF-SECRET", hold_expires_at=HOLD_EXPIRES_AT,
         currency="PKR", selling_total_minor=46_700, supplier_total_minor=45_770, supplier_response={"booking": {"pnrn": "63B55C"}},
         actor_user_id="11111111-1111-4111-8111-111111111111", audit={"pnr": "63B55C"},
     )
@@ -52,7 +56,7 @@ def test_itinerary_is_saved_with_the_hold_and_shown_on_the_detail(database):
     detail = admin_bookings.build_detail(admin_bookings.find_booking(store.list_dashboard_bookings(), reference), NONE)
     assert "itinerary" not in detail.sections_not_available
     assert [(s.flight_number, s.origin, s.destination, s.departure_local, s.fare_name, s.baggage) for s in detail.itinerary] == [
-        ("Z8266", "LHE", "KHI", "2026-11-19T00:25", "EB", "20 kg")]
+        ("Z8266", "LHE", "KHI", "2026-11-19T00:25", "EB", "20 kg checked")]  # baggage in full words (baggage display rule)
 
 
 def test_holds_without_an_itinerary_say_it_is_not_recorded(database):

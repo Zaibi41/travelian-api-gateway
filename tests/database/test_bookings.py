@@ -12,7 +12,7 @@ def insert(connection, **overrides):
         id=str(uuid.uuid4()), reference=f"TRV-{uuid.uuid4().hex[:8]}", pnr="AB12CD", product="flight",
         provider_id="SooperFare", booking_status="held", payment_status="unpaid", issuance_status="not_issued",
         hold_expires_at=datetime(2026, 11, 5, 9, tzinfo=timezone.utc), currency="PKR", total_minor=1_000_000,
-        supplier_cost_minor=None, import_source=None,
+        supplier_cost_minor=900_000, import_source=None,  # required since migration 0021_selling_price
     )
     values.update(overrides)
     connection.execute(sa.text(

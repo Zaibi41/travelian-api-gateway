@@ -33,13 +33,26 @@ def fake(database):
         yield provider
 
 
+@pytest.fixture
+def releasing(fake):
+    """The fake as a source with a release call (e.g. Skypass). The test vendor's own source (Dhillu & Sahi) has none
+    (NO_RELEASE_SOURCES: the supplier ends those holds itself); tests/database/test_paid_group_hold_expiry_db.py covers it."""
+    with patch.object(group_holds, "NO_RELEASE_SOURCES", set()), patch.object(group_hold_expiry, "NO_RELEASE_SOURCES", set()):
+        yield fake
+
+
 def run(coro):
     return asyncio.run(coro)
 
 
-def place_at(moment=T0):
+def holds_part(result):
+    """The group-hold part of the expiry job's answer (it also reports flight holds and paid-not-ticketed holds)."""
+    return {key: result[key] for key in ("expired", "released", "failed")}
+
+
+def place_at(moment=T0, req=None):
     with patch.object(group_holds, "_now", return_value=moment):
-        return run(group_holds.hold(request(), ADMIN, fetch=AsyncMock(return_value=inventory())))
+        return run(group_holds.hold(req or request(), ADMIN, fetch=AsyncMock(return_value=inventory())))
 
 
 def releases(provider):
@@ -57,28 +70,29 @@ def test_expiry_is_hold_minutes_after_the_hold_and_ignores_any_supplier_value(fa
     assert later.hold_expires_at == T0 + timedelta(minutes=45)
 
 
-def test_expiry_job_expires_and_releases_at_the_supplier_once(fake, database):
+def test_expiry_job_expires_and_releases_at_the_supplier_once(releasing, database):
     view = place_at()
     nothing = run(group_hold_expiry.run_once(T0 + timedelta(minutes=29)))
-    assert nothing == {"expired": [], "released": [], "failed": []} and releases(fake) == []
+    assert holds_part(nothing) == {"expired": [], "released": [], "failed": []} and releases(releasing) == []
     done = run(group_hold_expiry.run_once(T0 + timedelta(minutes=30)))
-    assert done == {"expired": [view.booking_id], "released": [view.booking_id], "failed": []}
-    assert releases(fake) == [("release", SUPPLIER_REF)]
+    assert holds_part(done) == {"expired": [view.booking_id], "released": [view.booking_id], "failed": []}
+    assert releases(releasing) == [("release", SUPPLIER_REF)]
     expired = run(group_holds.read(view.booking_id, ADMIN))
     assert expired.status == "expired" and not expired.supplier_release_failed
     assert not expired.can_record_payments and not expired.can_issue_tickets
     # Nothing left to do: no second release.
-    assert run(group_hold_expiry.run_once(T0 + timedelta(minutes=31))) == {"expired": [], "released": [], "failed": []}
-    assert len(releases(fake)) == 1
+    assert holds_part(run(group_hold_expiry.run_once(T0 + timedelta(minutes=31)))) == {"expired": [], "released": [], "failed": []}
+    assert len(releases(releasing)) == 1
     connection, _, _ = database
     actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
                                       " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
-    assert actions == ["hold_created", "hold_expired", "supplier_released"]
+    assert sorted(actions[:3]) == ["fare_terms_acknowledged", "hold_created", "hold_requested"]  # written together when held
+    assert actions[3:] == ["hold_expired", "supplier_released"]
 
 
-def test_failed_release_is_retried_logged_and_flagged_for_admin_only(fake, caplog):
+def test_failed_release_is_retried_logged_and_flagged_for_admin_only(releasing, caplog):
     view = place_at()
-    fake.release_errors = 5  # the supplier keeps failing
+    releasing.release_errors = 5  # the supplier keeps failing
     after = T0 + timedelta(minutes=30)
     first = run(group_hold_expiry.run_once(after))
     assert first["failed"] == [view.booking_id]
@@ -86,18 +100,18 @@ def test_failed_release_is_retried_logged_and_flagged_for_admin_only(fake, caplo
     flagged = run(group_holds.read(view.booking_id, ADMIN))
     assert flagged.status == "expired" and flagged.supplier_release_failed is True
     staff = run(group_holds.read(view.booking_id, STAFF))
-    assert staff.supplier_release_failed is None and "release" not in staff.model_dump_json(exclude_none=True)
+    assert staff.supplier_release_failed is None and "release_failed" not in staff.model_dump_json(exclude_none=True)  # (can_release is a plain action flag)
     # Retried on the next runs, up to GROUP_HOLD_RELEASE_ATTEMPTS (3), then left for a person.
     run(group_hold_expiry.run_once(after + timedelta(seconds=30)))
     run(group_hold_expiry.run_once(after + timedelta(seconds=60)))
     run(group_hold_expiry.run_once(after + timedelta(seconds=90)))
-    assert len(releases(fake)) == 3
+    assert len(releases(releasing)) == 3
     assert run(group_holds.read(view.booking_id, ADMIN)).supplier_release_failed is True
 
 
-def test_a_retry_that_succeeds_clears_the_flag(fake):
+def test_a_retry_that_succeeds_clears_the_flag(releasing):
     view = place_at()
-    fake.release_errors = 1
+    releasing.release_errors = 1
     run(group_hold_expiry.run_once(T0 + timedelta(minutes=30)))
     assert run(group_holds.read(view.booking_id, ADMIN)).supplier_release_failed is True
     second = run(group_hold_expiry.run_once(T0 + timedelta(minutes=31)))
@@ -117,16 +131,16 @@ def test_payment_and_issue_are_refused_after_our_expiry_even_if_the_supplier_sti
     assert error.value.code == "hold_expired"
 
 
-def test_release_hold_releases_at_the_supplier(fake):
+def test_release_hold_releases_at_the_supplier(releasing):
     view = place_at(datetime.now(timezone.utc))
     released = run(group_holds.release(view.booking_id, ADMIN))
-    assert released.status == "released" and releases(fake) == [("release", SUPPLIER_REF)]
+    assert released.status == "released" and releases(releasing) == [("release", SUPPLIER_REF)]
     assert not released.supplier_release_failed
 
 
-def test_release_hold_with_a_supplier_failure_shows_expired_flagged_and_the_job_retries(fake):
+def test_release_hold_with_a_supplier_failure_shows_expired_flagged_and_the_job_retries(releasing):
     view = place_at(datetime.now(timezone.utc))
-    fake.release_errors = 1
+    releasing.release_errors = 1
     answered = run(group_holds.release(view.booking_id, ADMIN))
     assert answered.status == "expired" and answered.supplier_release_failed is True
     assert not answered.can_record_payments
