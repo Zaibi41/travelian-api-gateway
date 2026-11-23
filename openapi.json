@@ -4759,6 +4759,118 @@
         "title": "GroupAvailabilityResponse",
         "type": "object"
       },
+      "GroupAwaitingFinalPnr": {
+        "description": "The Dashboard tracker (travelian#13): every paid group booking still waiting for the supplier's final PNR.",
+        "properties": {
+          "departs_soon": {
+            "description": "How many of them leave within window_hours.",
+            "title": "Departs Soon",
+            "type": "integer"
+          },
+          "items": {
+            "description": "Soonest departure first; bookings with no flight recorded last.",
+            "items": {
+              "$ref": "#/components/schemas/GroupAwaitingFinalPnrItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "window_hours": {
+            "description": "A booking leaving within this many hours is marked departs_soon.",
+            "title": "Window Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_hours",
+          "total",
+          "departs_soon",
+          "items"
+        ],
+        "title": "GroupAwaitingFinalPnr",
+        "type": "object"
+      },
+      "GroupAwaitingFinalPnrItem": {
+        "properties": {
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "customer_or_agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Or Agency"
+          },
+          "departs_soon": {
+            "description": "Leaves within window_hours: the final PNR is due now.",
+            "title": "Departs Soon",
+            "type": "boolean"
+          },
+          "departure_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First flight's departure (Pakistan time zone assumed); none when no flight is recorded.",
+            "title": "Departure At"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. \"LHE \u2192 JED \u2192 LHE\".",
+            "title": "Route"
+          }
+        },
+        "required": [
+          "booking_id",
+          "departs_soon"
+        ],
+        "title": "GroupAwaitingFinalPnrItem",
+        "type": "object"
+      },
       "GroupBookingRequest": {
         "properties": {
           "agent": {
@@ -20472,6 +20584,39 @@
         "summary": "Record Top Up",
         "tags": [
           "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/flight-operations/group-bookings-awaiting-final-pnr": {
+      "get": {
+        "description": "Every paid group booking still waiting for the supplier's final PNR (not yet departed), soonest first.",
+        "operationId": "group_awaiting_final_pnr_v1_admin_flight_operations_group_bookings_awaiting_final_pnr_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupAwaitingFinalPnr"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not back office."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Group Awaiting Final Pnr",
+        "tags": [
+          "flight operations"
         ]
       }
     },

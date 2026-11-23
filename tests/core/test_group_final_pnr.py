@@ -73,3 +73,31 @@ def test_departures_route_is_back_office_only(monkeypatch):
         raise HTTPException(403, "Back-office access denied.")
     app.dependency_overrides[require_back_office] = deny
     assert TestClient(app).get("/v1/admin/flight-operations/group-departures-without-final-pnr").status_code == 403
+
+
+# ---------- the Dashboard tracker (travelian#13): every paid group booking awaiting its final PNR ----------
+
+def test_tracker_lists_every_paid_group_booking_awaiting_final_pnr_soonest_first():
+    rows = ROWS + [row(10, "2026-12-20T03:25")]                   # weeks away: tracked, not due yet
+    result = flight_operations.group_bookings_awaiting_final_pnr(rows, NOW)
+    assert [item.booking_id for item in result.items] == ["TRV-GRP-000002", "TRV-GRP-000001", "TRV-GRP-000003", "TRV-GRP-000010", "TRV-GRP-000009"]
+    assert [item.departs_soon for item in result.items] == [True, True, False, False, False]
+    assert (result.total, result.departs_soon, result.window_hours) == (5, 2, 48)
+    assert result.items[-1].departure_at is None                   # no flight recorded: kept, last
+    body = result.model_dump_json()
+    assert "SUPPLIER-PNR" not in body and "dhillu" not in body and "900000" not in body
+
+
+def test_tracker_route_is_back_office_only(monkeypatch):
+    monkeypatch.setattr(flight_operations, "_read_bookings", lambda: ROWS)
+    monkeypatch.setattr(flight_operations, "_now", lambda: NOW)
+    app = FastAPI()
+    app.include_router(flight_operations.router, prefix="/v1")
+    app.dependency_overrides[require_back_office] = lambda: BackOfficeUser("u-1", "staff", NONE)
+    body = TestClient(app).get("/v1/admin/flight-operations/group-bookings-awaiting-final-pnr").json()
+    assert body["total"] == 4 and body["departs_soon"] == 2 and "departure_at" not in body["items"][-1]
+
+    def deny():
+        raise HTTPException(403, "Back-office access denied.")
+    app.dependency_overrides[require_back_office] = deny
+    assert TestClient(app).get("/v1/admin/flight-operations/group-bookings-awaiting-final-pnr").status_code == 403
