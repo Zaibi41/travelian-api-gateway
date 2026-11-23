@@ -3118,6 +3118,66 @@
         "title": "CustomerCard",
         "type": "object"
       },
+      "CustomerContactChange": {
+        "description": "The customer's new mobile number and email (travelian#56). Names and documents are not changed here.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Left out or empty: the email on the booking stays.",
+            "title": "Email"
+          },
+          "phone": {
+            "description": "Mobile number, digits only, without the country code.",
+            "maxLength": 20,
+            "title": "Phone",
+            "type": "string"
+          },
+          "phone_code": {
+            "description": "Country code, e.g. \"+92\".",
+            "maxLength": 4,
+            "title": "Phone Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone_code",
+          "phone"
+        ],
+        "title": "CustomerContactChange",
+        "type": "object"
+      },
+      "CustomerContactChanged": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "phone": {
+            "description": "With country code, e.g. +92 3001234567 (as on BookingCustomer).",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "email",
+          "message"
+        ],
+        "title": "CustomerContactChanged",
+        "type": "object"
+      },
       "CustomerEmailChange": {
         "properties": {
           "email": {
@@ -9474,6 +9534,70 @@
         "title": "PublicBookingView",
         "type": "object"
       },
+      "PublicContactChange": {
+        "description": "The customer's new contact details (travelian#56). Names, dates of birth and passports are not changed here.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Left out or empty: the email on the booking stays.",
+            "title": "Email"
+          },
+          "phone": {
+            "description": "Mobile number, digits only, without the country code.",
+            "maxLength": 20,
+            "title": "Phone",
+            "type": "string"
+          },
+          "phone_code": {
+            "description": "Country code, e.g. \"+92\".",
+            "maxLength": 4,
+            "title": "Phone Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone_code",
+          "phone"
+        ],
+        "title": "PublicContactChange",
+        "type": "object"
+      },
+      "PublicContactView": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "phone": {
+            "title": "Phone",
+            "type": "string"
+          },
+          "phone_code": {
+            "title": "Phone Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone_code",
+          "phone",
+          "email",
+          "message"
+        ],
+        "title": "PublicContactView",
+        "type": "object"
+      },
       "PublicFlightRequest": {
         "description": "A website flight booking (B19, D43). The gateway reprices the fare itself (the price is never taken from the page).\nWith PUBLIC_FLIGHT_BOOKING_ENABLED off, or for a restricted airline (D32), or when booking is off for the fare's\nprovider, it is saved as a request: nothing is held or ticketed, no PNR is given and no payment is taken; staff\nconfirm the fare and payment with the customer. Otherwise the fare is held at the supplier and paid by\n`payment_method` (card: PayFast, then issued automatically when ticketing is on, D48; bank transfer and JazzCash:\nheld until staff verify the money and issue by hand, D49).",
         "properties": {
@@ -15697,6 +15821,67 @@
           }
         ],
         "summary": "Booking Detail",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/customer-contact": {
+      "put": {
+        "description": "Change the customer's mobile number and email on this booking (travelian#56), e.g. on the Payments tab before the\npayment is recorded. No re-hold: the airline hold and the price stay. Back office; logged (masked).",
+        "operationId": "change_customer_contact_v1_admin_bookings__booking_id__customer_contact_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerContactChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContactChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "description": "Not a valid phone or email."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Customer Contact",
         "tags": [
           "admin bookings"
         ]
@@ -26363,6 +26548,78 @@
           }
         },
         "summary": "Choose Account",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/bookings/{reference}/contact": {
+      "put": {
+        "description": "Change the mobile number and email on a website booking that still waits for payment. Needs the booking's private\naccess token (X-Booking-Token, issued when it was made); the reference and an email or phone are not enough. The\nairline hold and the price stay as they are (no re-hold). Logged on the booking (masked); the old email is told.",
+        "operationId": "change_contact_v1_public_bookings__reference__contact_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Booking-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicContactChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicContactView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No booking for this reference and access token (the same answer either way)."
+          },
+          "409": {
+            "description": "Not open for changes: paid, part paid, issued, closed or any other state."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Change Contact",
         "tags": [
           "public website"
         ]

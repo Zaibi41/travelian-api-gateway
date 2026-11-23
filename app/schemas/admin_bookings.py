@@ -282,6 +282,20 @@ class CustomerEmailChanged(BaseModel):
     message: str
 
 
+class CustomerContactChange(BaseModel):
+    """The customer's new mobile number and email (travelian#56). Names and documents are not changed here."""
+
+    phone_code: str = Field(max_length=4, description='Country code, e.g. "+92".')
+    phone: str = Field(max_length=20, description="Mobile number, digits only, without the country code.")
+    email: str | None = Field(None, max_length=254, description="Left out or empty: the email on the booking stays.")
+
+
+class CustomerContactChanged(BaseModel):
+    phone: str = Field(description="With country code, e.g. +92 3001234567 (as on BookingCustomer).")
+    email: str
+    message: str
+
+
 class ResendEmailResult(BaseModel):
     sent: bool
     message: str = Field(description="'Email sent to the customer.' or why not, in plain words.")

@@ -596,6 +596,26 @@ def booking_cancelled(booking: Booking) -> Email:
         reference=booking.reference, status=status, tone="info", preheader=preheader, body=body), text, preheader)
 
 
+def contact_changed(reference: str, changed: list[str]) -> Email:
+    """A security notice to the OLD email after the contact details on a booking changed online (travelian#56).
+    The new email and number are not shown."""
+    what = " and ".join({"email": "email address", "phone": "mobile number"}[item] for item in changed if item in ("email", "phone")) or "contact details"
+    status = "Contact details changed"
+    preheader = f"The {what} on booking {reference} was changed."
+    body = (_heading("Your contact details were changed")
+            + _p(f"The {_e(what)} on booking <strong>{_e(reference)}</strong> was changed on the Travelian website. "
+                 "Your booking, hold time and price are the same.")
+            + _p("If you made this change, you don't need to do anything.")
+            + _p("<strong>Didn't make this change?</strong> Message us on WhatsApp or reply to this email right away.", size=14)
+            + _button("Message us on WhatsApp", _whatsapp(reference), TEAL))
+    text = _text(status, reference=reference, lines=[
+        f"The {what} on booking {reference} was changed on the Travelian website. Your booking, hold time and price are the same.", "",
+        "If you made this change, you don't need to do anything.",
+        "Didn't make this change? Message us on WhatsApp or reply to this email right away."])
+    return Email(f"The {what} on booking {reference} was changed", _layout(
+        reference=reference, status=status, tone="info", preheader=preheader, body=body), text, preheader)
+
+
 # ---------- staff templates ----------
 
 def _admin_link(reference: str) -> str:
