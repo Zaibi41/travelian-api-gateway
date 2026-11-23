@@ -157,6 +157,8 @@ class Settings(BaseSettings):
     # Where PayFast sends the customer back (the public website) and its server notification (this gateway).
     public_site_url: str = Field("https://travelian.pk", pattern=r"^https?://[^/]+$")
     public_api_url: str = Field("https://api.travelian.pk", pattern=r"^https?://[^/]+$")
+    # gateway#62: the site whose /airline-logos/index.json (the website's one logo manifest) the PDF reads. Empty: public_site_url.
+    airline_logos_site_url: str | None = Field(None, pattern=r"^https?://[^/]+$")
     # Public search answers are cached this long (seconds), so visitors don't each call the suppliers.
     public_search_cache_seconds: int = Field(120, ge=0, le=3600)
     # PayFast (Pakistan) hosted checkout. Sandbox host: https://ipguat.apps.net.pk.

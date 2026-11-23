@@ -75,3 +75,18 @@ def _no_existing_bookings(request, monkeypatch):
     from app.db import duplicate_bookings as store
 
     monkeypatch.setattr(store, "travelers_named", lambda names, exclude_reference=None: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_airline_logo_site(monkeypatch):
+    """Unit tests never fetch the website's airline logo manifest (gateway#62): with no answer the PDF prints code badges.
+    tests/core/test_airline_logos.py replaces _get with a local fake site."""
+    from app.services import airline_logos
+
+    def offline(url):
+        raise ConnectionError("no network in unit tests")
+
+    airline_logos.clear_cache()
+    monkeypatch.setattr(airline_logos, "_get", offline)
+    yield
+    airline_logos.clear_cache()
