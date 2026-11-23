@@ -41,7 +41,8 @@ def _view(account: store.Account) -> ReceivingAccount:
                             bank_name=account.bank_name, account_title=account.account_title,
                             account_number_masked=account.account_number_masked, account_number=account.account_number, iban=account.iban,
                             qr_asset_key=account.qr_asset_key,
-                            qr_url=assets.public_url(account.qr_asset_key))
+                            qr_url=assets.public_url(account.qr_asset_key),
+                            logo_asset_key=account.logo_asset_key, logo_url=assets.public_url(account.logo_asset_key))
 
 
 def _qr_key(key: str | None) -> str | None:
@@ -49,6 +50,14 @@ def _qr_key(key: str | None) -> str | None:
 
     if key and not assets.valid_key(key, "payment_qr"):
         raise HTTPException(422, "Upload the QR image first (Accounts & Ledgers), then save the account.")
+    return key
+
+
+def _logo_key(key: str | None) -> str | None:
+    from app.services import assets
+
+    if key and not assets.valid_key(key, "bank_logo"):
+        raise HTTPException(422, "Upload the bank logo first (Accounts & Ledgers), then save the account.")
     return key
 
 
@@ -73,7 +82,8 @@ async def add_payment_account(body: AddReceivingAccountRequest,
     try:
         account = await run_in_threadpool(lambda: store.add(body.method, body.label, viewer.user_id, bank_name=body.bank_name,
                                                             account_title=body.account_title, account_number=body.account_number,
-                                                            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban))
+                                                            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban,
+                                                            logo_asset_key=_logo_key(body.logo_asset_key)))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)
@@ -95,12 +105,13 @@ async def deactivate_payment_account(account_id: str,
 @finance_router.patch("/{account_id}", response_model=ReceivingAccount, responses={404: {"description": "No account with that id."}})
 async def update_payment_account(account_id: str, body: UpdateReceivingAccountRequest,
                                  viewer: Annotated[BackOfficeUser, Depends(require_finance_accounts)]) -> ReceivingAccount:
-    """Bank name, account title, full account number, IBAN and QR image. Fields left out keep their value; remove_qr clears
-    the QR image."""
+    """Bank name, account title, full account number, IBAN, QR image and bank logo. Fields left out keep their value;
+    remove_qr / remove_logo clear the image."""
     try:
         account = await run_in_threadpool(lambda: store.update_details(
             account_id, bank_name=body.bank_name, account_title=body.account_title, account_number=body.account_number,
-            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban, remove_qr=body.remove_qr))
+            qr_asset_key=_qr_key(body.qr_asset_key), iban=body.iban, remove_qr=body.remove_qr,
+            logo_asset_key=_logo_key(body.logo_asset_key), remove_logo=body.remove_logo))
     except store.AccountError as error:
         raise _refused(error) from None
     return _view(account)

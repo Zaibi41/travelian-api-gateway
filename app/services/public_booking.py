@@ -323,6 +323,7 @@ class BankAccountView(BaseModel):
     iban: str | None = None
     qr_url: str | None = None
     qr_download_url: str | None = Field(None, description="Gateway path that downloads the QR image as a file (every browser, no S3 CORS).")
+    logo_url: str | None = Field(None, description="The bank's logo uploaded by staff (travelian#76). None: show the bank's initials.")
 
 
 class PaymentMethodsView(BaseModel):
@@ -377,7 +378,8 @@ def bank_accounts() -> list[BankAccountView]:
 
     # Only accounts a customer can actually pay into: a title plus the full number, IBAN or a QR image.
     return [BankAccountView(id=getattr(a, "id", None), bank_name=a.bank_name, account_title=a.account_title, account_number=a.account_number, iban=a.iban,
-                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
+                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a),
+                            logo_url=assets.public_url(getattr(a, "logo_asset_key", None)))
             for a in payment_accounts.list_accounts()
             if a.method == "bank_transfer" and a.account_title and (a.account_number or a.iban or a.qr_asset_key)]
 
@@ -388,7 +390,8 @@ def jazzcash_accounts() -> list[BankAccountView]:
     from app.services import assets
 
     return [BankAccountView(id=getattr(a, "id", None), bank_name="JazzCash", account_title=a.account_title or a.label, account_number=a.account_number,
-                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a))
+                            qr_url=assets.public_url(a.qr_asset_key), qr_download_url=_qr_path(a),
+                            logo_url=assets.public_url(getattr(a, "logo_asset_key", None)))
             for a in payment_accounts.list_accounts() if a.method == "jazzcash" and a.account_number]
 
 
