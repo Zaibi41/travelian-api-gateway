@@ -13,7 +13,29 @@ jobs:
   test:
     name: Test FastAPI
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
+
+    # Database tests (tests/database) run against this disposable PostgreSQL: each test migrates its own schema and
+    # rolls it back. The password is a CI-only throwaway for a container that exists for this job only.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: travelian_test
+          POSTGRES_PASSWORD: travelian_test
+          POSTGRES_DB: travelian_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U travelian_test -d travelian_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TRAVELIAN_TEST_DATABASE_URL: postgresql+psycopg://travelian_test:travelian_test@localhost:5432/travelian_test
+      # A database test that can't reach the database fails here instead of being skipped.
+      TRAVELIAN_REQUIRE_TEST_DATABASE: "1"
 
     steps:
       - name: Checkout repository

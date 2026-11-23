@@ -139,13 +139,17 @@ export TRAVELIAN_TEST_DATABASE_URL='postgresql+psycopg://travelian_local:<passwo
 unset TRAVELIAN_TEST_DATABASE_URL
 ```
 
-Expected on 10 November 2026: 674 passed, 107 skipped without a test database; 781 passed with one. Unit tests never reach the database your `.env` points at (tests/conftest.py); tests that need one use the disposable test database. Holds need no identity-storage settings (docs/pii-storage.md).
+Expected on 23 November 2026: 1673 passed, 304 skipped without a test database; 1977 passed with one. Unit tests never reach the database your `.env` points at (tests/conftest.py); tests that need one use the disposable test database. Holds need no identity-storage settings (docs/pii-storage.md).
 
 Supplier tests use a mocked supplier and never call a real one.
 
-## Known failing database tests (18 November 2026)
+## Database tests in CI
 
-With `TRAVELIAN_TEST_DATABASE_URL` set, 15 database tests fail on `main` as well: their sample bookings have no
-`supplier_cost_minor`, which migration `0021_selling_price` made required (`test_bookings`, `test_group_hold_expiry`,
-`test_group_holds`, `test_issuance`, `test_selling_price`). Fix the fixtures; the app code is not affected. CI skips
-database tests, so it doesn't show them.
+CI (`.github/workflows/ci.yml`) runs the whole suite on every pull request against a disposable PostgreSQL 16 service
+container, with `TRAVELIAN_TEST_DATABASE_URL` pointing at it. `TRAVELIAN_REQUIRE_TEST_DATABASE=1` makes a database
+test fail instead of skipping when no database is configured, so a PR can't go green with the database tests skipped.
+The service's password is a CI-only throwaway; nothing in CI uses the real database or `.env`.
+
+Fixtures must follow the current schema: a booking needs `supplier_cost_minor` (migration `0021_selling_price`), a
+traveler `selling_minor` and `cost_minor`, and a hold that should still take payments needs a `hold_expires_at` in the
+future (tests use a fixed far-future date, never one near today).

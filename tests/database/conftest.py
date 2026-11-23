@@ -11,6 +11,8 @@ from alembic.config import Config
 def database(monkeypatch):
     url = os.environ.get("TRAVELIAN_TEST_DATABASE_URL")
     if not url:
+        if os.environ.get("TRAVELIAN_REQUIRE_TEST_DATABASE") == "1":  # CI: database tests must run, never skip
+            pytest.fail("TRAVELIAN_REQUIRE_TEST_DATABASE is set but TRAVELIAN_TEST_DATABASE_URL is not")
         pytest.skip(
             "Set TRAVELIAN_TEST_DATABASE_URL to a disposable PostgreSQL database"
         )
