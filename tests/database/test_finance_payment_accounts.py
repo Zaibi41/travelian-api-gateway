@@ -48,7 +48,7 @@ def test_super_admin_adds_an_account_and_sees_it_listed(admin):
     assert response.status_code == 201
     created = response.json()
     assert created["label"] == "Meezan Bank, Travelian current account" and created["active"] is True
-    assert set(created) == {"id", "method", "label", "active", "bank_name", "account_title", "account_number_masked", "account_number", "iban", "qr_asset_key", "qr_url"}
+    assert set(created) == {"id", "method", "label", "active", "bank_name", "account_title", "account_number_masked", "account_number", "iban", "qr_asset_key", "qr_url", "logo_asset_key", "logo_url"}
     assert client.get(PATH).json()["accounts"] == [created]
     assert connection.execute(text("SELECT created_by_user_id FROM payment_accounts")).scalar() == user_id
 
@@ -174,3 +174,31 @@ def test_qr_image_is_saved_returned_replaced_and_removed(database):
                                       "account_number": "0101-0105555556", "qr_asset_key": "site/logo.png"})
         assert bad.status_code == 422 and "Upload the QR image first" in bad.json()["detail"]
         assert not any(a["label"] == "Broken QR" for a in client.get(PATH).json()["accounts"])
+
+
+def test_bank_logo_is_saved_shown_at_checkout_replaced_and_removed(database):
+    """travelian#76 (option 2): a logo upload per receiving account; checkout gets its URL; until then, none (initials)."""
+    from unittest.mock import patch
+
+    from app.core.config import settings
+    from app.services import public_booking
+
+    connection, _, _ = database
+    client, _ = client_as(connection, "super_admin")
+    base = "https://travelian-assets-test.s3.ap-southeast-1.amazonaws.com"
+    with patch.object(settings, "assets_public_base_url", base), patch.object(settings, "bank_transfer_enabled", True):
+        created = client.post(PATH, json={"method": "bank_transfer", "label": "HBL main", "account_title": "Travelian (Private) Limited",
+                                          "bank_name": "Habib Bank Limited (HBL)", "account_number": "0101-0107777777"})
+        assert created.status_code == 201 and created.json()["logo_url"] is None
+        account_id = created.json()["id"]
+        checkout = [a.logo_url for a in public_booking.bank_accounts() if a.id == account_id]
+        assert checkout == [None]  # no logo yet: the website shows the bank's initials
+        added = client.patch(f"{PATH}/{account_id}", json={"logo_asset_key": "site/bank-logo/hbl.png"})
+        assert added.json()["logo_url"] == f"{base}/site/bank-logo/hbl.png"
+        assert [a.logo_url for a in public_booking.bank_accounts() if a.id == account_id] == [f"{base}/site/bank-logo/hbl.png"]
+        kept = client.patch(f"{PATH}/{account_id}", json={"qr_asset_key": "payment-qr/hbl.png"})
+        assert kept.json()["logo_asset_key"] == "site/bank-logo/hbl.png" and kept.json()["qr_asset_key"] == "payment-qr/hbl.png"
+        removed = client.patch(f"{PATH}/{account_id}", json={"remove_logo": True})
+        assert removed.json()["logo_asset_key"] is None and removed.json()["qr_asset_key"] == "payment-qr/hbl.png"
+        bad = client.patch(f"{PATH}/{account_id}", json={"logo_asset_key": "payment-qr/hbl.png"})
+        assert bad.status_code == 422 and "Upload the bank logo first" in bad.json()["detail"]

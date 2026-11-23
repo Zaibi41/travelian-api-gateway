@@ -16,7 +16,7 @@ Uploader = Annotated[BackOfficeUser, Depends(require_finance_accounts)]  # Super
 
 
 class SignUploadRequest(BaseModel):
-    purpose: Literal["site_logo", "payment_qr", "payment_proof"]
+    purpose: Literal["site_logo", "payment_qr", "payment_proof", "bank_logo"]
     content_type: Literal["image/png", "image/jpeg", "image/webp"]
 
 

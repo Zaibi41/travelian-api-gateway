@@ -64,3 +64,50 @@ def test_the_route_sends_an_attachment():
     assert response.status_code == 200 and response.content == PNG
     assert response.headers["content-disposition"] == 'attachment; filename="travelian-ubl-qr.png"'
     assert response.headers["content-type"] == "image/png" and response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_checkout_accounts_carry_the_bank_logo_only_when_uploaded(monkeypatch):
+    """travelian#76: the uploaded logo's public URL; no logo -> None (the website shows the bank's initials)."""
+    from dataclasses import replace
+
+    monkeypatch.setattr(payment_accounts, "list_accounts", lambda include_inactive=False: [replace(UBL, logo_asset_key="site/bank-logo/ubl.png"), NO_QR])
+    accounts = service.bank_accounts()
+    assert accounts[0].logo_url == "https://bucket.s3.ap-southeast-1.amazonaws.com/site/bank-logo/ubl.png"
+    assert accounts[1].logo_url is None
+
+
+def test_bank_logo_is_its_own_upload_purpose():
+    from app.services import assets
+
+    assert assets.PURPOSES["bank_logo"] == "site/bank-logo"
+    assert assets.valid_key("site/bank-logo/abc.png", "bank_logo")
+    for bad in ("payment-qr/abc.png", "site/logo.png", "site/bank-logo/../x.png", "bank-logo/abc.png"):
+        assert not assets.valid_key(bad, "bank_logo")
+
+
+def test_admin_routes_refuse_a_logo_key_that_was_not_uploaded_as_a_logo():
+    from fastapi import HTTPException
+
+    from app.api.routes import payment_accounts as routes
+
+    assert routes._logo_key(None) is None and routes._logo_key("site/bank-logo/x.webp") == "site/bank-logo/x.webp"
+    with pytest.raises(HTTPException) as refused:
+        routes._logo_key("payment-qr/x.png")
+    assert refused.value.status_code == 422
+
+
+def test_every_upload_folder_is_writable_and_public_where_needed():
+    """Each upload purpose's folder is covered by the gateway's IAM PutObject policy in deploy/aws-setup.sh, and the
+    images shown on the website (site logo, QR, bank logo) are under a public-read prefix (travelian#76)."""
+    from pathlib import Path
+
+    from app.services import assets
+
+    setup = Path(__file__).resolve().parents[1].joinpath("deploy", "aws-setup.sh").read_text()
+    put = setup[setup.index("s3:PutObject"):].split("]}", 1)[0]
+    public = setup[:setup.index("s3:PutObject")]
+    for purpose, folder in assets.PURPOSES.items():
+        top = folder.split("/")[0]
+        assert f"$BUCKET/{top}/*" in put, purpose
+        if purpose != "payment_proof":
+            assert f"$BUCKET/{top}/*" in public, purpose
