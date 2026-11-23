@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies, booking_payments
+from app.db import agencies, booking_payments, identity
 from app.db.supplier_bookings import _event
 
 #: Audit detail keys that may be shown (never names, documents, dates of birth or contact details).
@@ -79,8 +79,8 @@ def read(reference: str) -> People | None:
             {"b": booking_id},
         ).mappings().one_or_none()
         travelers = connection.execute(
-            text("SELECT position, passenger_type, title, first_name, last_name, date_of_birth, id_type,"
-                 " document_number, document_country, nationality, document_expiry, infant_of_position, ticket_number, selling_minor, cost_minor"
+            text("SELECT position, passenger_type, title, first_name, last_name, date_of_birth, date_of_birth_enc, id_type,"
+                 " document_number, document_number_enc, document_country, nationality, document_expiry, infant_of_position, ticket_number, selling_minor, cost_minor"
                  " FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
             {"b": booking_id},
         ).mappings().all()
@@ -93,7 +93,7 @@ def read(reference: str) -> People | None:
         ).mappings().all()
     return People(
         customer=Customer(**row) if row else None,
-        travelers=[Traveler(**t) for t in travelers],
+        travelers=[Traveler(**identity.open_traveler(dict(t))) for t in travelers],
         events=[AuditEvent(e["action"], e["actor_user_id"], e["created_at"],
                            {k: v for k, v in (e["details"] or {}).items() if k in AUDIT_DETAIL_KEYS}, e["actor_role"]) for e in events],
         payments=payments,

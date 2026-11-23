@@ -8,8 +8,9 @@ caller's owner and never reads or changes another owner's people. Matching (docs
 - Same name and date of birth (or, for customers, the same email or phone) as an existing person,
   without a matching document: a possible duplicate. Nothing is merged automatically; the caller
   chooses (add to that person, or keep separate), and the choice is logged.
-Identity is plain text in the sandbox phase; reads that leave the gateway are masked by the API
-layer. Events carry ids and field names only.
+Document numbers and dates of birth are encrypted at rest once the identity keys are set (gateway#84,
+app/db/identity.py); matching then uses their keyed hashes. Rows still in plain text (before the backfill) match too.
+Events carry ids and field names only.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from app.core import pii
-from app.db import agencies
+from app.db import agencies, identity
 
 # Kept identical to the frozen copy in migration 0017.
 BACKFILL_SQL = """
@@ -124,17 +125,19 @@ def _documents(connection, person_ids: list[str]) -> dict[str, list[Document]]:
     if not person_ids:
         return {}
     rows = connection.execute(
-        text("SELECT id, person_id, id_type, document_country, document_number, document_expiry FROM saved_person_documents"
+        text("SELECT id, person_id, id_type, document_country, document_number, document_number_enc, document_expiry FROM saved_person_documents"
              " WHERE person_id = ANY(:ids) AND removed_at IS NULL ORDER BY created_at"),
         {"ids": person_ids},
     ).mappings().all()
     found: dict[str, list[Document]] = {}
     for row in rows:
-        found.setdefault(row["person_id"], []).append(Document(**row))
+        values = {k: v for k, v in row.items() if k != "document_number_enc"}
+        values["document_number"] = identity.read_text(row["document_number"], row["document_number_enc"], identity.DOCUMENT_NUMBER) or ""
+        found.setdefault(row["person_id"], []).append(Document(**values))
     return found
 
 
-_PERSON_SELECT = """SELECT p.id, p.owner_agency_id, p.title, p.first_name, p.last_name, p.date_of_birth, p.nationality, p.phone_code,
+_PERSON_SELECT = """SELECT p.id, p.owner_agency_id, p.title, p.first_name, p.last_name, p.date_of_birth, p.date_of_birth_enc, p.nationality, p.phone_code,
        p.phone, p.email, p.merged_into_id,
        (SELECT max(b.created_at) FROM bookings b WHERE b.id IN (
             SELECT booking_id FROM booking_customers WHERE person_id = p.id
@@ -145,7 +148,12 @@ _PERSON_SELECT = """SELECT p.id, p.owner_agency_id, p.title, p.first_name, p.las
 def _people(connection, where: str, params: dict[str, Any], match: str | None = None) -> list[Person]:
     rows = connection.execute(text(f"{_PERSON_SELECT} WHERE {where}"), params).mappings().all()
     docs = _documents(connection, [row["id"] for row in rows])
-    return [Person(**row, documents=docs.get(row["id"], []), match=match) for row in rows]
+    people = []
+    for row in rows:
+        values = {k: v for k, v in row.items() if k != "date_of_birth_enc"}
+        values["date_of_birth"] = identity.read_date(row["date_of_birth"], row["date_of_birth_enc"], identity.PERSON_DOB)
+        people.append(Person(**values, documents=docs.get(row["id"], []), match=match))
+    return people
 
 
 def load(connection, owner: str | None, person_id: str, lock: bool = False) -> Person:
@@ -160,8 +168,9 @@ def load(connection, owner: str | None, person_id: str, lock: bool = False) -> P
 def find_document(connection, owner: str | None, document: DocumentInput) -> tuple[Person, Document] | None:
     row = connection.execute(
         text("SELECT person_id, id FROM saved_person_documents WHERE coalesce(owner_agency_id, '') = coalesce(:owner, '')"
-             " AND id_type = :t AND document_country = :c AND document_number_normalized = :n AND removed_at IS NULL"),
-        {"owner": owner, "t": document.id_type, "c": document.document_country, "n": document.normalized},
+             " AND id_type = :t AND document_country = :c AND (document_number_normalized = :n OR document_number_hmac = :nh) AND removed_at IS NULL"),
+        {"owner": owner, "t": document.id_type, "c": document.document_country, "n": document.normalized,
+         "nh": identity.document_hmac(document.normalized)},
     ).mappings().one_or_none()
     if row is None:
         return None
@@ -174,9 +183,10 @@ def possible_duplicates(connection, owner: str | None, first: str, last: str, bi
     """Live people of this owner with the same name and date of birth, or the same email or phone."""
     found: list[tuple[Person, str]] = []
     if birth is not None:
-        for person in _people(connection, f"{_owner_clause('p.owner_agency_id')} AND p.merged_into_id IS NULL AND p.date_of_birth = :dob"
+        for person in _people(connection, f"{_owner_clause('p.owner_agency_id')} AND p.merged_into_id IS NULL"
+                              " AND (p.date_of_birth = :dob OR p.date_of_birth_hmac = :dobh)"
                               " AND lower(p.first_name) = lower(:first) AND lower(p.last_name) = lower(:last)",
-                              {"owner": owner, "dob": birth, "first": first.strip(), "last": last.strip()}):
+                              {"owner": owner, "dob": birth, "dobh": identity.date_hmac(birth), "first": first.strip(), "last": last.strip()}):
             found.append((person, "same_name_and_birth_date"))
     if email:
         found += [(p, "same_email") for p in _people(connection, f"{_owner_clause('p.owner_agency_id')} AND p.merged_into_id IS NULL"
@@ -195,22 +205,36 @@ def possible_duplicates(connection, owner: str | None, first: str, last: str, bi
 def _insert_person(connection, owner: str | None, actor: str | None, values: dict[str, Any]) -> str:
     person_id = str(uuid4())
     connection.execute(
-        text("INSERT INTO saved_people (id, owner_agency_id, title, first_name, last_name, date_of_birth, nationality, phone_code, phone,"
-             " phone_normalized, email, email_normalized, created_by_user_id) VALUES (:id, :owner, :title, :first_name, :last_name, :date_of_birth,"
-             " :nationality, :phone_code, :phone, :phone_n, :email, :email_n, :actor)"),
-        {"id": person_id, "owner": owner, "actor": actor, **{k: values.get(k) for k in PERSON_FIELDS},
+        text("INSERT INTO saved_people (id, owner_agency_id, title, first_name, last_name, date_of_birth, date_of_birth_enc, date_of_birth_hmac,"
+             " nationality, phone_code, phone, phone_normalized, email, email_normalized, created_by_user_id) VALUES (:id, :owner, :title,"
+             " :first_name, :last_name, :date_of_birth, :dob_enc, :dob_hmac, :nationality, :phone_code, :phone, :phone_n, :email, :email_n, :actor)"),
+        {"id": person_id, "owner": owner, "actor": actor, **{k: values.get(k) for k in PERSON_FIELDS}, **_dob_params(values.get("date_of_birth")),
          "phone_n": pii.normalize_phone(values.get("phone_code"), values.get("phone")), "email_n": pii.normalize_email(values.get("email"))},
     )
     return person_id
 
 
+def _dob_params(birth: date | None) -> dict[str, Any]:
+    """date_of_birth (plain, or None once encrypted), dob_enc and dob_hmac for a saved person (gateway#84)."""
+    plain, encrypted = identity.date_columns(birth, identity.PERSON_DOB)
+    return {"date_of_birth": plain, "dob_enc": encrypted, "dob_hmac": identity.date_hmac(birth)}
+
+
+def _number_params(document: DocumentInput) -> dict[str, Any]:
+    """The document number and its match key, plain or encrypted + keyed hash (gateway#84)."""
+    number, number_enc = identity.text_columns(document.document_number, identity.DOCUMENT_NUMBER)
+    key, key_hmac = identity.document_key(document.normalized)
+    return {"n": number, "n_enc": number_enc, "nn": key, "nh": key_hmac}
+
+
 def _insert_document(connection, owner: str | None, actor: str | None, person_id: str, document: DocumentInput) -> str:
     document_id = str(uuid4())
     connection.execute(
-        text("INSERT INTO saved_person_documents (id, person_id, owner_agency_id, id_type, document_country, document_number,"
-             " document_number_normalized, document_expiry, created_by_user_id) VALUES (:id, :p, :owner, :t, :c, :n, :nn, :e, :actor)"),
+        text("INSERT INTO saved_person_documents (id, person_id, owner_agency_id, id_type, document_country, document_number, document_number_enc,"
+             " document_number_normalized, document_number_hmac, document_expiry, created_by_user_id)"
+             " VALUES (:id, :p, :owner, :t, :c, :n, :n_enc, :nn, :nh, :e, :actor)"),
         {"id": document_id, "p": person_id, "owner": owner, "t": document.id_type, "c": document.document_country,
-         "n": document.document_number.strip(), "nn": document.normalized, "e": document.document_expiry, "actor": actor},
+         **_number_params(document), "e": document.document_expiry, "actor": actor},
     )
     return document_id
 
@@ -240,8 +264,9 @@ def search(owner: str | None, q: str, limit: int = 20) -> list[Person]:
         numbers = {pii.normalize_document(q), pii.normalize_document(q, "NATI", "PAK")} - {""}
         if numbers:
             results += _people(connection, f"{live} AND p.id IN (SELECT person_id FROM saved_person_documents WHERE removed_at IS NULL"
-                               " AND coalesce(owner_agency_id, '') = coalesce(:owner, '') AND document_number_normalized = ANY(:numbers))",
-                               {"owner": owner, "numbers": list(numbers)}, "document")
+                               " AND coalesce(owner_agency_id, '') = coalesce(:owner, '')"
+                               " AND (document_number_normalized = ANY(:numbers) OR document_number_hmac = ANY(:hashes)))",
+                               {"owner": owner, "numbers": list(numbers), "hashes": [h for h in map(identity.document_hmac, numbers) if h]}, "document")
         email = pii.normalize_email(q) if "@" in q else None
         digits = "".join(ch for ch in q if ch.isdigit())
         if email:
@@ -285,9 +310,12 @@ def typeahead(owner: str | None, q: str, kind: str, limit: int = 8) -> list[Pers
         if numbers:
             results += _people(connection, f"{live} AND p.id IN (SELECT person_id FROM saved_person_documents WHERE removed_at IS NULL"
                                " AND coalesce(owner_agency_id, '') = coalesce(:owner, '') AND (" +
-                               " OR ".join(f"document_number_normalized LIKE :n{i} ESCAPE '\\'" for i in range(len(numbers))) + "))"
+                               " OR ".join(f"document_number_normalized LIKE :n{i} ESCAPE '\\'" for i in range(len(numbers))) +
+                               # gateway#84: an encrypted number can only be found by its full value (keyed hash).
+                               " OR document_number_hmac = ANY(:hashes)))"
                                " ORDER BY p.last_name, p.first_name LIMIT :limit",
-                               {"owner": owner, "limit": limit, **{f"n{i}": _like(n) + "%" for i, n in enumerate(sorted(numbers))}}, "document")
+                               {"owner": owner, "limit": limit, "hashes": [h for h in map(identity.document_hmac, numbers) if h],
+                                **{f"n{i}": _like(n) + "%" for i, n in enumerate(sorted(numbers))}}, "document")
         if kind == "customer":
             digits = "".join(ch for ch in q if ch.isdigit())
             contact = []
@@ -393,9 +421,9 @@ def _apply(connection, person: Person, changes: dict[str, Any]) -> None:
     values = {k: getattr(person, k) for k in PERSON_FIELDS} | changes
     connection.execute(
         text("UPDATE saved_people SET title = :title, first_name = :first_name, last_name = :last_name, date_of_birth = :date_of_birth,"
-             " nationality = :nationality, phone_code = :phone_code, phone = :phone, phone_normalized = :phone_n, email = :email,"
+             " date_of_birth_enc = :dob_enc, date_of_birth_hmac = :dob_hmac, nationality = :nationality, phone_code = :phone_code, phone = :phone, phone_normalized = :phone_n, email = :email,"
              " email_normalized = :email_n, updated_at = now(), revision = revision + 1 WHERE id = :id"),
-        {**values, "id": person.id, "phone_n": pii.normalize_phone(values["phone_code"], values["phone"]), "email_n": pii.normalize_email(values["email"])},
+        {**values, **_dob_params(values["date_of_birth"]), "id": person.id, "phone_n": pii.normalize_phone(values["phone_code"], values["phone"]), "email_n": pii.normalize_email(values["email"])},
     )
 
 
@@ -426,8 +454,9 @@ def edit_document(owner: str | None, actor: str, person_id: str, document_id: st
         if held is not None and held[1].id != document_id:
             raise PeopleError(409, "document_already_saved", "This document is already saved for this person.")
         if held is not None:  # the same document: only the expiry (and the number's spacing) change
-            connection.execute(text("UPDATE saved_person_documents SET document_number = :n, document_expiry = :e WHERE id = :d"),
-                               {"n": document.document_number.strip(), "e": document.document_expiry, "d": document_id})
+            number = _number_params(document)
+            connection.execute(text("UPDATE saved_person_documents SET document_number = :n, document_number_enc = :n_enc, document_expiry = :e WHERE id = :d"),
+                               {"n": number["n"], "n_enc": number["n_enc"], "e": document.document_expiry, "d": document_id})
             new_id = document_id
         else:
             connection.execute(text("UPDATE saved_person_documents SET removed_at = now() WHERE id = :d"), {"d": document_id})
@@ -510,9 +539,10 @@ def booking_copy(connection, owner: str | None, reference: str, role: str, posit
             {"b": booking_id}).mappings().one_or_none() if position == 0 else None
     else:
         row = connection.execute(
-            text("SELECT title, first_name, last_name, date_of_birth, nationality, id_type, document_country, document_number, document_expiry,"
-                 " person_id FROM booking_travelers WHERE booking_id = :b AND position = :p FOR UPDATE"),
+            text("SELECT title, first_name, last_name, date_of_birth, date_of_birth_enc, nationality, id_type, document_country, document_number,"
+                 " document_number_enc, document_expiry, person_id FROM booking_travelers WHERE booking_id = :b AND position = :p FOR UPDATE"),
             {"b": booking_id, "p": position}).mappings().one_or_none()
+        row = identity.open_traveler(dict(row)) if row is not None else None
     if row is None:
         raise PeopleError(404, "booking_person_not_found", f"This booking has no {role} at that position.")
     if row["person_id"] is not None:

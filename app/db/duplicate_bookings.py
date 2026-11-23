@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies
+from app.db import agencies, identity
 
 #: Held, pending payment, paid (payment received, paid not ticketed), confirmed or ticketed; and a group hold being placed
 #: (hold_pending) or held at the supplier but not completed (hold_unrecorded). Not: requested (nothing held), hold_failed,
@@ -49,7 +49,8 @@ def travelers_named(names: list[str], exclude_reference: str | None = None) -> l
         return []
     with agencies.application_engine().begin() as connection:
         rows = connection.execute(text(
-            "SELECT b.reference, b.product, b.itinerary, t.first_name, t.last_name, t.date_of_birth, t.document_number,"
+            "SELECT b.reference, b.product, b.itinerary, t.first_name, t.last_name, t.date_of_birth, t.date_of_birth_enc,"
+            " t.document_number, t.document_number_enc,"
             " b.booking_status, b.payment_status, b.channel, c.email, c.phone_code, c.phone"
             " FROM bookings b JOIN booking_travelers t ON t.booking_id = b.id"
             " LEFT JOIN booking_customers c ON c.booking_id = b.id"
@@ -61,7 +62,9 @@ def travelers_named(names: list[str], exclude_reference: str | None = None) -> l
             " ORDER BY b.created_at"),
             {"active": list(ACTIVE_STATUSES), "exclude": exclude_reference, "pending": PENDING_MINUTES, "names": names}).all()
     return [ExistingTraveler(reference=row.reference, product=row.product, itinerary=row.itinerary, first_name=row.first_name,
-                             last_name=row.last_name, date_of_birth=row.date_of_birth, document_number=row.document_number,
+                             last_name=row.last_name,
+                             date_of_birth=identity.read_date(row.date_of_birth, row.date_of_birth_enc, identity.TRAVELER_DOB),
+                             document_number=identity.read_text(row.document_number, row.document_number_enc, identity.TRAVELER_DOCUMENT),
                              booking_status=row.booking_status, payment_status=row.payment_status, channel=row.channel,
                              contact_email=(row.email or "").strip().lower() or None,
                              contact_phone="".join(ch for ch in f"{row.phone_code or ''}{row.phone or ''}" if ch.isdigit()) or None)

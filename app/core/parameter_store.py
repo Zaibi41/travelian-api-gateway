@@ -20,6 +20,10 @@ PARAMETER_SETTINGS = {
     "jazzcash_merchant_id": "payments/jazzcash/merchant-id",
     "jazzcash_password": "payments/jazzcash/password",
     "jazzcash_integrity_salt": "payments/jazzcash/integrity-salt",
+    # gateway#84: identity encryption keys (SecureString).
+    "pii_keys": "identity/keys",
+    "pii_active_key": "identity/active-key",
+    "pii_hash_key": "identity/hash-key",
 }
 
 
@@ -55,10 +59,13 @@ def load_parameter_store_settings() -> None:
 
     try:
         client = boto3.client("ssm", **client_options)
-        response = client.get_parameters(
-            Names=list(parameter_to_setting),
-            WithDecryption=True,
-        )
+        # SSM returns at most 10 parameters per call.
+        names = list(parameter_to_setting)
+        response = {"Parameters": [], "InvalidParameters": []}
+        for start in range(0, len(names), 10):
+            part = client.get_parameters(Names=names[start:start + 10], WithDecryption=True)
+            response["Parameters"] += part.get("Parameters", [])
+            response["InvalidParameters"] += part.get("InvalidParameters", [])
     except (BotoCoreError, ClientError) as exc:
         logger.error(
             "Unable to load vendor settings from SSM Parameter Store",
