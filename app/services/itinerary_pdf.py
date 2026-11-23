@@ -11,8 +11,8 @@ per flight, outbound then return, and a terms box only when the booking carries 
 
 Times: flight times are local at each airport, as the supplier gave them. Booked, generated and hold-expiry times are
 Pakistan time (Asia/Karachi), labelled PKT. Never shown: supplier names or logos, group ids, supplier cost, profit,
-other suppliers' references. Airline logos only from files the gateway holds (app/assets/airline-logos), else the
-airline name in text. Fonts: DejaVu Sans, bundled (app/assets/fonts), which covers Latin, Greek, Cyrillic and more;
+other suppliers' references. Airline logos from the website's one shared manifest (/airline-logos/index.json,
+app/services/airline_logos, gateway#62), else the airline's IATA code as a badge; the airline name is always printed. Fonts: DejaVu Sans, bundled (app/assets/fonts), which covers Latin, Greek, Cyrillic and more;
 Arabic-script names (e.g. Urdu) print with their letters unjoined (ReportLab doesn't shape Arabic script).
 """
 
@@ -31,7 +31,7 @@ from app.core.titles import title_text
 from app.services import baggage
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -55,14 +55,13 @@ BANNER = {  # state: (background, border, text)
 }
 TRAVELIAN = {"name": "Travelian", "phone": "+92 324 4440014", "email": "travelian.pk@gmail.com", "website": "www.travelian.pk"}
 
-#: Airline code -> (name, logo file in app/assets/airline-logos). Logos are files Travelian holds; nothing is hotlinked.
+#: Airline code -> name, for flights whose data has only the code. Logos come from the website's shared manifest
+#: (app/services/airline_logos, gateway#62); the gateway keeps no logo copies.
 AIRLINES = {
-    "9P": ("Fly Jinnah", "fly-jinnah"), "OV": ("Salam Air", "salam-air"), "PA": ("Airblue", "airblue"), "PK": ("PIA", "pia"),
-    "PF": ("AirSial", "airsial"), "G9": ("Air Arabia", "air-arabia"), "EK": ("Emirates", "emirates"), "EY": ("Etihad", "etihad"),
-    "FZ": ("flydubai", "flydubai"), "XY": ("flynas", "flynas"), "F3": ("flyadeal", "flyadeal"), "J9": ("Jazeera Airways", "jazeera-airways"),
-    "KU": ("Kuwait Airways", "kuwait-airways"), "WY": ("Oman Air", "oman-air"), "PC": ("Pegasus", "pegasus"), "QR": ("Qatar Airways", "qatar-airways"),
-    "SV": ("Saudia", "saudia"), "UL": ("SriLankan Airlines", "srilankan-airlines"), "TK": ("Turkish Airlines", "turkish-airlines"),
-    "J2": ("Azerbaijan Airlines", "azerbaijan-airlines"), "CA": ("Air China", "air-china"),
+    "9P": "Fly Jinnah", "OV": "Salam Air", "PA": "Airblue", "PK": "PIA", "PF": "AirSial", "G9": "Air Arabia", "EK": "Emirates",
+    "EY": "Etihad", "FZ": "flydubai", "XY": "flynas", "F3": "flyadeal", "J9": "Jazeera Airways", "KU": "Kuwait Airways",
+    "WY": "Oman Air", "PC": "Pegasus", "QR": "Qatar Airways", "SV": "Saudia", "UL": "SriLankan Airlines", "TK": "Turkish Airlines",
+    "J2": "Azerbaijan Airlines", "CA": "Air China", "GF": "Gulf Air", "Z8": "Southair", "BA": "British Airways", "C6": "Centrum Air",
 }
 TYPE_LABEL = {"ADT": "Adult", "CHD": "Child", "INF": "Infant"}
 
@@ -151,7 +150,7 @@ def airline_of(segment: dict) -> tuple[str | None, str, str | None]:
     known = AIRLINES.get(code or "")
     name = (segment.get("airline_name") or "").strip()
     if not name or name.upper() == code:
-        name = known[0] if known else name
+        name = known or name
     shown = f"{number[:2]} {number[2:]}" if code and number.startswith(code) and len(number) > 2 else (number or None)
     return code, name, shown
 
@@ -164,10 +163,35 @@ def _image(path: Path, height: float, align: str = "LEFT") -> Image:
     return image
 
 
-def _airline_logo(code: str | None, height: float) -> Image | None:
-    known = AIRLINES.get(code or "")
-    path = ASSETS / "airline-logos" / f"{known[1]}.png" if known else None
-    return _image(path, height) if path and path.exists() else None
+def _airline_logo(code: str | None, name: str | None, height: float):
+    """The airline's logo from the website's shared manifest (gateway#62), else its IATA code as a badge, never an empty
+    box; None only when neither the logo nor the code is known (the airline name is printed beside it anyway)."""
+    from app.services import airline_logos
+
+    code, data = airline_logos.logo_for(code, name)
+    if data:
+        try:
+            reader = ImageReader(io.BytesIO(data))
+            width_px, height_px = reader.getSize()
+            image = Image(io.BytesIO(data), width=min(height * width_px / height_px, 3.2 * height), height=height)
+            image.hAlign = "LEFT"
+            return image
+        except Exception:  # noqa: BLE001 - an unreadable image: the badge instead
+            pass
+    return _code_badge(code, height) if code else None
+
+
+def _code_badge(code: str, height: float) -> Table:
+    """The airline's IATA code in a small rounded navy-outlined box, the same height as a logo."""
+    badge = Table([[_p(code, size=max(7.5, height / mm * 1.15), bold=True, color=NAVY, align=TA_CENTER)]],
+                  colWidths=[max(height * 1.4, 10 * mm)], rowHeights=[height])
+    badge.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), SOFT), ("BOX", (0, 0), (-1, -1), 0.8, NAVY), ("ROUNDEDCORNERS", [3, 3, 3, 3]),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    badge.hAlign = "LEFT"
+    return badge
 
 
 # ---------- the document ----------
@@ -323,7 +347,7 @@ def _leg(doc: Itinerary, segment: dict, width: float) -> KeepTogether:
         return cells
 
     status = {"issued": "Ticketed", "paid": "Confirmed, not ticketed", "hold": "On hold"}.get(doc.state) or doc.booking_status.replace("_", " ").capitalize()
-    logo = _airline_logo(code, 8 * mm)
+    logo = _airline_logo(code, airline, 8 * mm)
     side = ([logo, Spacer(1, 2)] if logo else []) + [_p(airline or "Airline not recorded", size=9.5, bold=True, color=NAVY)]
     if flight:
         side.append(_p(f"Flight {flight}", size=9, bold=True, color=TEAL))
