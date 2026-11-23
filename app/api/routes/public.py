@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from fastapi import APIRouter, Header, Path, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.flights import FlightSearchRequest
 from app.schemas.live_flights import RequiredDocument
@@ -34,11 +34,22 @@ class PublicGroupSearch(BaseModel):
     destination: str | None = Field(None, min_length=3, max_length=3)
     departure_date: date | None = None
     adults: int = Field(1, ge=1, le=9)
+    # gateway#105: children and infants, priced only where the supplier prices them (otherwise only_adult_fares).
+    children: int = Field(0, ge=0, le=8)
+    infants: int = Field(0, ge=0, le=9)
 
     @field_validator("origin", "destination", mode="before")
     @classmethod
     def upper(cls, value):
         return value.strip().upper() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def party_rules(self):
+        if self.infants > self.adults:
+            raise ValueError("at most one infant per adult")
+        if self.adults + self.children > 9:
+            raise ValueError("at most 9 adults and children together")
+        return self
 
 
 @router.post("/group-ticketing/search",
@@ -47,7 +58,7 @@ async def search_groups(body: PublicGroupSearch, request: Request):
     """Group fares with selling prices only. Leave all of origin, destination and date out for everything."""
     try:
         service.check_rate(service.SEARCH_LIMIT, _ip(request))
-        return await service.search(body.origin, body.destination, body.departure_date, body.adults)
+        return await service.search(body.origin, body.destination, body.departure_date, body.adults, body.children, body.infants)
     except service.PublicError as error:
         return _error(error)
 
