@@ -99,6 +99,8 @@ def filter_group_inventory(
     destination: str | None = None,
     departure_date: date | None = None,
     adults: int = 1,
+    children: int = 0,
+    infants: int = 0,
 ) -> list[GroupInventory]:
     """Filter normalized group inventory (one-way and return) by any of: outbound origin, outbound destination,
     departure date; and by known remaining seats. Empty filters match everything. Tickets and groups come back in
@@ -120,7 +122,8 @@ def filter_group_inventory(
             if departure_date and ticket.departure_date != departure_date.isoformat():
                 continue
             # Keep inventory with unknown capacity visible; filter out only known insufficient stock.
-            if ticket.remaining is not None and ticket.remaining < adults:
+            # gateway#105: every traveler counted against the seats left (an infant too: suppliers count them).
+            if ticket.remaining is not None and ticket.remaining < adults + children + infants:
                 continue
             matching_tickets.append(ticket)
 

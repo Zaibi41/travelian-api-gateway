@@ -178,6 +178,8 @@ def _normalize_ticket(ticket: SkypassTicket) -> GroupInventory:
         airline=ticket.name,
         airline_logo=ticket.image,
         price=ticket.adult_price,  # per adult (adult_price; child_price and infants_price are separate)
+        child_price=getattr(ticket, "child_price", None),
+        infant_price=getattr(ticket, "infants_price", None),
         meal=ticket.meal,
         ticket_type=ticket.service_type,
         baggage=first.baggage if first else None,

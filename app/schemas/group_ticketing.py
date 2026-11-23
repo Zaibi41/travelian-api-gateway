@@ -27,6 +27,10 @@ class GroupTicket(BaseModel):
     airline: str | None = None
     airline_logo: str | None = None
     price: str | int | float | None = Field(None, description="Supplier price per adult, as sent.")
+    #: gateway#105: a child's and an infant's supplier price, only when the supplier sends one (Skypass child_price /
+    #: infants_price; often "Price on call", which is no price). Other suppliers send one adult price only.
+    child_price: str | int | float | None = None
+    infant_price: str | int | float | None = None
     currency: str | None = None
     remaining: int | None = None
     updated_at: str | None = None

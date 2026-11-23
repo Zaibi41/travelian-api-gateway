@@ -78,7 +78,8 @@ def test_staff_and_agency_get_no_supplier_cost_or_raw_fields(role, path):
     assert ticket["logo_url"].startswith("/v1/logos/") and ticket["departure_time"] == "09:45"
     assert set(ticket) <= {"id", "updated_at", "sold", "departure_date", "departure_time", "sector", "airline",
                            "logo_url", "remaining", "baggage", "meal", "ticket_type", "selling_price", "stock", "can_hold",
-                           "legs", "flight_number", "hand_carry", "baggage_label", "baggage_detail", "hold_unavailable_reason", "fare_terms"}
+                           "legs", "flight_number", "hand_carry", "baggage_label", "baggage_detail", "hold_unavailable_reason", "fare_terms",
+                           "party_total", "child_selling_price", "infant_selling_price", "only_adult_fares"}  # selling fields (gateway#105)
     assert ticket["stock"] == "supplier" and ticket["can_hold"] is False  # Dhillu & Sahi can't hold
     assert ticket["hold_unavailable_reason"] == "Holding isn't available for this provider"  # never names the supplier
 

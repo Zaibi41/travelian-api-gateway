@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.booking_security import require_booking_authorization
 from app.core.field_visibility import BackOfficeUser, FieldVisibility, require_search_viewer
-from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, ticket_view
+from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, Party, inventory_view, ticket_view
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
@@ -63,6 +63,17 @@ class GroupSearchRequest(BaseModel):
     destination: str | None = Field(None, min_length=3, max_length=3, examples=["RUH"])
     departure_date: date | None = None
     adults: int = Field(default=1, ge=1, le=9)
+    # gateway#105: children (2-11) and infants (under 2, one per adult); each priced only where the supplier prices them.
+    children: int = Field(default=0, ge=0, le=8)
+    infants: int = Field(default=0, ge=0, le=9)
+
+    @model_validator(mode="after")
+    def one_infant_per_adult(self):
+        if self.infants > self.adults:
+            raise ValueError("at most one infant per adult")
+        if self.adults + self.children > 9:
+            raise ValueError("at most 9 adults and children together")
+        return self
 
     @field_validator("origin", "destination", mode="before")
     @classmethod
@@ -265,8 +276,9 @@ async def search_for(request: "GroupSearchRequest", visibility: FieldVisibility)
         raise HTTPException(status_code=503, detail="Group inventory is temporarily unavailable") from exc
     matches = filter_group_inventory(
         groups, origin=request.origin, destination=request.destination, departure_date=request.departure_date, adults=request.adults,
+        children=request.children, infants=request.infants,
     )
-    return inventory_view(matches, visibility)
+    return inventory_view(matches, visibility, Party(adults=request.adults, children=request.children, infants=request.infants))
 
 
 @router.get("/inventory", response_model=GroupInventoryView, response_model_exclude_none=True)

@@ -6595,6 +6595,13 @@
             "title": "Adults",
             "type": "integer"
           },
+          "children": {
+            "default": 0,
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Children",
+            "type": "integer"
+          },
           "departure_date": {
             "anyOf": [
               {
@@ -6622,6 +6629,13 @@
               "RUH"
             ],
             "title": "Destination"
+          },
+          "infants": {
+            "default": 0,
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Infants",
+            "type": "integer"
           },
           "origin": {
             "anyOf": [
@@ -6783,6 +6797,28 @@
             "title": "Can Hold",
             "type": "boolean"
           },
+          "child_selling_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per child (2-11), same markup; only when the supplier sends a child price."
+          },
+          "child_supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
           "departure_date": {
             "anyOf": [
               {
@@ -6863,6 +6899,28 @@
             "title": "Id",
             "type": "string"
           },
+          "infant_selling_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per infant (under 2), same markup; only when the supplier sends an infant price."
+          },
+          "infant_supplier_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with the cost and margin permission."
+          },
           "legs": {
             "description": "Every flight, outbound then return.",
             "items": {
@@ -6897,6 +6955,29 @@
               }
             ],
             "title": "Meal"
+          },
+          "only_adult_fares": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when children or infants were searched but the supplier prices this fare for adults only (no child or infant price).",
+            "title": "Only Adult Fares"
+          },
+          "party_total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling total for the travelers searched (adults, children, infants), each at its own price. Omitted when a searched passenger type has no price."
           },
           "pnr": {
             "anyOf": [
@@ -9768,6 +9849,13 @@
             "title": "Adults",
             "type": "integer"
           },
+          "children": {
+            "default": 0,
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Children",
+            "type": "integer"
+          },
           "departure_date": {
             "anyOf": [
               {
@@ -9792,6 +9880,13 @@
               }
             ],
             "title": "Destination"
+          },
+          "infants": {
+            "default": 0,
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Infants",
+            "type": "integer"
           },
           "origin": {
             "anyOf": [

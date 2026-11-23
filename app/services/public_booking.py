@@ -32,7 +32,7 @@ from app.schemas.group_ticketing import GroupInventory
 from app.schemas.live_flights import HoldContact, HoldPassenger, HoldRequest
 from app.services import group_holds, notifications
 from app.services.group_ticketing import GroupInventoryUnavailable, fetch_all_group_inventory, filter_group_inventory
-from app.services.group_ticketing_view import inventory_view
+from app.services.group_ticketing_view import Party, inventory_view
 from app.services import customer_emails
 from app.vendors.payments import payfast
 
@@ -109,11 +109,13 @@ async def cached_inventory() -> list[GroupInventory]:
 STAFF_ONLY_TICKET_FIELDS = {"stock", "can_hold", "hold_unavailable_reason"}
 
 
-async def search(origin: str | None, destination: str | None, departure_date, adults: int) -> dict:
+async def search(origin: str | None, destination: str | None, departure_date, adults: int, children: int = 0, infants: int = 0) -> dict:
     groups = await cached_inventory()
     if origin or destination or departure_date:
-        groups = filter_group_inventory(groups, origin=origin, destination=destination, departure_date=departure_date, adults=adults)
-    view = inventory_view(groups, NONE).model_dump(mode="json", exclude_none=True)
+        groups = filter_group_inventory(groups, origin=origin, destination=destination, departure_date=departure_date, adults=adults,
+                                        children=children, infants=infants)
+    party = Party(adults=adults, children=children, infants=infants)
+    view = inventory_view(groups, NONE, party).model_dump(mode="json", exclude_none=True)
     for group in view.get("data", []):
         for ticket in group.get("tickets", []):
             for field in STAFF_ONLY_TICKET_FIELDS:

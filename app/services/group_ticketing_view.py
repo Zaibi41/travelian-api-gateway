@@ -77,6 +77,12 @@ class GroupTicketView(BaseModel):
     ticket_type: str | int | None = None
     legs: list[GroupLegView] = Field(default_factory=list, description="Every flight, outbound then return.")
     selling_price: GroupMoney | None = Field(None, description="Per adult: listing price + markup (0 when none is set). Omitted only when the provider sent no usable price.")
+    child_selling_price: GroupMoney | None = Field(None, description="Per child (2-11), same markup; only when the supplier sends a child price.")
+    infant_selling_price: GroupMoney | None = Field(None, description="Per infant (under 2), same markup; only when the supplier sends an infant price.")
+    party_total: GroupMoney | None = Field(None, description="Selling total for the travelers searched (adults, children, infants), "
+                                          "each at its own price. Omitted when a searched passenger type has no price.")
+    only_adult_fares: bool | None = Field(None, description="True when children or infants were searched but the supplier "
+                                          "prices this fare for adults only (no child or infant price).")
     stock: Literal["supplier", "owned"] = Field("supplier", description="Supplier stock or Travelian-owned stock. Never names the supplier.")
     can_hold: bool = Field(False, description="Whether Hold seats can be used on this fare: its source holds seats and it has a price.")
     hold_unavailable_reason: str | None = Field(None, description="Why Hold seats is off for this fare, when it is.")
@@ -85,6 +91,16 @@ class GroupTicketView(BaseModel):
     group_source: GroupSource | None = Field(None, description="Provider, supplier PNR, group and ticket IDs. Only with the supplier names permission.")
     subparts: list[dict[str, Any]] | None = Field(None, description="Raw supplier segments. Requires both supplier names and cost and margin permissions.")
     supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
+    child_supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
+    infant_supplier_cost: GroupMoney | None = Field(None, description="Only with the cost and margin permission.")
+
+
+class Party(BaseModel):
+    """The travelers searched (gateway#105)."""
+
+    adults: int = 1
+    children: int = 0
+    infants: int = 0
 
 
 class GroupView(BaseModel):
@@ -102,15 +118,28 @@ class GroupInventoryView(BaseModel):
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d")
 
 
-def supplier_cost(ticket: GroupTicket) -> GroupMoney | None:
+def _cost(raw, ticket: GroupTicket) -> GroupMoney | None:
+    """A supplier price as sent ("95,000", 95000) in minor units; None for no price ("Price on call", 0, empty)."""
     try:
-        amount = Decimal(str(ticket.price).replace(",", "").strip())
+        amount = Decimal(str(raw).replace(",", "").strip())
     except (InvalidOperation, ValueError):
         return None
     if not amount.is_finite() or amount <= 0:
         return None
     currency = (ticket.currency or settings.group_ticketing_default_currency).strip().upper()
     return GroupMoney(amount_minor=int((amount * 100).quantize(Decimal("1"), ROUND_HALF_UP)), currency=currency)
+
+
+def supplier_cost(ticket: GroupTicket) -> GroupMoney | None:
+    return _cost(ticket.price, ticket)
+
+
+def type_costs(ticket: GroupTicket) -> dict[str, GroupMoney]:
+    """gateway#105: the supplier's price per passenger type it sends: adult always (when priced), child and infant only
+    when the supplier gives them."""
+    costs = {kind: cost for kind, cost in (("adult", supplier_cost(ticket)), ("child", _cost(ticket.child_price, ticket)),
+                                         ("infant", _cost(ticket.infant_price, ticket))) if cost is not None}
+    return costs
 
 
 def selling_price(cost: GroupMoney | None) -> GroupMoney | None:
@@ -175,8 +204,9 @@ def ticket_source(ticket: GroupTicket) -> GroupSource | None:
     return GroupSource.of(ticket.vendor, ticket.pnr, ticket.supplier_group_id, ticket.supplier_ticket_id)
 
 
-def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicketView:
+def ticket_view(ticket: GroupTicket, visibility: FieldVisibility, party: Party | None = None) -> GroupTicketView:
     cost = supplier_cost(ticket)
+    costs = type_costs(ticket)
     legs = _legs(ticket)
     first = next((leg for leg in legs if leg.direction == "outbound"), legs[0] if legs else None)
     view = GroupTicketView(
@@ -190,6 +220,10 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         ticket_type=ticket.ticket_type, legs=legs, selling_price=selling_price(cost),
         stock=stock_label(ticket.vendor),
     )
+    view.child_selling_price = selling_price(costs.get("child"))
+    view.infant_selling_price = selling_price(costs.get("infant"))
+    if party is not None:
+        _party_price(view, party)
     view.hold_unavailable_reason = hold_unavailable_reason(ticket.vendor, view.selling_price, visibility)
     view.can_hold = view.hold_unavailable_reason is None
     if visibility.supplier_names:
@@ -199,7 +233,22 @@ def ticket_view(ticket: GroupTicket, visibility: FieldVisibility) -> GroupTicket
         view.subparts = ticket.subparts
     if visibility.cost_and_margin:
         view.supplier_cost = cost
+        view.child_supplier_cost, view.infant_supplier_cost = costs.get("child"), costs.get("infant")
     return view
+
+
+def _party_price(view: GroupTicketView, party: Party) -> None:
+    """The searched travelers' total, each type at its own selling price (gateway#105); never an adult price used for
+    a child or an infant. A searched type without a price: no total, and only_adult_fares when it is a child or infant."""
+    each = {"adult": view.selling_price, "child": view.child_selling_price, "infant": view.infant_selling_price}
+    counts = {"adult": party.adults, "child": party.children, "infant": party.infants}
+    missing = [kind for kind, number in counts.items() if number and each[kind] is None]
+    if party.children or party.infants:
+        view.only_adult_fares = bool(missing) and "adult" not in missing
+    if missing or view.selling_price is None:
+        return
+    view.party_total = GroupMoney(amount_minor=sum(number * each[kind].amount_minor for kind, number in counts.items() if number),  # type: ignore[union-attr]
+                                  currency=view.selling_price.currency)
 
 
 NO_HOLD_PROVIDER = "Holding isn't available for this provider"
@@ -223,12 +272,12 @@ def hold_unavailable_reason(vendor: str, price: GroupMoney | None, visibility: F
     return None
 
 
-def inventory_view(groups: list[GroupInventory], visibility: FieldVisibility) -> GroupInventoryView:
+def inventory_view(groups: list[GroupInventory], visibility: FieldVisibility, party: Party | None = None) -> GroupInventoryView:
     return GroupInventoryView(data=[
         GroupView(
             id=str(uuid5(NAMESPACE_URL, f"travelian:group-ticketing:{group.vendor}:{group.id}")),
             sector=group.sector, airline=group.airline, logo_url=supplier_logos.register(group.airline_logo, group.airline),
-            tickets=[ticket_view(ticket, visibility) for ticket in group.tickets],
+            tickets=[ticket_view(ticket, visibility, party) for ticket in group.tickets],
         )
         for group in groups
     ])
