@@ -190,7 +190,7 @@ def test_contact_change_online_only_on_open_unpaid_website_bookings(database):
 
     connection, _, _ = database
     cases = [("held", "part_paid", "website"), ("held", "paid", "website"), ("cancelled", "unpaid", "website"),
-             ("expired", "unpaid", "website"), ("held", "unpaid", "back_office")]
+             ("expired", "unpaid", "website"), ("held", "unpaid", "staff")]
     for status, payment, channel in cases:
         booking_id, reference = _booking(connection, status=status, channel=channel)
         _customer(connection, booking_id)
