@@ -84,12 +84,14 @@ def _save_people(connection, booking_id: str, customer: CustomerRecord, traveler
         # gateway#84: date of birth and document number encrypted when the identity keys are set.
         dob, dob_enc = identity.date_columns(traveler.date_of_birth, identity.TRAVELER_DOB)
         doc, doc_enc = identity.text_columns(traveler.document_number, identity.TRAVELER_DOCUMENT)
+        # With encryption off the statement is the same as before migration 0035 (no *_enc columns).
+        enc_columns, enc_values = (", date_of_birth_enc, document_number_enc", ", :dob_enc, :doc_enc") if dob_enc or doc_enc else ("", "")
         connection.execute(
             text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name,"
-                 " date_of_birth, date_of_birth_enc, id_type, document_number, document_number_enc, document_country, nationality, document_expiry,"
-                 " infant_of_position, person_id, document_id, selling_minor, cost_minor)"
-                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :dob_enc, :id_type, :doc, :doc_enc, :country, :nationality, :expiry,"
-                 " :infant_of, :person, :document, :selling, :cost)"),
+                 f" date_of_birth, id_type, document_number, document_country, nationality, document_expiry,"
+                 f" infant_of_position, person_id, document_id, selling_minor, cost_minor{enc_columns})"
+                 " VALUES (:id, :b, :pos, :type, :title, :first, :last, :dob, :id_type, :doc, :country, :nationality, :expiry,"
+                 f" :infant_of, :person, :document, :selling, :cost{enc_values})"),
             {"id": str(uuid4()), "b": booking_id, "pos": position, "type": traveler.passenger_type, "title": traveler.title,
              "first": traveler.first_name, "last": traveler.last_name, "dob": dob, "dob_enc": dob_enc, "id_type": traveler.id_type,
              "doc": doc, "doc_enc": doc_enc, "country": traveler.document_country,

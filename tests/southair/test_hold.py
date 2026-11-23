@@ -212,8 +212,9 @@ def test_confirmed_total_must_be_the_quotes_total():
 
 
 def test_holds_need_no_identity_storage_settings():
+    # gateway#84: the identity keys are optional; without them a hold works and its values stay plain.
     from app.core.config import Settings
-    assert not [name for name in Settings.model_fields if "pii" in name]
+    assert all(not Settings.model_fields[name].is_required() for name in ("pii_keys", "pii_active_key", "pii_hash_key"))
     make_quote()
     view, save = run(hold_request(), fake_client())
     assert view.pnr == "63B55C" and save.call_count == 1

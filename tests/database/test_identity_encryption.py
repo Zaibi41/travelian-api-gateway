@@ -22,7 +22,10 @@ SECRET_VALUES = ("AB1234567", "35202-1234567-1", "3520212345671", "1990-01-31", 
 
 
 @pytest.fixture
-def db(database):
+def db(database, monkeypatch):
+    # Each test starts with encryption off, whatever the environment says.
+    for name in ("pii_keys", "pii_active_key", "pii_hash_key"):
+        monkeypatch.setattr(settings, name, None)
     connection, metadata, _ = database
     connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
     return connection, metadata
