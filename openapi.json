@@ -3681,6 +3681,21 @@
             "title": "Name",
             "type": "string"
           },
+          "passenger_prices": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PassengerPrice"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The total's breakdown per passenger type (count and selling price each). Sent with total_price.",
+            "title": "Passenger Prices"
+          },
           "refund": {
             "anyOf": [
               {
@@ -3737,6 +3752,17 @@
             ],
             "description": "Supplier's hold time text, e.g. '1 hours for domestic'.",
             "title": "Time Limit"
+          },
+          "total_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selling total of this fare for every traveler searched (adults, children, infants), each passenger type at the supplier's own price for it. Omitted when the supplier didn't price every type searched."
           }
         },
         "required": [
