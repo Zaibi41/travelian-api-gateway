@@ -203,6 +203,8 @@ class ReceivingAccount(BaseModel):
     iban: str | None = Field(None, description="IBAN, upper case, no spaces.")
     qr_asset_key: str | None = Field(None, description="S3 object key of the QR image.")
     qr_url: str | None = Field(None, description="Public URL of the QR image (S3).")
+    logo_asset_key: str | None = Field(None, description="S3 object key of the bank's logo image (travelian#76).")
+    logo_url: str | None = Field(None, description="Public URL of the bank's logo (S3). None: checkout shows the bank's initials.")
 
 
 class UpdateReceivingAccountRequest(BaseModel):
@@ -212,6 +214,8 @@ class UpdateReceivingAccountRequest(BaseModel):
     iban: str | None = Field(None, max_length=60, description="IBAN; spaces are removed.")
     qr_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose payment_qr).")
     remove_qr: bool = Field(False, description="Remove the QR image (customers stop seeing it at checkout). Ignored with qr_asset_key.")
+    logo_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose bank_logo).")
+    remove_logo: bool = Field(False, description="Remove the bank logo (checkout shows the bank's initials). Ignored with logo_asset_key.")
 
 
 class ReceivingAccountList(BaseModel):
@@ -228,6 +232,7 @@ class AddReceivingAccountRequest(BaseModel):
     account_number: str | None = Field(None, max_length=60, description="The full account number, stored and shown in full (D40).")
     iban: str | None = Field(None, max_length=60, description="IBAN; spaces are removed.")
     qr_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose payment_qr).")
+    logo_asset_key: str | None = Field(None, max_length=300, description="From POST /v1/admin/uploads (purpose bank_logo).")
 
 
 class SellingPriceItem(BaseModel):
@@ -278,6 +283,20 @@ class CustomerEmailChange(BaseModel):
 
 
 class CustomerEmailChanged(BaseModel):
+    email: str
+    message: str
+
+
+class CustomerContactChange(BaseModel):
+    """The customer's new mobile number and email (travelian#56). Names and documents are not changed here."""
+
+    phone_code: str = Field(max_length=4, description='Country code, e.g. "+92".')
+    phone: str = Field(max_length=20, description="Mobile number, digits only, without the country code.")
+    email: str | None = Field(None, max_length=254, description="Left out or empty: the email on the booking stays.")
+
+
+class CustomerContactChanged(BaseModel):
+    phone: str = Field(description="With country code, e.g. +92 3001234567 (as on BookingCustomer).")
     email: str
     message: str
 

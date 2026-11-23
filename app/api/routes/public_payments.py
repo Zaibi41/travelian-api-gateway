@@ -127,3 +127,47 @@ async def choose_account(reference: str, body: ChooseAccountRequest, request: Re
     except payment_slips.SlipRefused as error:
         return _error(error.status, error.message, error.code)
     return Response(status_code=204)
+
+
+
+class PublicContactChange(BaseModel):
+    """The customer's new contact details (travelian#56). Names, dates of birth and passports are not changed here."""
+
+    phone_code: str = Field(max_length=4, description='Country code, e.g. "+92".')
+    phone: str = Field(max_length=20, description="Mobile number, digits only, without the country code.")
+    email: str | None = Field(None, max_length=254, description="Left out or empty: the email on the booking stays.")
+
+
+class PublicContactView(BaseModel):
+    phone_code: str
+    phone: str
+    email: str
+    message: str
+
+
+@router.put("/contact", response_model=PublicContactView,
+            responses={404: {"description": "No booking for this reference and access token (the same answer either way)."},
+                       409: {"description": "Not open for changes: paid, part paid, issued, closed or any other state."}, 422: {}, 429: {}})
+async def change_contact(reference: str, body: PublicContactChange, request: Request, token: OptionalToken = None):
+    """Change the mobile number and email on a website booking that still waits for payment. Needs the booking's private
+    access token (X-Booking-Token, issued when it was made); the reference and an email or phone are not enough. The
+    airline hold and the price stay as they are (no re-hold). Logged on the booking (masked); the old email is told."""
+    from app.services import booking_contact
+
+    try:
+        service.check_rate(SLIP_LIMIT, _ip(request))
+    except service.PublicError as error:
+        return _error(error.status, error.message, error.code)
+    reference = reference.strip().upper()
+    if not token or not await run_in_threadpool(public_bookings.guest_can_open, reference, token):
+        return _error(404, "Booking not found. Open it from the link or page you booked on.", "not_found")
+    try:
+        changed = await run_in_threadpool(lambda: booking_contact.change(
+            reference, email=body.email, phone_code=body.phone_code, phone=body.phone, actor_user_id=None, website=True))
+    except booking_contact.ContactRefused as error:
+        return _error(error.status, error.message, error.code)
+    if changed.fields:
+        await run_in_threadpool(booking_contact.notify_old_contact, reference, changed)
+    saved = changed.contact
+    return PublicContactView(phone_code=saved.phone_code, phone=saved.phone, email=saved.email,
+                             message="Contact details saved. Your booking and price stay the same.")

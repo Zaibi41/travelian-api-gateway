@@ -164,3 +164,109 @@ def test_public_card_fee_quote_is_worked_out_by_the_gateway(monkeypatch):
     body = TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 4_670_000, "product": "flight"}).json()
     assert body == {"percent": "3%", "fee": {"amount_minor": 140_100, "currency": "PKR"}, "total": {"amount_minor": 4_810_100, "currency": "PKR"}}
     assert TestClient(app).post("/v1/public/card-fee", json={"amount_minor": 0}).status_code == 422
+
+
+
+def test_public_contact_change_needs_the_booking_access_token(monkeypatch):
+    """travelian#56: only the guest access token issued at booking opens it (a website booking: guest_can_open checks the
+    channel). Reference + email/phone is refused. Missing and wrong tokens get the same 404 (existence not revealed)."""
+    from app.db import public_bookings
+    from app.services import booking_contact
+
+    monkeypatch.setattr(public_bookings, "guest_can_open", lambda reference, token: reference == "TRV-ABC123" and token == "good-token-123")
+    monkeypatch.setattr(public_bookings, "lookup", lambda *args, **kwargs: {"reference": "TRV-ABC123"})  # never used here
+    calls, notices = [], []
+
+    def change(reference, *, email, phone_code, phone, actor_user_id, website):
+        calls.append((reference, email, phone_code, phone, actor_user_id, website))
+        booking_contact.clean(email, phone_code, phone)
+        return booking_contact.Changed(contact=booking_contact.Contact(email=email or "a@b.pk", phone_code=phone_code, phone=phone),
+                                       fields=("email", "phone"), old_email="a@b.pk", booking_id="b-1")
+
+    monkeypatch.setattr(booking_contact, "change", change)
+    monkeypatch.setattr(booking_contact, "notify_old_contact", lambda reference, changed: notices.append((reference, changed.old_email)) or (True, "sent"))
+    client = TestClient(app)
+    url = "/v1/public/bookings/TRV-ABC123/contact"
+    body = {"phone_code": "+92", "phone": "3009876543", "email": "new@b.pk"}
+    missing = client.put(url, json=body)
+    wrong = client.put(url, json=body, headers={"X-Booking-Token": "wrong-token-1"})
+    unknown = client.put("/v1/public/bookings/TRV-NOPE99/contact", json=body, headers={"X-Booking-Token": "good-token-123"})
+    by_contact = client.put(url, json={**body, "contact": "a@b.pk"})
+    for refused in (missing, wrong, unknown, by_contact):
+        assert refused.status_code == 404 and refused.json() == missing.json()
+    assert calls == [] and notices == []
+    ok = client.put(url, json=body, headers={"X-Booking-Token": "good-token-123"})
+    assert ok.status_code == 200 and ok.json()["phone"] == "3009876543" and ok.json()["email"] == "new@b.pk"
+    assert calls[-1] == ("TRV-ABC123", "new@b.pk", "+92", "3009876543", None, True)
+    assert notices == [("TRV-ABC123", "a@b.pk")]  # the OLD email is told
+    bad = client.put(url, json={**body, "phone": "30a"}, headers={"X-Booking-Token": "good-token-123"})
+    assert bad.status_code == 422 and bad.json()["code"] == "invalid_phone"
+
+
+def test_public_contact_change_refusal_keeps_its_status(monkeypatch):
+    from app.db import public_bookings
+    from app.services import booking_contact
+
+    monkeypatch.setattr(public_bookings, "guest_can_open", lambda reference, token: True)
+
+    def closed(*args, **kwargs):
+        raise booking_contact.ContactRefused(409, "This booking can't be changed online any more.", "closed")
+
+    monkeypatch.setattr(booking_contact, "change", closed)
+    answer = TestClient(app).put("/v1/public/bookings/TRV-PAID01/contact", json={"phone_code": "+92", "phone": "3001234567"},
+                                 headers={"X-Booking-Token": "good-token-123"})
+    assert answer.status_code == 409 and answer.json()["code"] == "closed"
+
+
+@pytest.mark.parametrize("booking_status,payment_status,channel,allowed", [
+    ("held", "unpaid", "website", True),
+    ("hold_pending", "unpaid", "website", True),
+    ("requested", "unpaid", "website", True),
+    ("held", "part_paid", "website", False),
+    ("held", "paid", "website", False),
+    ("held", "payment_pending", "website", False),
+    ("held", None, "website", False),
+    ("cancelled", "unpaid", "website", False),
+    ("expired", "unpaid", "website", False),
+    ("released", "unpaid", "website", False),
+    ("ticket_issued", "unpaid", "website", False),
+    ("paid_not_ticketed", "unpaid", "website", False),
+    ("something_new", "unpaid", "website", False),
+    (None, "unpaid", "website", False),
+    ("held", "unpaid", "back_office", False),
+    ("held", "unpaid", "agency", False),
+    ("held", "unpaid", None, False),
+])
+def test_website_contact_gate_fails_closed(booking_status, payment_status, channel, allowed):
+    from app.services import booking_contact
+
+    assert booking_contact.website_may_change(booking_status, payment_status, channel) is allowed
+
+
+def test_old_email_is_told_and_the_outcome_recorded(monkeypatch):
+    from app.services import booking_contact, customer_emails
+
+    sent, records = [], []
+    monkeypatch.setattr(customer_emails, "ses_send", lambda to, email: sent.append((to, email.subject, email.text)) or (False, "skipped: NOTIFY_EMAIL_ENABLED is off"))
+    monkeypatch.setattr(customer_emails, "_record", lambda booking_id, kind, ok, reason, to, *a, **k: records.append((booking_id, kind, ok, reason, to)))
+    changed = booking_contact.Changed(contact=booking_contact.Contact("new@b.pk", "+92", "3009876543"), fields=("email",),
+                                      old_email="old@b.pk", booking_id="b-1")
+    assert booking_contact.notify_old_contact("trv-abc123", changed) == (False, "skipped: NOTIFY_EMAIL_ENABLED is off")
+    assert sent[0][0] == "old@b.pk" and "TRV-ABC123" in sent[0][1] and "new@b.pk" not in sent[0][2]
+    assert records == [("b-1", "contact_changed", False, "skipped: NOTIFY_EMAIL_ENABLED is off", "old@b.pk")]
+    records.clear()
+    no_email = booking_contact.Changed(contact=changed.contact, fields=("phone",), old_email="", booking_id="b-2")
+    assert booking_contact.notify_old_contact("TRV-X", no_email)[0] is False and records[0][1:4] == ("contact_changed", False, "no customer email on the booking")
+    assert booking_contact.notify_old_contact("TRV-X", booking_contact.Changed(contact=changed.contact)) == (False, "nothing changed")
+
+
+def test_contact_values_are_checked():
+    from app.services import booking_contact
+
+    assert booking_contact.clean(" a@b.pk ", "+92", "300 123 4567") == ("a@b.pk", "+92", "3001234567")
+    assert booking_contact.clean("", "+971", "501234567") == (None, "+971", "501234567")
+    for email, code, phone in (("nope", "+92", "3001234567"), (None, "+9200", "3001234567"), (None, "+92", "12345"), (None, "+92", "3001234567890123")):
+        with pytest.raises(booking_contact.ContactRefused):
+            booking_contact.clean(email, code, phone)
+    assert booking_contact._masked_phone("+92", "3001234567") == "+92 ***567"
+    assert booking_contact._masked_email("ali@example.invalid") == "a***@example.invalid"

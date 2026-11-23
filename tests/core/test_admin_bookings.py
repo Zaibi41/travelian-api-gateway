@@ -533,3 +533,26 @@ def test_bookings_list_items_have_the_airline(monkeypatch):
     by_id = {item["booking_id"]: item for item in items}
     assert (by_id["TRV-1"]["airline_code"], by_id["TRV-1"]["airline_name"], by_id["TRV-1"]["flight_number"]) == ("PA", "Airblue", "PA401")
     assert "airline_code" not in by_id["TRV-2"]
+
+
+def test_change_customer_contact_route(monkeypatch):
+    """travelian#56: staff change the customer's mobile and email in place (no re-hold); refusals keep their status."""
+    from app.services import booking_contact
+    calls = []
+
+    def change(reference, *, email, phone_code, phone, actor_user_id, website):
+        calls.append((reference, email, phone_code, phone, actor_user_id, website))
+        booking_contact.clean(email, phone_code, phone)
+        return booking_contact.Changed(contact=booking_contact.Contact(email=email or "ali@example.invalid", phone_code=phone_code, phone=phone))
+
+    monkeypatch.setattr(booking_contact, "change", change)
+    reference = ROWS[1].booking_id
+    url = f"/v1/admin/bookings/{reference}/customer-contact"
+    ok = client(monkeypatch).put(url, json={"phone_code": "+92", "phone": "3001234567", "email": "ali.new@example.invalid"})
+    assert ok.status_code == 200 and ok.json() == {"phone": "+92 3001234567", "email": "ali.new@example.invalid", "message": "Contact details saved."}
+    assert calls[-1] == (reference, "ali.new@example.invalid", "+92", "3001234567", SUPER_ADMIN.user_id, False)
+    assert client(monkeypatch).put(url, json={"phone_code": "+92", "phone": "12"}).status_code == 422
+    assert client(monkeypatch).put(url, json={"phone_code": "92", "phone": "3001234567"}).status_code == 422
+    assert client(monkeypatch).put(url, json={"phone_code": "+92", "phone": "3001234567", "email": "bad"}).status_code == 422
+    assert client(monkeypatch).put("/v1/admin/bookings/TRV-NOPE/customer-contact", json={"phone_code": "+92", "phone": "3001234567"}).status_code == 404
+    assert client(monkeypatch, viewer=None).put(url, json={"phone_code": "+92", "phone": "3001234567"}).status_code == 403
