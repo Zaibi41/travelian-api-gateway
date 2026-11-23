@@ -4645,6 +4645,8 @@
         "type": "object"
       },
       "GroupAvailabilityRequest": {
+        "additionalProperties": false,
+        "description": "gateway#107: the group fare's ticket ID (GroupTicketView.id), as a hold takes it. The gateway finds the fare in\ncurrent inventory and sends the supplier its PNR and price itself: callers never send (or need) the supplier price.",
         "properties": {
           "adult": {
             "anyOf": [
@@ -4693,29 +4695,14 @@
             ],
             "title": "Passenger Types"
           },
-          "pnr": {
-            "maxLength": 32,
-            "minLength": 1,
-            "pattern": "^[!-~]+$",
-            "title": "Pnr",
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
             "type": "string"
-          },
-          "price": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "title": "Price"
           }
         },
         "required": [
-          "pnr",
-          "price"
+          "ticket_id"
         ],
         "title": "GroupAvailabilityRequest",
         "type": "object"

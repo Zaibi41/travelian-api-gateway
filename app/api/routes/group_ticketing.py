@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.booking_security import require_booking_authorization
 from app.core.field_visibility import BackOfficeUser, FieldVisibility, require_search_viewer
-from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, ticket_view
+from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, supplier_cost, ticket_view
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
@@ -93,13 +93,17 @@ GroupPNR = Annotated[
 
 
 class GroupAvailabilityRequest(BaseModel):
-    pnr: GroupPNR
+    """gateway#107: the group fare's ticket ID (GroupTicketView.id), as a hold takes it. The gateway finds the fare in
+    current inventory and sends the supplier its PNR and price itself: callers never send (or need) the supplier price."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_id: UUID
     adult: int | None = Field(default=None, ge=0, le=100)
     child: int | None = Field(default=None, ge=0, le=100)
     passenger_types: list[Literal["adult", "child", "infant"]] | None = Field(
         default=None, min_length=1, max_length=100
     )
-    price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
     @model_validator(mode="after")
     def resolve_passenger_counts(self):
@@ -299,8 +303,16 @@ async def check_group_availability(request: GroupAvailabilityRequest, viewer: Vi
             request_id=str(uuid4()), status="unavailable", available=None,
             **_availability_metadata(viewer, [], issues, results),
         )
+    try:
+        ticket = await find_ticket(str(request.ticket_id), fetch_all_group_inventory)
+    except TicketNotFound as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    cost = supplier_cost(ticket)
+    if ticket.vendor != VENDOR_NAME or not ticket.pnr or cost is None:
+        # Only one supplier has a separate availability check; for the others a hold checks the seats.
+        raise HTTPException(status_code=422, detail="This group fare can't be checked separately. Holding it checks the seats.")
     values, issues, results = await gather_vendor_calls(
-        [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(request))],
+        [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(ticket.pnr, cost.amount_minor, request))],
         empty_response_code="invalid_response",
     )
     succeeded = [result.vendor for result in results if result.status == "success"]
@@ -402,10 +414,12 @@ async def _authenticated_dhillu_sahi_client() -> tuple[DhilluSahiAuthClient, str
     return client, login["token"]
 
 
-async def _check_dhillu_sahi_availability(request: GroupAvailabilityRequest) -> bool:
+async def _check_dhillu_sahi_availability(pnr: str, price_minor: int, request: GroupAvailabilityRequest) -> bool:
+    """The supplier's availability check with the fare's own PNR and supplier price (server side only)."""
     client, token = await _authenticated_dhillu_sahi_client()
+    price = Decimal(price_minor) / 100
     return await client.check_availability(
-        token, pnr=request.pnr, adult=request.adult, child=request.child, price=float(request.price)
+        token, pnr=pnr, adult=request.adult, child=request.child, price=int(price) if price == price.to_integral() else float(price)
     )
 
 

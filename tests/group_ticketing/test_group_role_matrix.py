@@ -60,7 +60,7 @@ READ_CALLS = {
     "inventory": ("GET", "/inventory", None),
     "search": ("POST", "/search", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}),
     "ticket": ("GET", f"/tickets/{TICKET_ID}", None),
-    "check-availability": ("POST", "/check-availability", {"pnr": "X", "adult": 1, "child": 0, "price": 1}),
+    "check-availability": ("POST", "/check-availability", {"ticket_id": TICKET_ID, "adult": 1, "child": 0}),
     "flight-quotes": ("POST", "/flight-quotes", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01",
                                                  "passenger_count": 12, "contact_email": "ops@example.invalid"}),
 }
