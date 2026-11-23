@@ -193,11 +193,11 @@ def test_bank_logo_is_saved_shown_at_checkout_replaced_and_removed(database):
         account_id = created.json()["id"]
         checkout = [a.logo_url for a in public_booking.bank_accounts() if a.id == account_id]
         assert checkout == [None]  # no logo yet: the website shows the bank's initials
-        added = client.patch(f"{PATH}/{account_id}", json={"logo_asset_key": "bank-logo/hbl.png"})
-        assert added.json()["logo_url"] == f"{base}/bank-logo/hbl.png"
-        assert [a.logo_url for a in public_booking.bank_accounts() if a.id == account_id] == [f"{base}/bank-logo/hbl.png"]
+        added = client.patch(f"{PATH}/{account_id}", json={"logo_asset_key": "site/bank-logo/hbl.png"})
+        assert added.json()["logo_url"] == f"{base}/site/bank-logo/hbl.png"
+        assert [a.logo_url for a in public_booking.bank_accounts() if a.id == account_id] == [f"{base}/site/bank-logo/hbl.png"]
         kept = client.patch(f"{PATH}/{account_id}", json={"qr_asset_key": "payment-qr/hbl.png"})
-        assert kept.json()["logo_asset_key"] == "bank-logo/hbl.png" and kept.json()["qr_asset_key"] == "payment-qr/hbl.png"
+        assert kept.json()["logo_asset_key"] == "site/bank-logo/hbl.png" and kept.json()["qr_asset_key"] == "payment-qr/hbl.png"
         removed = client.patch(f"{PATH}/{account_id}", json={"remove_logo": True})
         assert removed.json()["logo_asset_key"] is None and removed.json()["qr_asset_key"] == "payment-qr/hbl.png"
         bad = client.patch(f"{PATH}/{account_id}", json={"logo_asset_key": "payment-qr/hbl.png"})
