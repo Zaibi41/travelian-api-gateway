@@ -170,6 +170,13 @@ class Settings(BaseSettings):
     payfast_merchant_name: str = "Travelian"
     payfast_base_url: str = Field("https://ipguat.apps.net.pk", pattern=r"^https://[^/]+$")
     payfast_timeout_seconds: float = Field(20, gt=0, le=60)
+    # gateway#84: identity values (passport / CNIC numbers, dates of birth) encrypted at rest. Never in the repo: the
+    # environment or Parameter Store (identity/keys, identity/active-key, identity/hash-key, SecureString). All three
+    # empty: values stay plain (sandbox). Keys: "<key id>:<base64 32-byte key>[,<key id>:<key>...]"; the active id
+    # encrypts new values, older ids stay listed until `python -m app.cli.encrypt_identity --apply` re-encrypts them.
+    pii_keys: SecretStr | None = None
+    pii_active_key: str | None = None
+    pii_hash_key: SecretStr | None = None
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
