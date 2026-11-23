@@ -147,7 +147,7 @@ def test_signed_out_callers_get_401(monkeypatch):
     assert client.get("/v1/group-ticketing/inventory").status_code == 401
     body = {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}
     assert client.post("/v1/group-ticketing/search", json=body).status_code == 401
-    assert client.post("/v1/group-ticketing/check-availability", json={"pnr": "X", "adult": 1, "child": 0, "price": 1}).status_code == 401
+    assert client.post("/v1/group-ticketing/check-availability", json={"ticket_id": "11111111-1111-4111-8111-111111111111", "adult": 1, "child": 0}).status_code == 401
 
 
 @pytest.mark.parametrize("role,allowed", [("super_admin", True), ("staff", True), ("agency_owner", True), ("customer", False)])
@@ -243,6 +243,17 @@ def test_private_addresses_are_not_public():
     assert supplier_logos._public_host("localhost") is False
 
 
+def availability_inventory():
+    """One Dhillu & Sahi fare (PNR SUPPNR1, supplier price 95000): the availability check looks it up by ticket ID."""
+    return normalize_groups([{"sector": "LHE - RUH", "airline": {"name": "Synthetic Air"}, "tickets": [{
+        "pnr": "SUPPNR1", "date": "2026-12-01", "price": "95000", "remaining": 9, "subpart": [{"departure_time": "09:45"}]}]}])
+
+
+from app.services.group_ticketing import group_ticket_id  # noqa: E402
+
+AVAILABILITY_TICKET = group_ticket_id(availability_inventory()[0].tickets[0])
+
+
 @pytest.mark.parametrize("role", ["staff", "staff_cost", "agency_owner"])
 @pytest.mark.parametrize("outcome", ["success", "failure", "unconfigured"])
 def test_availability_omits_supplier_metadata(role, outcome):
@@ -255,9 +266,10 @@ def test_availability_omits_supplier_metadata(role, outcome):
     with (
         patch("app.api.routes.group_ticketing._credentials_configured", return_value=outcome != "unconfigured"),
         patch("app.api.routes.group_ticketing._check_dhillu_sahi_availability", supplier),
+        patch("app.api.routes.group_ticketing.fetch_all_group_inventory", new=AsyncMock(return_value=availability_inventory())),
     ):
         response = TestClient(app).post("/v1/group-ticketing/check-availability", json={
-            "pnr": "SUPPNR1", "adult": 1, "child": 0, "price": 95000,
+            "ticket_id": AVAILABILITY_TICKET, "adult": 1, "child": 0,
         })
     assert response.status_code == 200
     assert set(response.json()) <= {"request_id", "status", "available"}
@@ -270,7 +282,7 @@ def test_availability_omits_supplier_metadata(role, outcome):
     ("/inventory", None),
     ("/search", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}),
     ("/tickets/11111111-1111-4111-8111-111111111111", None),
-    ("/check-availability", {"pnr": "X", "adult": 1, "child": 0, "price": 1}),
+    ("/check-availability", {"ticket_id": "11111111-1111-4111-8111-111111111111", "adult": 1, "child": 0}),
     ("/flight-quotes", {}),
 ])
 def test_customer_http_responses_never_include_supplier_data(monkeypatch, path, body):

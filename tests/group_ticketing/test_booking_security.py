@@ -59,6 +59,14 @@ def test_booking_routes_fail_closed_without_supplier_calls(endpoint, headers):
         assert sensitive not in response.text
 
 
+from app.services.group_ticketing import group_ticket_id  # noqa: E402
+from app.vendors.group_ticketing.dhillu_sahi.groups import normalize_groups  # noqa: E402
+
+INVENTORY = normalize_groups([{"sector": "LHE - RUH", "airline": {"name": "Synthetic Air"}, "tickets": [
+    {"pnr": "MOCK-001", "date": "2026-12-01", "price": "100", "remaining": 9, "subpart": [{"departure_time": "09:45"}]}]}])
+TICKET = group_ticket_id(INVENTORY[0].tickets[0])
+
+
 def test_read_only_routes_remain_available_and_get_details_is_absent():
     app = FastAPI()
     app.include_router(router, prefix="/v1")
@@ -82,12 +90,7 @@ def test_read_only_routes_remain_available_and_get_details_is_absent():
             )
             availability = await client.post(
                 "/v1/group-ticketing/check-availability",
-                json={
-                    "pnr": "MOCK-001",
-                    "adult": 1,
-                    "child": 0,
-                    "price": 100,
-                },
+                json={"ticket_id": TICKET, "adult": 1, "child": 0},  # gateway#107: the fare's ticket ID
             )
             missing = await client.get("/v1/group-ticketing/bookings/123")
             return inventory, search, availability, missing
@@ -95,7 +98,7 @@ def test_read_only_routes_remain_available_and_get_details_is_absent():
     with (
         patch(
             "app.api.routes.group_ticketing.fetch_all_group_inventory",
-            new=AsyncMock(return_value=[]),
+            new=AsyncMock(return_value=INVENTORY),
         ),
         patch(
             "app.api.routes.group_ticketing._credentials_configured", return_value=True
