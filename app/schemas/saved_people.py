@@ -20,6 +20,7 @@ class SavedDocument(BaseModel):
     document_country: str
     document_number: str
     document_expiry: date | None = None
+    document_issue_date: date | None = Field(None, description="Optional; documents saved before it existed have none.")
     document_validity: Literal["valid", "expiring", "expired"] | None = None
 
 
@@ -76,11 +77,16 @@ class DocumentInput(BaseModel):
     document_country: str = Field(pattern=r"^[A-Z]{3}$")
     document_number: str = Field(min_length=3, max_length=20, pattern=r"^[A-Za-z0-9 \-]+$")
     document_expiry: date | None = None
+    document_issue_date: date | None = Field(None, description="Optional issue date.")
 
     @model_validator(mode="after")
     def rules(self):
         if self.id_type == "PSPT" and self.document_expiry is None:
             raise ValueError("A passport needs its expiry date.")
+        if self.document_issue_date and self.document_issue_date > date.today():
+            raise ValueError("The issue date can't be in the future.")
+        if self.document_issue_date and self.document_expiry and self.document_issue_date >= self.document_expiry:
+            raise ValueError("The issue date must be before the expiry date.")
         if self.id_type == "NATI" and self.document_country == "PAK" and not re.fullmatch(r"\d{13}", re.sub(r"\D", "", self.document_number)):
             raise ValueError("A Pakistani national ID (CNIC or B-form) is 13 digits.")
         return self

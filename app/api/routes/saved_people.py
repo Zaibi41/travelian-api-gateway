@@ -44,7 +44,8 @@ def owner_of(viewer: BackOfficeUser) -> str | None:
 def documents(person: store.Person, today: date | None = None) -> list[SavedDocument]:
     today = today or date.today()
     return [SavedDocument(id=d.id, id_type=d.id_type, document_country=d.document_country, document_number=d.document_number,
-                          document_expiry=d.document_expiry, document_validity=pii.document_validity(d.document_expiry, today))
+                          document_expiry=d.document_expiry, document_issue_date=d.document_issue_date,
+                          document_validity=pii.document_validity(d.document_expiry, today))
             for d in person.documents]
 
 
@@ -91,7 +92,7 @@ def refuse(status: int, code: str, message: str) -> JSONResponse:
 
 
 def _document(body: DocumentInput) -> store.DocumentInput:
-    return store.DocumentInput(body.id_type, body.document_country, body.document_number, body.document_expiry)
+    return store.DocumentInput(body.id_type, body.document_country, body.document_number, body.document_expiry, body.document_issue_date)
 
 
 async def _detail(viewer: BackOfficeUser, person_id: str) -> SavedPersonDetail:
@@ -192,8 +193,8 @@ async def add_document(viewer: Viewer, person_id: PersonId, body: DocumentInput)
 
 @router.put("/{person_id}/documents/{document_id}", response_model=SavedPersonDetail, response_model_exclude_none=True)
 async def edit_document(viewer: Viewer, person_id: PersonId, document_id: Annotated[str, Path(min_length=8, max_length=36)], body: DocumentInput):
-    """Edit a saved document (issue #12): number, country of issue, expiry. A new number (a renewed passport) keeps the
-    old document for past bookings and saves the new one; the same number only updates the expiry. Past bookings keep
+    """Edit a saved document (issue #12): number, country of issue, issue date, expiry. A new number (a renewed passport) keeps the
+    old document for past bookings and saves the new one; the same number only updates the dates. Past bookings keep
     their own copy."""
     if not viewer.can(MANAGE_PEOPLE):
         return refuse(403, "not_allowed", "Changing documents requires the manage people permission.")

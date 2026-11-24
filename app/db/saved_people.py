@@ -66,6 +66,7 @@ class Document:
     document_country: str
     document_number: str
     document_expiry: date | None
+    document_issue_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class DocumentInput:
     document_country: str
     document_number: str
     document_expiry: date | None = None
+    document_issue_date: date | None = None
 
     @property
     def normalized(self) -> str:
@@ -124,7 +126,7 @@ def _documents(connection, person_ids: list[str]) -> dict[str, list[Document]]:
     if not person_ids:
         return {}
     rows = connection.execute(
-        text("SELECT id, person_id, id_type, document_country, document_number, document_expiry FROM saved_person_documents"
+        text("SELECT id, person_id, id_type, document_country, document_number, document_expiry, document_issue_date FROM saved_person_documents"
              " WHERE person_id = ANY(:ids) AND removed_at IS NULL ORDER BY created_at"),
         {"ids": person_ids},
     ).mappings().all()
@@ -208,9 +210,11 @@ def _insert_document(connection, owner: str | None, actor: str | None, person_id
     document_id = str(uuid4())
     connection.execute(
         text("INSERT INTO saved_person_documents (id, person_id, owner_agency_id, id_type, document_country, document_number,"
-             " document_number_normalized, document_expiry, created_by_user_id) VALUES (:id, :p, :owner, :t, :c, :n, :nn, :e, :actor)"),
+             " document_number_normalized, document_expiry, document_issue_date, created_by_user_id)"
+             " VALUES (:id, :p, :owner, :t, :c, :n, :nn, :e, :issued, :actor)"),
         {"id": document_id, "p": person_id, "owner": owner, "t": document.id_type, "c": document.document_country,
-         "n": document.document_number.strip(), "nn": document.normalized, "e": document.document_expiry, "actor": actor},
+         "n": document.document_number.strip(), "nn": document.normalized, "e": document.document_expiry,
+         "issued": document.document_issue_date, "actor": actor},
     )
     return document_id
 
@@ -412,7 +416,7 @@ def add_document(owner: str | None, actor: str, person_id: str, document: Docume
 
 
 def edit_document(owner: str | None, actor: str, person_id: str, document_id: str, document: DocumentInput) -> Person:
-    """Issue #12: correct or renew a saved document. Same type, country and number: the expiry is updated in place. A
+    """Issue #12: correct or renew a saved document. Same type, country and number: the expiry and issue date are updated in place. A
     new number (e.g. a renewed passport): the old document is kept for past bookings (removed from use) and the new one
     added, in one step. Never another person's document."""
     with agencies.application_engine().begin() as connection:
@@ -425,9 +429,11 @@ def edit_document(owner: str | None, actor: str, person_id: str, document_id: st
         held = _check_document_free(connection, owner, document, person.first_name, person.last_name, person.date_of_birth, person_id=person_id)
         if held is not None and held[1].id != document_id:
             raise PeopleError(409, "document_already_saved", "This document is already saved for this person.")
-        if held is not None:  # the same document: only the expiry (and the number's spacing) change
-            connection.execute(text("UPDATE saved_person_documents SET document_number = :n, document_expiry = :e WHERE id = :d"),
-                               {"n": document.document_number.strip(), "e": document.document_expiry, "d": document_id})
+        if held is not None:  # the same document: only the dates (and the number's spacing) change
+            connection.execute(text("UPDATE saved_person_documents SET document_number = :n, document_expiry = :e, document_issue_date = :issued"
+                                    " WHERE id = :d"),
+                               {"n": document.document_number.strip(), "e": document.document_expiry,
+                                "issued": document.document_issue_date, "d": document_id})
             new_id = document_id
         else:
             connection.execute(text("UPDATE saved_person_documents SET removed_at = now() WHERE id = :d"), {"d": document_id})

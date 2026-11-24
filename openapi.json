@@ -3482,6 +3482,19 @@
             ],
             "title": "Document Expiry"
           },
+          "document_issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional issue date.",
+            "title": "Document Issue Date"
+          },
           "document_number": {
             "maxLength": 20,
             "minLength": 3,
@@ -11238,6 +11251,19 @@
             ],
             "title": "Document Expiry"
           },
+          "document_issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional; documents saved before it existed have none.",
+            "title": "Document Issue Date"
+          },
           "document_number": {
             "title": "Document Number",
             "type": "string"
@@ -17440,7 +17466,7 @@
         ]
       },
       "put": {
-        "description": "Edit a saved document (issue #12): number, country of issue, expiry. A new number (a renewed passport) keeps the\nold document for past bookings and saves the new one; the same number only updates the expiry. Past bookings keep\ntheir own copy.",
+        "description": "Edit a saved document (issue #12): number, country of issue, issue date, expiry. A new number (a renewed passport) keeps the\nold document for past bookings and saves the new one; the same number only updates the dates. Past bookings keep\ntheir own copy.",
         "operationId": "edit_document_v1_admin_customers__person_id__documents__document_id__put",
         "parameters": [
           {
