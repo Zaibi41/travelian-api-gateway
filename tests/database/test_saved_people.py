@@ -231,6 +231,25 @@ def test_edit_a_document_renewed_passport_and_new_expiry(db):
                           json={"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234570", "document_expiry": "2036-01-15"}).status_code == 403
 
 
+
+def test_document_issue_date_is_optional_and_editable(db):
+    """Issue #12: an optional issue date next to the expiry. Old documents have none; it is edited like the expiry."""
+    saved, _ = person(document=passport())
+    doc = saved.documents[0].id
+    url = f"/v1/admin/customers/{saved.id}/documents/{doc}"
+    body = {"id_type": "PSPT", "document_country": "PAK", "document_number": "AB1234567", "document_expiry": "2031-01-01"}
+    assert "document_issue_date" not in api().get(f"/v1/admin/customers/{saved.id}").json()["documents"][0]
+    dated = api().put(url, json={**body, "document_issue_date": "2021-01-02"})
+    assert dated.status_code == 200 and [(d["id"], d["document_issue_date"]) for d in dated.json()["documents"]] == [(doc, "2021-01-02")]
+    assert api().put(url, json={**body, "document_issue_date": "2031-01-01"}).status_code == 422          # not before the expiry
+    assert api().put(url, json={**body, "document_issue_date": "2099-01-01", "document_expiry": "2100-01-01"}).status_code == 422  # future
+    renewed = api().put(url, json={**body, "document_number": "AB1234568", "document_expiry": "2036-01-15", "document_issue_date": "2026-01-16"})
+    assert renewed.json()["documents"][0]["document_issue_date"] == "2026-01-16"
+    added = api().post(f"/v1/admin/customers/{saved.id}/documents",
+                       json={"id_type": "NATI", "document_country": "PAK", "document_number": CNIC, "document_issue_date": "2020-03-04"})
+    assert added.status_code == 201 and "2020-03-04" in [d.get("document_issue_date") for d in added.json()["documents"]]
+
+
 # ---------- booking history ----------
 
 def _booking_with_history(connection, metadata, saved):
