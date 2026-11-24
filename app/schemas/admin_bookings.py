@@ -109,6 +109,10 @@ class SupplierPayment(BaseModel):
 
     amount_due: BookingMoney | None = None
     hold_deadline: datetime | None = None
+    billed: BookingMoney | None = Field(None, description="What the supplier actually charged (recorded supplier charges), once issued.")
+    paid_from: Literal["bank", "supplier_wallet", "credit"] | None = Field(None, description="How the supplier was paid, when recorded at Mark as issued.")
+    transfer_reference: str | None = Field(None, description="The transfer or supplier confirmation reference, when recorded.")
+    time_sent: datetime | None = Field(None, description="When the supplier was paid, when recorded.")
 
 
 class BookingCustomer(BaseModel):
@@ -359,6 +363,8 @@ class IssuanceChecklist(BaseModel):
     supplier_amount: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
     supplier_balance: BookingMoney | None = Field(None, description="Only with the cost and margin permission; omitted if the supplier didn't answer.")
     margin: BookingMoney | None = Field(None, description="Only with the cost and margin permission.")
+    can_record_issue: bool = Field(False, description="Mark as issued is available (travelian#202): tickets for this supplier can't be issued from "
+                                                      "Travelian, the booking isn't issued, and this viewer has the issue tickets permission.")
     last_attempt: IssuanceAttempt | None = Field(None, description="The last issuing attempt or supplier check, with its reason.")
     can_check: bool = Field(False, description="Check with supplier is available (unknown or failed issuance; read-only).")
     balance_warning: str | None = Field(None, description="The supplier's known balance is low or below this ticket's cost (Finance > Wallets). "
@@ -382,6 +388,60 @@ class IssuanceResolveRequest(BaseModel):
     outcome: Literal["issued", "not_issued"]
     reason: str = Field(min_length=5, max_length=500)
     ticket_numbers: list[TicketNumber] = Field(default_factory=list, description="Required for every traveler when outcome is issued.")
+
+
+class RecordIssueRequest(BaseModel):
+    """Mark as issued (travelian#202): the ticket was issued in the supplier's portal. Supplier fields need the cost and margin permission."""
+
+    ticket_numbers: list[TicketNumber] = Field(min_length=1, max_length=9, description="One per traveler.")
+    note: str | None = Field(None, max_length=500)
+    ticket_document_key: str | None = Field(None, max_length=300, description="From POST /ticket-document/upload, after the file is uploaded.")
+    supplier_billed: BookingMoney | None = Field(None, description="What the supplier billed, when it differs from the hold-time fare. "
+                                                                   "Default: the hold-time supplier cost.")
+    paid_from: Literal["bank", "supplier_wallet", "credit"] | None = Field(
+        None, description="bank: fresh payment (recorded as a top-up and the charge, the balance doesn't move); supplier_wallet or credit: "
+                          "taken from the supplier's balance, which includes refund credits kept with the supplier.")
+    supplier_reference: str | None = Field(None, max_length=120, description="Transfer or supplier confirmation reference.")
+    paid_at: datetime | None = Field(None, description="When the supplier was paid.")
+
+
+class SettleDueRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=500, description="What was agreed, and with whom.")
+
+
+class SettleDueResult(BaseModel):
+    waived: BookingMoney
+    total: BookingMoney = Field(description="The booking total now: what was paid.")
+
+
+class TicketDocumentUploadRequest(BaseModel):
+    content_type: Literal["application/pdf", "image/jpeg", "image/png"]
+
+
+class TicketDocumentUpload(BaseModel):
+    url: str
+    fields: dict[str, str]
+    asset_key: str
+    max_bytes: int
+
+
+class AttachTicketDocument(BaseModel):
+    asset_key: str = Field(max_length=300)
+
+
+class TicketDocumentLink(BaseModel):
+    url: str
+    content_type: str | None = None
+    expires_in_seconds: int
+
+
+class DueSettlement(BaseModel):
+    """The customer paid less than the total by agreement and the rest was waived (travelian#202)."""
+
+    original_total: BookingMoney
+    waived: BookingMoney
+    reason: str
+    settled_at: datetime | None = None
 
 
 class IssuanceResult(BaseModel):
@@ -439,6 +499,11 @@ class BookingDetail(BaseModel):
     amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
+    can_settle_due: bool = Field(False, description="This viewer may settle the remaining due with a reason: something paid, something still "
+                                                   "due, record payments permission (the endpoint still checks).")
+    settlement: DueSettlement | None = Field(None, description="Omitted unless the due was settled with a reason.")
+    issued_at: datetime | None = Field(None, description="When the booking was recorded as issued.")
+    ticket_document: bool = Field(False, description="A final ticket document is attached (GET /ticket-document/link).")
     can_set_selling_price: bool = Field(False, description="Whether this viewer may change the selling price now: on hold, not issued, nothing paid, "
                                                          "Super Admin or record payments (the endpoint still checks).")
     sections_not_available: list[DetailSection] = Field(
