@@ -541,6 +541,20 @@
         "title": "AnnouncementView",
         "type": "object"
       },
+      "AttachTicketDocument": {
+        "properties": {
+          "asset_key": {
+            "maxLength": 300,
+            "title": "Asset Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_key"
+        ],
+        "title": "AttachTicketDocument",
+        "type": "object"
+      },
       "AttentionItem": {
         "properties": {
           "booking_id": {
@@ -962,6 +976,12 @@
             "title": "Can Set Selling Price",
             "type": "boolean"
           },
+          "can_settle_due": {
+            "default": false,
+            "description": "This viewer may settle the remaining due with a reason: something paid, something still due, record payments permission (the endpoint still checks).",
+            "title": "Can Settle Due",
+            "type": "boolean"
+          },
           "chosen_account": {
             "anyOf": [
               {
@@ -1077,6 +1097,19 @@
             ],
             "description": "Group bookings after full payment: Paid \u2013 awaiting final PNR, Final PNR received, Ticketed.",
             "title": "Group Ticketing Status"
+          },
+          "issued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the booking was recorded as issued.",
+            "title": "Issued At"
           },
           "itinerary": {
             "anyOf": [
@@ -1209,6 +1242,17 @@
             "title": "Sections Not Available",
             "type": "array"
           },
+          "settlement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DueSettlement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted unless the due was settled with a reason."
+          },
           "source": {
             "const": "gateway_bookings",
             "default": "gateway_bookings",
@@ -1239,6 +1283,12 @@
               }
             ],
             "description": "Omitted without the cost and margin permission."
+          },
+          "ticket_document": {
+            "default": false,
+            "description": "A final ticket document is attached (GET /ticket-document/link).",
+            "title": "Ticket Document",
+            "type": "boolean"
           },
           "updated_at": {
             "anyOf": [
@@ -3504,6 +3554,40 @@
           "document_number"
         ],
         "title": "DocumentInput",
+        "type": "object"
+      },
+      "DueSettlement": {
+        "description": "The customer paid less than the total by agreement and the rest was waived (travelian#202).",
+        "properties": {
+          "original_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "waived": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "original_total",
+          "waived",
+          "reason"
+        ],
+        "title": "DueSettlement",
         "type": "object"
       },
       "DuplicateChoice": {
@@ -8034,6 +8118,12 @@
             "title": "Can Issue",
             "type": "boolean"
           },
+          "can_record_issue": {
+            "default": false,
+            "description": "Mark as issued is available (travelian#202): tickets for this supplier can't be issued from Travelian, the booking isn't issued, and this viewer has the issue tickets permission.",
+            "title": "Can Record Issue",
+            "type": "boolean"
+          },
           "can_request": {
             "title": "Can Request",
             "type": "boolean"
@@ -10104,6 +10194,105 @@
           "accounts"
         ],
         "title": "ReceivingAccountList",
+        "type": "object"
+      },
+      "RecordIssueRequest": {
+        "description": "Mark as issued (travelian#202): the ticket was issued in the supplier's portal. Supplier fields need the cost and margin permission.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the supplier was paid.",
+            "title": "Paid At"
+          },
+          "paid_from": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bank",
+                  "supplier_wallet",
+                  "credit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "bank: fresh payment (recorded as a top-up and the charge, the balance doesn't move); supplier_wallet or credit: taken from the supplier's balance, which includes refund credits kept with the supplier.",
+            "title": "Paid From"
+          },
+          "supplier_billed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the supplier billed, when it differs from the hold-time fare. Default: the hold-time supplier cost."
+          },
+          "supplier_reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Transfer or supplier confirmation reference.",
+            "title": "Supplier Reference"
+          },
+          "ticket_document_key": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From POST /ticket-document/upload, after the file is uploaded.",
+            "title": "Ticket Document Key"
+          },
+          "ticket_numbers": {
+            "description": "One per traveler.",
+            "items": {
+              "$ref": "#/components/schemas/TicketNumber"
+            },
+            "maxItems": 9,
+            "minItems": 1,
+            "title": "Ticket Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ticket_numbers"
+        ],
+        "title": "RecordIssueRequest",
         "type": "object"
       },
       "RecordPaymentRequest": {
@@ -12201,6 +12390,39 @@
         "title": "SetSellingPriceRequest",
         "type": "object"
       },
+      "SettleDueRequest": {
+        "properties": {
+          "reason": {
+            "description": "What was agreed, and with whom.",
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "SettleDueRequest",
+        "type": "object"
+      },
+      "SettleDueResult": {
+        "properties": {
+          "total": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "The booking total now: what was paid."
+          },
+          "waived": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "waived",
+          "total"
+        ],
+        "title": "SettleDueResult",
+        "type": "object"
+      },
       "SignUploadRequest": {
         "properties": {
           "content_type": {
@@ -13376,6 +13598,17 @@
               }
             ]
           },
+          "billed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the supplier actually charged (recorded supplier charges), once issued."
+          },
           "hold_deadline": {
             "anyOf": [
               {
@@ -13387,6 +13620,48 @@
               }
             ],
             "title": "Hold Deadline"
+          },
+          "paid_from": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bank",
+                  "supplier_wallet",
+                  "credit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the supplier was paid, when recorded at Mark as issued.",
+            "title": "Paid From"
+          },
+          "time_sent": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the supplier was paid, when recorded.",
+            "title": "Time Sent"
+          },
+          "transfer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The transfer or supplier confirmation reference, when recorded.",
+            "title": "Transfer Reference"
           }
         },
         "title": "SupplierPayment",
@@ -13538,6 +13813,84 @@
           "mode"
         ],
         "title": "SupplierWalletView",
+        "type": "object"
+      },
+      "TicketDocumentLink": {
+        "properties": {
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          },
+          "expires_in_seconds": {
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_in_seconds"
+        ],
+        "title": "TicketDocumentLink",
+        "type": "object"
+      },
+      "TicketDocumentUpload": {
+        "properties": {
+          "asset_key": {
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "asset_key",
+          "max_bytes"
+        ],
+        "title": "TicketDocumentUpload",
+        "type": "object"
+      },
+      "TicketDocumentUploadRequest": {
+        "properties": {
+          "content_type": {
+            "enum": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_type"
+        ],
+        "title": "TicketDocumentUploadRequest",
         "type": "object"
       },
       "TicketNumber": {
@@ -16255,6 +16608,73 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/issuance/record": {
+      "post": {
+        "description": "Mark as issued: the ticket was issued in the supplier's portal (suppliers Travelian can't issue for, SooperFare\ntoday). A ticket number for every traveler; optionally the ticket document and a note. With the cost and margin\npermission also what the supplier billed and how it was paid (bank, supplier wallet or credit). Logged and audited.",
+        "operationId": "record_issue_v1_admin_bookings__booking_id__issuance_record_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuanceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue_tickets permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issuable now (payment, hold, status, ticketing off, supplier total or balance). Nothing was issued."
+          },
+          "422": {
+            "description": "A ticket number missing, or the ticket document isn't a valid upload."
+          },
+          "502": {
+            "description": "The supplier couldn't be checked before sending. Nothing was issued."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Issue",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/issuance/request": {
       "post": {
         "description": "Ask an approver to issue: needs full payment recorded and a valid hold.",
@@ -16759,6 +17179,70 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/settle-due": {
+      "post": {
+        "description": "The customer paid less than the total by agreement: waive the rest with a reason. The booking total becomes what\nwas paid, so nothing is due (Payments, Customer Dues and profit all follow). Logged and audited.",
+        "operationId": "settle_due_v1_admin_bookings__booking_id__settle_due_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleDueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettleDueResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the record_payments permission."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Closed booking, nothing paid yet, or nothing due."
+          },
+          "422": {
+            "description": "Reason missing."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Settle Due",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/supplier-cancel": {
       "post": {
         "description": "Cancel a held SooperFare booking at SooperFare (staff confirm first in the admin). The booking is marked Cancelled\nonly when SooperFare's own record says so; otherwise it shows \"Cancel requested\". Logged in the audit trail.",
@@ -17010,6 +17494,193 @@
           }
         ],
         "summary": "Rehold At Supplier",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/ticket-document": {
+      "put": {
+        "description": "Attach or replace the final ticket document on an issued flight booking. Logged. Answers with a link to open it.",
+        "operationId": "attach_ticket_document_v1_admin_bookings__booking_id__ticket_document_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachTicketDocument"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDocumentLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "409": {
+            "description": "Not issued yet."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Attach Ticket Document",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/ticket-document/link": {
+      "get": {
+        "description": "A signed link (5 minutes) to open the booking's final ticket document.",
+        "operationId": "ticket_document_link_v1_admin_bookings__booking_id__ticket_document_link_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDocumentLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "404": {
+            "description": "No ticket document."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ticket Document Link",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/ticket-document/upload": {
+      "post": {
+        "description": "A one-time signed S3 upload (10 minutes) for the final ticket document: PDF, JPG or PNG, up to 10 MB, private.",
+        "operationId": "sign_ticket_document_v1_admin_bookings__booking_id__ticket_document_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketDocumentUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDocumentUpload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Needs the issue tickets permission."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Uploads aren't available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sign Ticket Document",
         "tags": [
           "admin bookings"
         ]

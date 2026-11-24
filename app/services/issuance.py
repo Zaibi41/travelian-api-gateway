@@ -534,3 +534,44 @@ async def resolve(reference: str, viewer: BackOfficeUser, outcome: str, reason: 
         return Outcome("issued", "issued", "Marked as issued.", tickets)
     await run_in_threadpool(store.resolve_not_issued, target, viewer.user_id, "issuance_resolved", details)
     return Outcome("not_issued", "not_issued", "Marked as not issued. Issuing is possible again.")
+
+
+# ---------------------------------------------------------------------------------------------------- travelian#202
+def can_record_issue(target: store.Target, viewer: BackOfficeUser) -> bool:
+    """Mark as issued is offered: a flight whose supplier can't issue from Travelian, not yet issued, not a test booking."""
+    from app.db.offline_settlement import RECORDABLE_STATUSES
+
+    return (viewer.can(ISSUE_TICKETS) and target.product == "flight" and not target.test_booking
+            and target.issuance_status in ("not_issued", "requested") and target.booking_status in RECORDABLE_STATUSES
+            and not ticketing_on(target.provider, target.product))
+
+
+async def record_offline(reference: str, viewer: BackOfficeUser, tickets: dict[int, str], *, note: str | None = None,
+                         document_key: str | None = None, supplier=None) -> Outcome:
+    """Mark as issued: the ticket was issued in the supplier's portal (SooperFare today). Ticket numbers for every
+    traveler, optionally the ticket document and (cost and margin only) what the supplier billed and how it was paid."""
+    from app.db import finance
+    from app.db import offline_settlement
+    from app.services import ticket_documents
+
+    _require(viewer)
+    target = await run_in_threadpool(store.load, reference)
+    if ticketing_on(target.provider, target.product):
+        raise IssuanceRefused(409, "Tickets for this booking are issued from Travelian. Use Issue ticket.", "issue_here")
+    has_supplier_fields = supplier is not None and any(v is not None for v in (supplier.billed_minor, supplier.paid_from, supplier.reference, supplier.paid_at))
+    if has_supplier_fields and not viewer.visibility.cost_and_margin:
+        raise IssuanceRefused(403, "Recording what the supplier billed needs the cost and margin permission.")
+    document_type = None
+    if document_key:
+        try:
+            document_type = await run_in_threadpool(ticket_documents.inspect, document_key)
+        except ticket_documents.DocumentError as error:
+            raise IssuanceRefused(error.status, error.message, error.code) from None
+    try:
+        await run_in_threadpool(lambda: offline_settlement.record_issue(
+            reference, finance.Actor(viewer.user_id, viewer.role), tickets, supplier=supplier if has_supplier_fields else None,
+            document_key=document_key, document_type=document_type, note=note))
+    except offline_settlement.SettlementRefused as error:
+        raise IssuanceRefused(error.status, error.message, error.code) from None
+    await recheck_balance(reference, viewer)
+    return Outcome("issued", "issued", "Marked as issued.", tickets)

@@ -34,6 +34,8 @@ from app.schemas.admin_bookings import (
     BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, CustomerContactChange, CustomerContactChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
     TicketNumber, SellingPriceResult, SetSellingPriceRequest, IssueTicketRequest,
+    AttachTicketDocument, DueSettlement, RecordIssueRequest, SettleDueRequest, SettleDueResult, TicketDocumentLink, TicketDocumentUpload,
+    TicketDocumentUploadRequest,
 )
 from app.schemas.admin_dashboard import Period
 from app.services import admin_bookings as service
@@ -109,7 +111,39 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
         supplier["can_cancel"] = supplier["can_cancel"] and viewer.can(ISSUE_TICKETS)
         supplier["can_rehold"] = supplier["can_rehold"] and viewer.can(ISSUE_TICKETS)
         detail.supplier_booking = SupplierBookingView(**supplier)
+    await _add_settlement(detail, booking, viewer)
     return detail
+
+
+async def _add_settlement(detail: BookingDetail, booking, viewer) -> None:
+    """travelian#202: the waived due, the ticket document, issue time and (cost and margin) how the supplier was paid."""
+    from app.db import offline_settlement
+
+    try:
+        settled = await run_in_threadpool(offline_settlement.read, booking.booking_id)
+    except Exception:  # noqa: BLE001 - information only; the booking still shows
+        logger.warning("Booking settlement not read")
+        return
+    if settled is None:
+        return
+    currency = booking.currency or "PKR"
+    money = lambda minor: BookingMoney(amount_minor=minor, currency=currency)  # noqa: E731
+    paid = detail.amount_paid.amount_minor if detail.amount_paid else 0
+    due = detail.amount_due.amount_minor if detail.amount_due else 0
+    detail.can_settle_due = (viewer.can(RECORD_PAYMENTS) and paid > 0 and due > 0
+                             and booking.status not in ("cancelled", "hold_pending", "hold_failed", "hold_unrecorded"))
+    if settled.waived_minor:
+        detail.settlement = DueSettlement(original_total=money(settled.original_total_minor or 0), waived=money(settled.waived_minor),
+                                          reason=settled.settled_reason or "", settled_at=settled.settled_at)
+    detail.ticket_document = bool(settled.ticket_document_key)
+    if booking.ticket_status == "issued":
+        detail.issued_at = settled.issued_at
+    if detail.supplier_payment is not None:
+        detail.supplier_payment.paid_from = settled.supplier_paid_from
+        detail.supplier_payment.transfer_reference = settled.supplier_payment_reference
+        detail.supplier_payment.time_sent = settled.supplier_paid_at
+        if settled.billed_minor:
+            detail.supplier_payment.billed = money(settled.billed_minor)
 
 
 @router.post("/{booking_id}/supplier-cancel", response_model=SupplierBookingView,
@@ -401,6 +435,7 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         else issuance_service.ticketing_reason(target.provider, target.product),
         can_request=issuable and status == "not_issued",
         can_issue=issuable and viewer.can(ISSUE_TICKETS) and issuance_service.ticketing_on(target.provider, target.product),
+        can_record_issue=issuance_service.can_record_issue(target, viewer),
     )
     try:
         attempt = await issuance_service.last_attempt(target)
@@ -469,3 +504,102 @@ async def resolve_issuance(viewer: Viewer, request: IssuanceResolveRequest, book
     if len(tickets) != len(request.ticket_numbers):
         raise HTTPException(422, "Give one ticket number per traveler.")
     return await _ticket_email(await _run(issuance_service.resolve(booking_id, viewer, request.outcome, request.reason.strip(), tickets)), booking_id)
+
+
+# ------------------------------------------------------------------- travelian#202: settled and ticketed outside Travelian
+@router.post("/{booking_id}/issuance/record", response_model=IssuanceResult,
+             responses={**ISSUANCE_RESPONSES, 422: {"description": "A ticket number missing, or the ticket document isn't a valid upload."}})
+async def record_issue(viewer: Viewer, request: RecordIssueRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """Mark as issued: the ticket was issued in the supplier's portal (suppliers Travelian can't issue for, SooperFare
+    today). A ticket number for every traveler; optionally the ticket document and a note. With the cost and margin
+    permission also what the supplier billed and how it was paid (bank, supplier wallet or credit). Logged and audited."""
+    from app.db.offline_settlement import SupplierSettlement
+
+    tickets = {t.position: t.ticket_number.upper() for t in request.ticket_numbers}
+    if len(tickets) != len(request.ticket_numbers):
+        raise HTTPException(422, "Give one ticket number per traveler.")
+    supplier = SupplierSettlement(
+        billed_minor=request.supplier_billed.amount_minor if request.supplier_billed else None, paid_from=request.paid_from,
+        reference=(request.supplier_reference or "").strip() or None, paid_at=request.paid_at)
+    return await _ticket_email(await _run(issuance_service.record_offline(
+        booking_id, viewer, tickets, note=(request.note or "").strip() or None, document_key=request.ticket_document_key, supplier=supplier)), booking_id)
+
+
+def _document_error(error) -> HTTPException:
+    return HTTPException(error.status, error.message)
+
+
+@router.post("/{booking_id}/ticket-document/upload", response_model=TicketDocumentUpload,
+             responses={403: {"description": "Needs the issue tickets permission."}, 503: {"description": "Uploads aren't available."}})
+async def sign_ticket_document(viewer: Viewer, request: TicketDocumentUploadRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """A one-time signed S3 upload (10 minutes) for the final ticket document: PDF, JPG or PNG, up to 10 MB, private."""
+    from app.services import ticket_documents
+
+    if not viewer.can(ISSUE_TICKETS):
+        raise HTTPException(403, "Attaching a ticket document needs the issue tickets permission.")
+    try:
+        signed = await run_in_threadpool(ticket_documents.sign_upload, request.content_type)
+    except ticket_documents.DocumentError as error:
+        raise _document_error(error) from None
+    return TicketDocumentUpload(url=signed.url, fields=signed.fields, asset_key=signed.asset_key, max_bytes=signed.max_bytes)
+
+
+@router.put("/{booking_id}/ticket-document", response_model=TicketDocumentLink,
+            responses={403: {}, 404: {"description": "No such booking."}, 409: {"description": "Not issued yet."}, 422: {}})
+async def attach_ticket_document(viewer: Viewer, request: AttachTicketDocument, booking_id: Annotated[str, Path(max_length=64)]):
+    """Attach or replace the final ticket document on an issued flight booking. Logged. Answers with a link to open it."""
+    from app.db import finance, offline_settlement
+    from app.services import ticket_documents
+
+    if not viewer.can(ISSUE_TICKETS):
+        raise HTTPException(403, "Attaching a ticket document needs the issue tickets permission.")
+    try:
+        kind = await run_in_threadpool(ticket_documents.inspect, request.asset_key)
+        await run_in_threadpool(offline_settlement.attach_document, booking_id, finance.Actor(viewer.user_id, viewer.role), request.asset_key, kind)
+    except ticket_documents.DocumentError as error:
+        raise _document_error(error) from None
+    except offline_settlement.SettlementRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    try:
+        url = await run_in_threadpool(ticket_documents.signed_link, request.asset_key)
+    except ticket_documents.DocumentError as error:
+        raise _document_error(error) from None
+    return TicketDocumentLink(url=url, content_type=kind, expires_in_seconds=ticket_documents.LINK_SECONDS)
+
+
+@router.get("/{booking_id}/ticket-document/link", response_model=TicketDocumentLink, responses={404: {"description": "No ticket document."}})
+async def ticket_document_link(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """A signed link (5 minutes) to open the booking's final ticket document."""
+    from app.db import offline_settlement
+    from app.services import ticket_documents
+
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    settled = await run_in_threadpool(offline_settlement.read, booking_id)
+    if settled is None or not settled.ticket_document_key:
+        raise HTTPException(404, "No ticket document on this booking.")
+    try:
+        url = await run_in_threadpool(ticket_documents.signed_link, settled.ticket_document_key)
+    except ticket_documents.DocumentError as error:
+        raise _document_error(error) from None
+    return TicketDocumentLink(url=url, content_type=settled.ticket_document_type, expires_in_seconds=ticket_documents.LINK_SECONDS)
+
+
+@router.post("/{booking_id}/settle-due", response_model=SettleDueResult,
+             responses={403: {"description": "Needs the record_payments permission."}, 404: {"description": "No such booking."},
+                        409: {"description": "Closed booking, nothing paid yet, or nothing due."}, 422: {"description": "Reason missing."}})
+async def settle_due(viewer: Viewer, request: SettleDueRequest, booking_id: Annotated[str, Path(max_length=64)]):
+    """The customer paid less than the total by agreement: waive the rest with a reason. The booking total becomes what
+    was paid, so nothing is due (Payments, Customer Dues and profit all follow). Logged and audited."""
+    from app.db import finance, offline_settlement
+
+    if not viewer.can(RECORD_PAYMENTS):
+        raise HTTPException(403, "Settling the due needs the record payments permission.")
+    try:
+        settled = await run_in_threadpool(offline_settlement.settle_due, booking_id, finance.Actor(viewer.user_id, viewer.role), request.reason)
+    except offline_settlement.SettlementRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return SettleDueResult(waived=BookingMoney(amount_minor=settled.waived_minor, currency=settled.currency),
+                           total=BookingMoney(amount_minor=settled.total_minor, currency=settled.currency))
