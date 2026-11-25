@@ -49,6 +49,7 @@ class Target:
     traveler_types: list[tuple[int, str]]  # (position, passenger type) in booking order
     test_booking: bool = False  # marked as a test, or a passenger is named TEST: never issued
     test_money: bool = False  # paid online on a test system (the Bank Alfalah sandbox): never issued automatically
+    shortfall_minor: int = 0  # D57: accepted as not received (discount, goodwill, channel rate), with a reason
 
 
 def _load(connection, reference: str, lock: bool) -> Target:
@@ -67,9 +68,11 @@ def _load(connection, reference: str, lock: bool) -> Target:
     test = bool(row["is_test"]) or any(is_test_name(t.first_name) or is_test_name(t.last_name) for t in travelers)
     test_money = online_attempts.has_alfalah_columns(connection) and bool(connection.scalar(
         text("SELECT EXISTS (SELECT 1 FROM payfast_attempts WHERE booking_id = :b AND status = 'paid' AND test_money)"), {"b": row["id"]}))
+    shortfall = int(connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payment_shortfalls WHERE booking_id = :b"),
+                                      {"b": row["id"]}) or 0) if online_attempts.has_finance_ops(connection) else 0
     return Target(row["id"], row["reference"], row["pnr"], row["provider_id"], row["product"], row["booking_status"], row["issuance_status"],
                   row["hold_expires_at"], row["currency"], row["total_minor"], row["supplier_cost_minor"], row["supplier_ref"], paid,
-                  [(t.position, t.passenger_type) for t in travelers], test, test_money)
+                  [(t.position, t.passenger_type) for t in travelers], test, test_money, shortfall)
 
 
 def is_test_name(name: str | None) -> bool:
@@ -112,7 +115,8 @@ def blockers(target: Target, now: datetime, margin_seconds: int, products: tuple
     hold = hold_blocker(target, now, margin_seconds)
     if hold:
         reasons.append(hold)
-    if target.paid_minor < target.total_minor:
+    if target.paid_minor + target.shortfall_minor < target.total_minor:
+        # D57: a difference accepted with a reason (Payments tab) counts; nothing else does.
         reasons.append("Full payment isn't recorded yet.")
     return reasons
 

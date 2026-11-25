@@ -21,7 +21,7 @@ from app.schemas.group_holds import FareTermsView
 Product = Literal["flight", "group", "hotel", "umrah"]
 PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 #: A payment as shown: also PayFast (online, recorded only by the gateway from a verified PayFast result).
-RecordedPaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast"]
+RecordedPaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast", "alfalah"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending",
                "paid_not_issued"]
 DateType = Literal["created"]  # travel date is not stored yet
@@ -104,11 +104,44 @@ class BookingFare(BaseModel):
                                                         "was filled in as its total): show cost and profit as n/a. Only with the cost and margin permission.")
 
 
+class RefundCreditOption(BaseModel):
+    """An open Supplier Refund held as credit by this booking's supplier, usable to settle it."""
+
+    id: str
+    number: int
+    remaining: BookingMoney
+    reason: str
+    booking_reference: str | None = None
+
+
 class SupplierPayment(BaseModel):
     """The Supplier payment tab. Only sent with the cost and margin permission."""
 
     amount_due: BookingMoney | None = None
     hold_deadline: datetime | None = None
+    billable_amount: BookingMoney | None = Field(None, description="Issue #202: what the supplier actually bills (editable until settled). "
+                                                                   "The Fare tab and Issue the ticket read this figure.")
+    supplier_id: str | None = None
+    supplier_name: str | None = None
+    settlement_method: Literal["fresh", "refund_credit"] | None = None
+    refund_number: int | None = None
+    credit_used: BookingMoney | None = None
+    settled_at: datetime | None = None
+    note: str | None = None
+    refund_credits: list[RefundCreditOption] = Field(default_factory=list, description="Open refund credits with this supplier.")
+    suppliers: list[dict] = Field(default_factory=list, description="Suppliers to choose from: [{id, name}].")
+    can_edit: bool = Field(False, description="This viewer may set the billable amount and settle (Finance, or record payments).")
+    available: bool = Field(True, description="False before the finance update (migration 0037) is applied.")
+
+
+class PaymentShortfall(BaseModel):
+    """D57: the booking accepted as paid with less received than its total, with the reason."""
+
+    amount: BookingMoney
+    reason_kind: Literal["discount", "goodwill", "channel_rate"]
+    reason: str
+    note: str
+    recorded_at: datetime
 
 
 class BookingCustomer(BaseModel):
@@ -436,7 +469,11 @@ class BookingDetail(BaseModel):
     chosen_account: str | None = Field(None, description="The receiving account the customer chose at checkout (travelian#76).")
     payment_slips: list[BookingSlip] | None = Field(None, description="Customer payment slips. Omitted when none.")
     amount_paid: BookingMoney | None = Field(None, description="Sum of recorded payments.")
-    amount_due: BookingMoney | None = Field(None, description="Total less recorded payments.")
+    amount_due: BookingMoney | None = Field(None, description="Total less recorded payments (and less an accepted difference, D57).")
+    payment_shortfall: PaymentShortfall | None = Field(None, description="D57: accepted as paid with less received, and why.")
+    can_accept_shortfall: bool = Field(False, description="Part paid, nothing accepted yet, and this viewer may record payments.")
+    sold_through: str | None = Field(None, description="The reseller or channel the booking was sold through (not the customer).")
+    can_edit_sold_through: bool = False
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
     can_set_selling_price: bool = Field(False, description="Whether this viewer may change the selling price now: on hold, not issued, nothing paid, "

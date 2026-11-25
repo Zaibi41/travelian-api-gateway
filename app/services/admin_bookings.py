@@ -97,7 +97,7 @@ def _add_profit(fare, booking) -> None:
         supplier_charge=None if profit.supplier_charge_minor is None else _money(profit.supplier_charge_minor, currency),
         supplier_charge_basis=profit.supplier_charge_basis, payment_fees=_money(profit.payment_fees_minor, currency),
         refunds=_money(profit.refunds_minor, currency), profit=None if profit.profit_minor is None else _money(profit.profit_minor, currency),
-        missing=list(profit.missing))
+        shortfall=_money(profit.shortfall_minor, currency) if profit.shortfall_minor else None, missing=list(profit.missing))
 
 
 def _add_slips(detail, reference: str) -> None:
@@ -419,4 +419,50 @@ def build_detail(booking: BookingRow, visibility: FieldVisibility, people: Peopl
         detail.supplier_payment = SupplierPayment(
             amount_due=fare.supplier_cost, hold_deadline=booking.hold_expires_at,
         )
+    _add_finance_ops(detail, booking, visibility, can_record_payments)
     return detail
+
+
+def _add_finance_ops(detail: BookingDetail, booking: BookingRow, visibility, can_record_payments: bool) -> None:
+    """Migration 0037 (issue #202, D57): sold-through channel, accepted payment difference, supplier billable amount and
+    settlement. Supplementary: the booking still opens without them (before the migration, or if they can't be read)."""
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db import finance_ops
+    from app.schemas.admin_bookings import PaymentShortfall, RefundCreditOption
+
+    try:
+        extras = finance_ops.booking_extras(booking.booking_id)
+    except (HTTPException, SQLAlchemyError):
+        extras = None
+    if extras is None:
+        if detail.supplier_payment is not None:
+            detail.supplier_payment.available = False
+        return
+    currency = booking.currency or "PKR"
+    detail.sold_through = extras.sold_through
+    detail.can_edit_sold_through = can_record_payments
+    if extras.shortfall:
+        detail.payment_shortfall = PaymentShortfall(amount=_money(extras.shortfall.amount_minor, currency), reason_kind=extras.shortfall.reason_kind,  # type: ignore[arg-type]
+                                                    reason=finance_ops.SHORTFALL_KINDS[extras.shortfall.reason_kind], note=extras.shortfall.note,
+                                                    recorded_at=extras.shortfall.recorded_at)
+        if detail.amount_due is not None:
+            detail.amount_due = _money(max((booking.total_minor or 0) - extras.paid_minor - extras.shortfall.amount_minor, 0), currency)
+    detail.can_accept_shortfall = (can_record_payments and extras.shortfall is None and 0 < extras.paid_minor < (booking.total_minor or 0))
+    if detail.supplier_payment is not None and visibility.cost_and_margin:
+        g = extras.billing
+        sp = detail.supplier_payment
+        sp.can_edit = can_record_payments
+        sp.suppliers = [{"id": i, "name": n} for i, n in extras.suppliers]
+        sp.refund_credits = [RefundCreditOption(id=r.id, number=r.number, remaining=_money(r.remaining_minor, currency), reason=r.reason,
+                                                booking_reference=r.booking_reference) for r in extras.refund_credits]
+        if g is not None:
+            sp.billable_amount = _money(g.billable_minor, currency)
+            sp.amount_due = sp.billable_amount  # issue #202: one figure for what the supplier is owed
+            sp.supplier_id, sp.supplier_name = g.supplier_id, g.supplier_name
+            sp.settlement_method, sp.refund_number, sp.settled_at, sp.note = g.settlement_method, g.refund_number, g.settled_at, g.note  # type: ignore[assignment]
+            sp.credit_used = _money(g.credit_used_minor, currency) if g.credit_used_minor else None
+        elif booking.provider:
+            sp.supplier_id = next((i for i, _ in extras.suppliers if i == booking.provider), None)
+            sp.supplier_name = next((n for i, n in extras.suppliers if i == booking.provider), None)

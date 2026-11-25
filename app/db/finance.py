@@ -141,6 +141,11 @@ def record_issue_charges(connection, booking_id: str, actor_user_id: str | None)
     against it before the confirm). Recorded once per booking; a later re-issue or ticket edit adds nothing. Returns rows added."""
     if connection.scalar(text("SELECT 1 FROM supplier_charges WHERE booking_id = :b AND source = 'issuance' LIMIT 1"), {"b": booking_id}):
         return 0
+    from app.db import online_attempts
+
+    if online_attempts.has_finance_ops(connection) and connection.scalar(
+            text("SELECT 1 FROM booking_supplier_billing WHERE booking_id = :b AND settled_at IS NOT NULL"), {"b": booking_id}):
+        return 0  # issue #202: settled at the supplier billable amount (Supplier payment tab); that charge is already recorded
     booking = connection.execute(text("SELECT currency, provider_id FROM bookings WHERE id = :b"), {"b": booking_id}).mappings().one()
     travelers = connection.execute(text("SELECT id, cost_minor FROM booking_travelers WHERE booking_id = :b ORDER BY position"),
                                    {"b": booking_id}).all()

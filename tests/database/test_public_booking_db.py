@@ -249,6 +249,7 @@ def test_payfast_works_before_migration_0036(database, monkeypatch):
     connection, _, config = database
     command.downgrade(config, "0035_document_issue_date")
     monkeypatch.setattr(online_attempts, "_has_columns", False)
+    monkeypatch.setattr(online_attempts, "_has_finance_ops", False)  # cached by earlier tests; 0037 is gone after the downgrade
     booking_id, reference = _booking(connection)
     connection.execute(sa.text("UPDATE bookings SET product = 'flight' WHERE id = :b"), {"b": booking_id})
     public_bookings.create_attempt(reference, "B-OLD-SCHEMA", 1399700, "PKR")

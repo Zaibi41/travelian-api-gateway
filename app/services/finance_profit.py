@@ -26,6 +26,10 @@ class ProfitInputs:
     refunds_paid_minor: list[int] = field(default_factory=list)
     #: Card (PayFast) payments that have no fee recorded yet.
     card_payments_without_fee: int = 0
+    #: D57: part of the selling price accepted as not received (discount, goodwill, negotiated channel rate).
+    shortfall_minor: int = 0
+    #: Issue #202: the supplier billable amount (Supplier payment tab), the one figure for what the supplier charges.
+    billable_minor: int | None = None
 
 
 @dataclass(frozen=True)
@@ -33,20 +37,24 @@ class Profit:
     selling_minor: int
     fees_charged_minor: int
     supplier_charge_minor: int | None
-    #: "recorded" (supplier_charges), "quoted" (stored cost, nothing recorded yet) or "not_known".
+    #: "billable" (the supplier billable amount), "recorded" (supplier_charges), "quoted" (stored cost) or "not_known".
     supplier_charge_basis: str
     payment_fees_minor: int
     refunds_minor: int
     profit_minor: int | None
     #: Parts not recorded yet (shown as "Not recorded", never 0): "payment_fees".
     missing: tuple[str, ...] = ()
+    #: D57: accepted as not received; the profit counts only what was received.
+    shortfall_minor: int = 0
 
 
 def calculate(inputs: ProfitInputs) -> Profit:
     for name in ("selling_minor", "fees_charged_minor"):
         if not isinstance(getattr(inputs, name), int):
             raise TypeError(f"{name} must be integer paisa")
-    if inputs.supplier_charges_minor:
+    if inputs.billable_minor is not None:
+        supplier, basis = inputs.billable_minor, "billable"
+    elif inputs.supplier_charges_minor:
         supplier, basis = sum(inputs.supplier_charges_minor), "recorded"
     elif inputs.cost_known and inputs.stored_cost_minor is not None:
         supplier, basis = inputs.stored_cost_minor, "quoted"
@@ -54,6 +62,6 @@ def calculate(inputs: ProfitInputs) -> Profit:
         supplier, basis = None, "not_known"
     fees = sum(inputs.payment_fees_minor)
     refunds = sum(inputs.refunds_paid_minor)
-    profit = None if supplier is None else inputs.selling_minor + inputs.fees_charged_minor - supplier - fees - refunds
+    profit = None if supplier is None else inputs.selling_minor - inputs.shortfall_minor + inputs.fees_charged_minor - supplier - fees - refunds
     missing = ("payment_fees",) if inputs.card_payments_without_fee else ()
-    return Profit(inputs.selling_minor, inputs.fees_charged_minor, supplier, basis, fees, refunds, profit, missing)
+    return Profit(inputs.selling_minor, inputs.fees_charged_minor, supplier, basis, fees, refunds, profit, missing, inputs.shortfall_minor)

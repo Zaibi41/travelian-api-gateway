@@ -1,0 +1,83 @@
+name: Migrate Production
+
+# Manual only: Actions → "Migrate Production" → Run workflow, type "migrate" to confirm.
+# Backs up the database, then runs deploy/migrate.sh with the active release (the same script used by hand).
+# If the backup fails nothing is migrated. Migrations are not undone by rollback.sh; restore from the backup if needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to back up the production database and apply pending migrations'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Same group as Deploy Production: waits for a running deploy, never runs alongside one.
+concurrency:
+  group: travelian-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Back up and migrate
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'migrate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.LIGHTSAIL_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Back up the database and apply migrations
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+        run: |
+          set -euo pipefail
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=yes \
+            "deploy@${HOST}" \
+            "bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          APP_DIR="/opt/travelian-api"
+          SHARED_ENV="$APP_DIR/shared/.env"
+          BACKUP_DIR="$HOME/backups"
+
+          echo "Revision before:"
+          bash "$APP_DIR/current/deploy/migrate.sh" current
+
+          # Backup with the app's own database settings (values never printed).
+          value() { grep -E "^$1=" "$SHARED_ENV" | head -n1 | cut -d= -f2-; }
+          umask 077
+          mkdir -p "$BACKUP_DIR"
+          FILE="$BACKUP_DIR/travelian-$(date -u +%F-%H%M%S).sql.gz"
+          PGPASSWORD="$(value DB_PASSWORD)" pg_dump \
+            -h "$(value DB_HOST)" -p "$(value DB_PORT || echo 5432)" -U "$(value DB_USER)" "$(value DB_NAME)" | gzip > "$FILE"
+          test -s "$FILE"
+          gzip -t "$FILE"
+          echo "Backup written: $FILE ($(du -h "$FILE" | cut -f1))"
+
+          # Keep the 10 newest backups.
+          ls -1t "$BACKUP_DIR"/travelian-*.sql.gz | tail -n +11 | xargs -r rm -f
+
+          bash "$APP_DIR/current/deploy/migrate.sh"
+          REMOTE

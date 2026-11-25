@@ -11,6 +11,7 @@ from app.api.routes.agency_applications import router as agency_applications_rou
 from app.api.routes.agency_integrations import router as agency_integrations_router
 from app.api.routes.auth_sessions import router as auth_sessions_router
 from app.api.routes.finance import router as finance_router
+from app.api.routes.finance_ops import booking_router as finance_ops_booking_router, router as finance_ops_router
 from app.api.routes.flight_operations import router as flight_operations_router
 from app.api.routes.group_holds import router as group_holds_router
 from app.api.routes.group_ticketing import router as group_ticketing_router
@@ -62,6 +63,8 @@ router.include_router(saved_travelers_router)
 router.include_router(payment_accounts_router)
 router.include_router(finance_payment_accounts_router)
 router.include_router(finance_router)
+router.include_router(finance_ops_router)
+router.include_router(finance_ops_booking_router)
 router.include_router(public_payments_router)
 router.include_router(saved_people_booking_router)
 router.include_router(logos_router)

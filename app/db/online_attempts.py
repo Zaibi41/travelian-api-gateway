@@ -22,3 +22,17 @@ def has_alfalah_columns(connection) -> bool:
         " AND column_name IN ('provider', 'test_money') AND table_schema = current_schema()"))
     _has_columns = found == 2
     return _has_columns
+
+
+_has_finance_ops = False
+
+
+def has_finance_ops(connection) -> bool:
+    """True once migration 0037 (suppliers, Ticket Sale Entry, supplier refunds, booking supplier billing) is applied.
+    Until then (migrations run by hand after a deploy) existing screens and issuing work exactly as before."""
+    global _has_finance_ops
+    if _has_finance_ops:
+        return True
+    _has_finance_ops = bool(connection.scalar(text(
+        "SELECT to_regclass(current_schema() || '.booking_supplier_billing') IS NOT NULL")))
+    return _has_finance_ops

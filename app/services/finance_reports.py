@@ -34,6 +34,8 @@ class Extras:
     refunds_paid: list[int] = field(default_factory=list)
     card_payments_without_fee: int = 0
     paid_minor: int = 0
+    shortfall_minor: int = 0
+    billable_minor: int | None = None
 
 
 def load_extras(references: Iterable[str]) -> dict[str, Extras]:
@@ -61,6 +63,17 @@ def load_extras(references: Iterable[str]) -> dict[str, Extras]:
                 "SELECT b.reference, r.amount_minor FROM refunds r JOIN bookings b ON b.id = r.booking_id"
                 " WHERE b.reference = ANY(:r) AND r.status = 'paid'"), {"r": refs}).all():
             out[ref].refunds_paid.append(amount)
+        from app.db import online_attempts
+
+        if online_attempts.has_finance_ops(connection):
+            for ref, amount in connection.execute(text(
+                    "SELECT b.reference, s.amount_minor FROM booking_payment_shortfalls s JOIN bookings b ON b.id = s.booking_id"
+                    " WHERE b.reference = ANY(:r)"), {"r": refs}).all():
+                out[ref].shortfall_minor = amount
+            for ref, amount in connection.execute(text(
+                    "SELECT b.reference, g.billable_minor FROM booking_supplier_billing g JOIN bookings b ON b.id = g.booking_id"
+                    " WHERE b.reference = ANY(:r)"), {"r": refs}).all():
+                out[ref].billable_minor = amount
     return out
 
 
@@ -69,7 +82,8 @@ def profit_for(row: BookingRow, extras: Extras) -> Profit:
         selling_minor=row.total_minor or 0, stored_cost_minor=row.supplier_cost_minor,
         cost_known=row.cost_known and not (row.import_source is not None and row.supplier_cost_minor == row.total_minor),
         fees_charged_minor=extras.card_fees, supplier_charges_minor=extras.charges, payment_fees_minor=extras.fees,
-        refunds_paid_minor=extras.refunds_paid, card_payments_without_fee=extras.card_payments_without_fee))
+        refunds_paid_minor=extras.refunds_paid, card_payments_without_fee=extras.card_payments_without_fee, shortfall_minor=extras.shortfall_minor,
+        billable_minor=extras.billable_minor))
 
 
 def profits(rows: Iterable[BookingRow]) -> dict[str, Profit]:
