@@ -1,0 +1,113 @@
+name: Check Kyte
+
+# Manual only: Actions → "Check Kyte" → Run workflow.
+# Runs one Kyte flight search from the production server (the only IP Kyte accepts) with the server's own settings
+# (KYTE_API_KEY in the shared .env or SSM) and prints what came back: how many flights and fares, which airlines and
+# their lowest fares, and any errors Kyte reported. Read-only: nothing is booked, saved or changed. Never prints the key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: "From (IATA airport code)"
+        required: true
+        default: "LGW"
+        type: string
+      destination:
+        description: "To (IATA airport code)"
+        required: true
+        default: "BCN"
+        type: string
+      date:
+        description: "Departure date YYYY-MM-DD (empty: 30 days from today)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Search Kyte from the server
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.LIGHTSAIL_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Search Kyte
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+          ORIGIN: ${{ inputs.origin }}
+          DESTINATION: ${{ inputs.destination }}
+          DAY: ${{ inputs.date }}
+        run: |
+          set -euo pipefail
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          ORIGIN="${ORIGIN^^}"; DESTINATION="${DESTINATION^^}"
+          [[ "$ORIGIN" =~ ^[A-Z]{3}$ && "$DESTINATION" =~ ^[A-Z]{3}$ ]] || { echo "ERROR: use 3-letter airport codes."; exit 1; }
+          [[ -z "$DAY" || "$DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "ERROR: the date must be YYYY-MM-DD."; exit 1; }
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes "deploy@${HOST}" \
+            "bash -s -- '$ORIGIN' '$DESTINATION' '$DAY'" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$(readlink -f /opt/travelian-api/current)"
+          .venv/bin/python - "$1" "$2" "$3" <<'PY'
+          import asyncio, os, sys
+          from datetime import date, timedelta
+          # The service's settings (systemd reads the same file); values are never printed.
+          for line in open("/opt/travelian-api/shared/.env", encoding="utf-8"):
+              key, sep, value = line.rstrip("\n").partition("=")
+              if sep and key.strip() and not key.lstrip().startswith("#"):
+                  os.environ.setdefault(key.strip(), value)
+          from app.core.parameter_store import load_parameter_store_settings
+          from app.schemas.flights import FlightSearchRequest
+          from app.services import live_flights
+          from app.vendors.flights.kyte import client as kyte, normalize
+
+          load_parameter_store_settings()
+          origin, destination, day = sys.argv[1], sys.argv[2], sys.argv[3] or (date.today() + timedelta(days=30)).isoformat()
+          print(f"Kyte configured on the server: {kyte.configured()}")
+          if not kyte.configured():
+              print("Add KYTE_API_KEY to /opt/travelian-api/shared/.env and restart the API.")
+              sys.exit(1)
+          request = FlightSearchRequest(origin=origin, destination=destination, departure_date=day)
+
+          async def run():
+              client = kyte.configured_client()
+              return await client.shop(live_flights.kyte_shop_body(request), transaction_id=kyte.new_transaction_id())
+
+          try:
+              data = asyncio.run(run())
+          except kyte.KyteError as error:
+              print(f"Kyte call failed: {error.error_code} (HTTP {error.status})")
+              sys.exit(1)
+          errors = [(e.get("code"), e.get("source")) for e in data.get("errors") or [] if isinstance(e, dict)]
+          flights = normalize.parse_shop(data, origin, destination, two_way=False)
+          print(f"Search {origin} -> {destination} on {day}: {len(data.get('offers') or {})} offers, {len(flights)} flights")
+          by_airline = {}
+          for flight in flights:
+              for fare in flight.fares:
+                  key = f"{flight.airline_code} {flight.airline_name}"
+                  if fare.adult_each_minor is not None and (key not in by_airline or fare.adult_each_minor < by_airline[key][0]):
+                      by_airline[key] = (fare.adult_each_minor, fare.currency, flight.flight_number, flight.departure_local, fare.name)
+          for airline, (price, currency, number, departs, name) in sorted(by_airline.items()):
+              print(f"  {airline}: from {price / 100:.2f} {currency} ({number} {departs}, {name})")
+          if errors:
+              print("Kyte reported:", ", ".join(f"{code}{' (' + source + ')' if source else ''}" for code, source in errors[:20]))
+          PY
+          REMOTE

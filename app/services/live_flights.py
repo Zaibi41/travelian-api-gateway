@@ -25,6 +25,8 @@ from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairEr
 from app.services import baggage, restricted_airlines
 from app.vendors.flights.sooperfare import client as sooperfare
 from app.vendors.flights.sooperfare import normalize as sf_normalize
+from app.vendors.flights.kyte import client as kyte
+from app.vendors.flights.kyte import normalize as ky_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ class FareRef:
     #: "southair" or "sooperfare". SooperFare fares carry `sf`: its airline (provider id), flight and fare signatures.
     provider: str = "southair"
     sf: "SfRef | None" = None
+    #: Kyte fares carry `ky`: the offer (one per direction), the shopping flow's transaction id and the search prices.
+    ky: "KyRef | None" = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,15 @@ class SfRef:
     provider_id: str  # SooperFare's airline identifier: PA, PF, PK, ONEAPI, ...
     flight_signature: str
     fare_signature: str
+
+
+@dataclass(frozen=True)
+class KyRef:
+    offer_id: str
+    transaction_id: str
+    currency: str
+    each: tuple[tuple[str, int], ...]  # supplier price per passenger type at search, minor units
+    total_minor: int
 
 
 @dataclass
@@ -367,7 +380,90 @@ def _add_sooperfare(session: SearchSession, results: list[sf_normalize.Result], 
                 )))
 
 
-async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> FlightSearchView:
+KYTE = kyte.NAME
+#: The Kyte part of a search stops waiting after this (it fans out to every airline it searches).
+KYTE_SEARCH_SECONDS = 25
+KYTE_CABINS = {"economy": "economy", "premium_economy": "premiumEconomy", "business": "business", "first": "first"}
+#: Kyte needs an age for children and infants (else they're priced as adults): a typical age per type.
+KYTE_AGES = {"CHD": 8, "INF": 1}
+
+
+def kyte_shop_body(request: FlightSearchRequest) -> dict:
+    journeys = [{"departureAirport": request.origin, "arrivalAirport": request.destination, "date": {"main": request.departure_date.isoformat()}}]
+    if request.return_date:
+        journeys.append({"departureAirport": request.destination, "arrivalAirport": request.origin, "date": {"main": request.return_date.isoformat()}})
+    passengers = ([{} for _ in range(request.adults)] + [{"age": KYTE_AGES["CHD"]} for _ in range(request.children)]
+                  + [{"age": KYTE_AGES["INF"]} for _ in range(request.infants)])
+    return {"journeys": journeys, "passengers": passengers, "cabinType": KYTE_CABINS.get(request.cabin, "economy"),
+            "flexibility": "lowest", "fareType": "public", "exactMatch": False, "nonStopFlight": False,
+            # Return trips: one offer per direction, so each fits the outbound / return lists (split offers).
+            "splitOffer": request.return_date is not None, "originCurrency": False}
+
+
+async def kyte_results(request: FlightSearchRequest, factory=None) -> tuple[list[ky_normalize.Flight], str]:
+    """Kyte's flights for this search and the shopping flow's transaction id (kept for the offer-details call)."""
+    client = (factory or kyte.configured_client)()
+    transaction_id = kyte.new_transaction_id()
+    data = await client.shop(kyte_shop_body(request), transaction_id=transaction_id)
+    errors = ky_normalize.search_errors(data)
+    if errors:
+        logger.info("Kyte search answered with errors", extra={"codes": errors[:5]})
+    return ky_normalize.parse_shop(data, request.origin, request.destination, two_way=request.return_date is not None), transaction_id
+
+
+def _ky_segment(flight: ky_normalize.Flight, fare: ky_normalize.Fare) -> dict:
+    return {
+        "direction": flight.direction, "origin": flight.origin, "destination": flight.destination,
+        "airline_code": flight.airline_code, "airline_name": flight.airline_name, "flight_number": flight.flight_number,
+        "departure_local": flight.departure_local, "arrival_local": flight.arrival_local,
+        "duration_minutes": flight.duration_minutes, "stops": flight.stops, "stop_cities": list(flight.stop_cities),
+        "fare_name": fare.name, "baggage": fare.baggage.short(), "baggage_parts": baggage.to_dict(fare.baggage), "meal": None,
+        "operating_codes": sorted({s["operating"] for s in flight.segments if s.get("operating")}),
+    }
+
+
+def _ky_fare_view(fare_id: str, fare: ky_normalize.Fare, viewer: BackOfficeUser, counts: list[tuple[str, int]]) -> FareView:
+    # Kyte fares are requests until Kyte booking is wired in: no supplier hold, staff confirm and book.
+    view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(), booking_mode="request")
+    each = fare.adult_each_minor
+    if each is not None:
+        selling = sell(each)
+        if selling is not None:
+            view.selling_price = FlightMoney(amount_minor=selling, currency=fare.currency)
+            if all(kind in fare.each for kind, number in counts if number):
+                _set_total(view, selling_by_type(counts, dict(fare.each)), fare.currency)
+        if viewer.visibility.cost_and_margin:
+            view.supplier_cost = FlightMoney(amount_minor=each, currency=fare.currency)
+    if viewer.visibility.supplier_names:
+        view.supplier = kyte.NAME
+    return view
+
+
+def _add_kyte(session: SearchSession, flights: list[ky_normalize.Flight], transaction_id: str, viewer: BackOfficeUser,
+              flights_by_direction: dict[str, list[tuple[str, FlightView]]]) -> None:
+    counts = passenger_counts(session.request)
+    for flight in flights:
+        fare_views = []
+        for fare in flight.fares:
+            fare_id = secrets.token_urlsafe(12)
+            each = fare.adult_each_minor
+            session.fares[fare_id] = FareRef(
+                flight.direction, f"{flight.origin}{flight.destination}", flight.signature, fare.name, "",
+                normalize.Amount(Decimal(each) / 100, fare.currency) if each is not None else None,
+                _ky_segment(flight, fare), provider=KYTE,
+                ky=KyRef(fare.offer_id, transaction_id, fare.currency, tuple(sorted(fare.each.items())), fare.total_minor),
+            )
+            fare_views.append(_ky_fare_view(fare_id, fare, viewer, counts))
+        flights_by_direction[flight.direction].append((flight.departure_local or "", FlightView(
+            id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
+            flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
+            duration_minutes=flight.duration_minutes, stops=flight.stops, stop_cities=flight.stop_cities,
+            segments=segment_views(flight.segments), fares=fare_views,
+        )))
+
+
+async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None,
+                 kyte_factory=None) -> FlightSearchView:
     """Southair and SooperFare in parallel (D24): results merged by direction; a provider that fails doesn't hide the
     other's results ("Some results may be missing" then). SooperFare is searched only when configured."""
     session = SearchSession(id=secrets.token_urlsafe(16), user_id=viewer.user_id, request=request, nld="", expires_at=_now() + SEARCH_TTL_SECONDS)
@@ -376,6 +472,10 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
     tasks = [_southair_part(request, client_factory)]
     if use_sooperfare:
         tasks.append(asyncio.wait_for(sooperfare_results(request, sooperfare_factory), SOOPERFARE_SEARCH_SECONDS))
+    # Website searches see Kyte only with KYTE_PUBLIC_ENABLED (sandbox fares are never shown to customers).
+    use_kyte = kyte_factory is not None or (kyte.configured() and (viewer.role != "website" or settings.kyte_public_enabled))
+    if use_kyte:
+        tasks.append(asyncio.wait_for(kyte_results(request, kyte_factory), KYTE_SEARCH_SECONDS))
     outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
     providers: list[ProviderStatus] = []
@@ -413,6 +513,15 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
         else:
             _add_sooperfare(session, sf, viewer, flights_by_direction)
             providers.append(ProviderStatus(name=sooperfare.NAME, status="responded"))
+    if use_kyte:
+        ky = outcomes[-1]
+        if isinstance(ky, BaseException):
+            logger.warning("Kyte search failed", extra={"error_code": getattr(ky, "error_code", type(ky).__name__)})
+            providers.append(ProviderStatus(name=kyte.NAME, status="failed"))
+        else:
+            ky_flights, transaction_id = ky
+            _add_kyte(session, ky_flights, transaction_id, viewer, flights_by_direction)
+            providers.append(ProviderStatus(name=kyte.NAME, status="responded"))
 
     for _, flight_view in (item for items in flights_by_direction.values() for item in items):
         for fare_view in flight_view.fares:
@@ -552,6 +661,36 @@ async def sf_price_selection(request: FlightSearchRequest, wanted: list[FareRef]
     raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
 
 
+async def ky_price_selection(request: FlightSearchRequest, wanted: list[FareRef], factory=None) -> tuple[list[FareRef], str, list[tuple[str, int, int]], dict]:
+    """Kyte: Offer Details for the chosen offers (one per direction) confirms each offer's current total. The per-type
+    prices from the search are used only when the offer totals still match them exactly; a changed price is refused
+    (search again) rather than split by guesswork."""
+    client = (factory or kyte.configured_client)()
+    refs = [ref.ky for ref in wanted]
+    answer = await client.offer_details([ref.offer_id for ref in refs], transaction_id=refs[0].transaction_id)  # type: ignore[union-attr]
+    currencies = set()
+    for ref in refs:
+        current = ky_normalize.offer_details_total(answer, ref.offer_id)  # type: ignore[union-attr]
+        if current is None:
+            raise RepriceError(409, "This fare is no longer available. Search again and choose another fare.", code="fare_gone")
+        total, currency = current
+        if total != ref.total_minor or currency != ref.currency:  # type: ignore[union-attr]
+            raise RepriceError(409, "The airline changed this fare's price. Search again to see the new price.", code="fare_gone")
+        currencies.add(currency)
+    if len(currencies) != 1:
+        raise RepriceError(502, "The supplier's fare currency is unclear. This fare can't be confirmed.")
+    counts = [("ADT", request.adults), ("CHD", request.children), ("INF", request.infants)]
+    priced = []
+    for kind, number in counts:
+        if not number:
+            continue
+        each = [dict(ref.each).get(kind) for ref in refs]  # type: ignore[union-attr]
+        if any(price is None for price in each):
+            raise RepriceError(422, "This fare can't be priced for these passengers. Search again.", code="adults_only")
+        priced.append((kind, number, sum(each)))  # type: ignore[arg-type]
+    return wanted, currencies.pop(), priced, {"offer_ids": [ref.offer_id for ref in refs], "transaction_id": refs[0].transaction_id}  # type: ignore[union-attr]
+
+
 async def price_selection(request: FlightSearchRequest, wanted: list[FareRef], client: SouthairClient) -> tuple[str, list[FareRef], str, list[tuple[str, int, int]]]:
     """Repeat the search, find the same flights and fares, and price them.
 
@@ -653,6 +792,8 @@ def price_change_allowed(old_total: int | None, new_total: int) -> bool:
 
 
 def booking_enabled(provider: str) -> bool:
+    if provider == KYTE:
+        return False  # Kyte fares are requests: staff confirm and book (Kyte booking and payment come next)
     return settings.sooperfare_booking_enabled if provider == SOOPERFARE else settings.southair_booking_enabled
 
 
@@ -706,7 +847,8 @@ async def document_requirements(search_id: str, fare_ids: list[str], viewer: Bac
     return result
 
 
-async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None) -> "RepriceView":
+async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, client_factory=None, sooperfare_factory=None,
+                  kyte_factory=None) -> "RepriceView":
     from app.schemas.live_flights import PassengerPrice, RepriceView
 
     session = get_session(search_id, viewer.user_id)
@@ -720,10 +862,13 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
             nld = ""
             fresh, currency, priced, context = await sf_price_selection(session.request, wanted, sooperfare_factory)
             fee = int(context.get("platform_fee_minor") or 0)
+        elif provider == KYTE:
+            nld = ""
+            fresh, currency, priced, context = await ky_price_selection(session.request, wanted, kyte_factory)
         else:
             client = (client_factory or configured_client)()
             nld, fresh, currency, priced = await price_selection(session.request, wanted, client)
-    except (SouthairError, sooperfare.SooperfareError) as error:
+    except (SouthairError, sooperfare.SooperfareError, kyte.KyteError) as error:
         logger.warning("Reprice failed", extra={"error_code": error.error_code, "provider": provider})
         raise RepriceError(502, "The flight supplier couldn't reprice this fare. Try again.") from None
     passengers = []
@@ -762,7 +907,7 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         old_total=FlightMoney(amount_minor=old_total, currency=currency) if old_total is not None else None,
         passengers=[PassengerPrice(type=kind, count=number, selling_each=FlightMoney(amount_minor=selling, currency=currency)) for kind, number, _, selling in passengers],
         price_changed=price_changed, booking_enabled=can_book(viewer, provider) and not restricted,
-        booking_mode="request" if restricted else "hold",
+        booking_mode="request" if restricted or provider == KYTE else "hold",
     )
     old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
     if old_each is not None and provider == SOOPERFARE:

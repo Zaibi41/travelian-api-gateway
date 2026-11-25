@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     # Hold (booking) and ticketing are separate switches, both off by default.
     southair_booking_enabled: bool = False
     southair_ticketing_enabled: bool = False
+    # Kyte (gokyte.com: easyJet, Ryanair, Wizz Air, Transavia, Jet2, IndiGo, Volotea, AJet, ...). Calls only from the IP Kyte
+    # whitelists (the production server). Off until KYTE_API_KEY is set (SSM flights/kyte/api-key or .env). Fares are
+    # requests (staff confirm) until KYTE_BOOKING_ENABLED is wired to Kyte's booking.
+    kyte_base_url: str = Field("https://api.sandbox.gokyte.com", pattern=r"^https://[^/]+$")
+    kyte_api_key: SecretStr | None = None
+    kyte_timeout_seconds: float = Field(25.0, gt=0, le=60)
+    # Website searches include Kyte only with this on (default: back-office searches only, e.g. while on the sandbox).
+    kyte_public_enabled: bool = False
     # SooperFare (airline aggregator: Airblue, AirSial, PIA, Fly Jinnah, ...). Calls go out from the static IP it whitelists.
     sooperfare_base_url: str | None = None
     sooperfare_username: str | None = None

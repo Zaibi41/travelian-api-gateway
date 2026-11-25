@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 ACTION = "Booked and payment received. Confirm with supplier, issue the ticket, and share it with the customer."
 LOST_ACTION = "Booked and payment received, but the airline hold is lost. Refund the customer or rebook a new fare, and contact them."
 THIRTY_MINUTES = timedelta(minutes=30)
-SUPPLIER_NAMES = {"southair": "Southair", "sooperfare": "SooperFare"}
+SUPPLIER_NAMES = {"southair": "Southair", "sooperfare": "SooperFare", "kyte": "Kyte"}
 
 
 def _now() -> datetime:
