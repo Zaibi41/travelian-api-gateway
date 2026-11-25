@@ -361,6 +361,34 @@ def _money(minor: int | None, currency: str) -> str:
 CHECK_SOOPERFARE = "Don't issue again: press Check with supplier, or check the booking in SooperFare's portal."
 
 
+def balance_shortfall(supplier_id: str, amount_minor: int) -> str | None:
+    """D52 for a supplier whose balance is calculated (manual balance mode): the reason issuing would take it below zero, else
+    None. None too before migration 0037, for a supplier not on Supplier Balances, or one whose balance isn't set up yet
+    (not known, so it can't be shown to go negative). Southair (balance from its API) is checked live in _issue instead."""
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db import finance, online_attempts, supplier_ledger
+
+    try:
+        with supplier_ledger.agencies.application_engine().begin() as connection:
+            if not online_attempts.has_finance_ops(connection):
+                return None
+            supplier = supplier_ledger.supplier(connection, supplier_id)
+            if supplier is None or supplier.balance_mode != "manual":
+                return None
+            supplier_ledger.lock(connection, supplier_id)
+            try:
+                supplier_ledger.covers(connection, supplier_id, amount_minor, what="Issuing this ticket")
+            except finance.FinanceRefused as error:
+                return f"Not enough supplier balance to issue this ticket ({error.message.split(' Nothing was saved.')[0]})."
+    except HTTPException:  # no application database configured (unit tests): issuing can't run without one anyway
+        return None
+    except SQLAlchemyError:  # fail closed: a balance that can't be read never lets the confirm (a charge) go out
+        return "The supplier balance couldn't be checked."
+    return None
+
+
 async def _issue_sooperfare(reference: str, viewer: BackOfficeUser, factory=None) -> Outcome:
     """SooperFare: one POST /v1/booking/confirm (never retried), then SooperFare's own record (booking/list) decides:
     issued with a ticket number for every traveler -> PNR and ticket numbers saved, Ticket issued. Anything else ->
@@ -401,6 +429,10 @@ async def _issue_sooperfare(reference: str, viewer: BackOfficeUser, factory=None
         await abort(f"SooperFare's price for this booking ({_money(before.get('billable_minor'), target.currency)}) differs from the cost "
                     f"recorded ({_money(target.supplier_cost_minor, target.currency)}). Check the fare with SooperFare before issuing.",
                     "supplier_cost_changed_at_sooperfare", **_sf_summary(before))
+    # D52: the confirm charges Travelian's SooperFare balance; refused when that would take the calculated balance below zero.
+    short = await run_in_threadpool(balance_shortfall, target.provider or "sooperfare", target.supplier_cost_minor)
+    if short:
+        await abort(short, "insufficient_balance")
     sent_at = _now().isoformat()
     try:
         answer = await client.confirm(body["booking_ref_id"], body["txn_ref_id"], body["amount"], body["currency"], body["remarks"])

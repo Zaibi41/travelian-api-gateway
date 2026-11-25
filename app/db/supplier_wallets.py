@@ -61,6 +61,15 @@ def record_snapshot(provider: str, balance_minor: int, currency: str, actor: fin
 
 def _calculated(connection, provider: str) -> tuple[int | None, datetime | None, datetime | None]:
     """(balance, tracking since, last movement) from entries and charges; None balance when nothing is recorded yet."""
+    from app.db import online_attempts, supplier_ledger
+
+    if online_attempts.has_finance_ops(connection):
+        # Migration 0037: one calculation for Wallets and Supplier Balances (opening balance, top-ups, refund credits,
+        # booking charges and Ticket Sale Entries).
+        supplier = supplier_ledger.supplier(connection, provider)
+        if supplier is not None:
+            b = supplier_ledger.balance(connection, supplier)
+            return b.current_minor, b.tracking_since, b.last_updated
     since = connection.scalar(text("SELECT min(recorded_at) FROM supplier_wallet_entries WHERE provider_id = :p"), {"p": provider})
     if since is None:
         return None, None, None

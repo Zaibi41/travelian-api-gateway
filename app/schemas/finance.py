@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.booking_common import BookingMoney
 
-RefundMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast"]
+RefundMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast", "alfalah"]
 RefundStatus = Literal["requested", "approved", "paid", "rejected"]
 
 
@@ -114,7 +114,7 @@ class ProfitView(BaseModel):
     selling: BookingMoney
     fees_charged: BookingMoney = Field(description="Fees the customer paid on top of the fare (card fee).")
     supplier_charge: BookingMoney | None = Field(None, description="Null when not known.")
-    supplier_charge_basis: Literal["recorded", "quoted", "not_known"]
+    supplier_charge_basis: Literal["billable", "recorded", "quoted", "not_known"]
     payment_fees: BookingMoney
     refunds: BookingMoney
     profit: BookingMoney | None = Field(None, description="Null = 'Profit: not known' (no real supplier cost).")
@@ -131,7 +131,7 @@ class BookingFinanceView(BaseModel):
 
 
 PaymentStatus = Literal["awaiting_check", "confirmed", "rejected"]
-PaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast"]
+PaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast", "alfalah"]
 
 
 class FinancePaymentRow(BaseModel):
@@ -328,7 +328,7 @@ class BookingProfitRow(BaseModel):
     customer: str | None = None
     sales: BookingMoney
     supplier_charge: BookingMoney | None = None
-    supplier_charge_basis: Literal["recorded", "quoted", "not_known"]
+    supplier_charge_basis: Literal["billable", "recorded", "quoted", "not_known"]
     payment_fees: BookingMoney
     refunds: BookingMoney
     profit: BookingMoney | None = None

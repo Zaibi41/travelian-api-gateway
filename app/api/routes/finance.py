@@ -102,7 +102,25 @@ def profit_inputs(data: store.BookingFinance) -> ProfitInputs:
         supplier_charges_minor=[c.amount_minor for c in data.charges], payment_fees_minor=[f.amount_minor for f in data.fees],
         refunds_paid_minor=[r.amount_minor for r in data.refunds if r.status == "paid"],
         card_payments_without_fee=sum(1 for p in data.payments if p["method"] == "payfast" and p["id"] not in fees_by_payment),
+        **_finance_ops_inputs(data.booking.id),
     )
+
+
+def _finance_ops_inputs(booking_id: str) -> dict:
+    """D57 accepted difference and issue #202 supplier billable amount ({} before migration 0037 or when unreadable)."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db import finance_ops, online_attempts
+
+    try:
+        with store.agencies.application_engine().begin() as connection:
+            if not online_attempts.has_finance_ops(connection):
+                return {}
+            found = finance_ops.shortfall(booking_id, connection)
+            billing = finance_ops.billing(booking_id, connection)
+    except (HTTPException, SQLAlchemyError):  # supplementary: the booking's finance view still opens
+        return {}
+    return {"shortfall_minor": found.amount_minor if found else 0, "billable_minor": billing.billable_minor if billing else None}
 
 
 def profit_view(data: store.BookingFinance) -> ProfitView:
@@ -287,7 +305,7 @@ def rupees(minor: int | None) -> str:
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
-METHOD_LABEL = {"bank_transfer": "Bank transfer", "jazzcash": "JazzCash", "1link": "1Link", "payfast": "Card (PayFast)"}
+METHOD_LABEL = {"bank_transfer": "Bank transfer", "jazzcash": "JazzCash", "1link": "1Link", "payfast": "Card (PayFast)", "alfalah": "Card (Bank Alfalah)"}
 STATUS_LABEL = {"awaiting_check": "Awaiting check", "confirmed": "Confirmed", "rejected": "Rejected"}
 
 

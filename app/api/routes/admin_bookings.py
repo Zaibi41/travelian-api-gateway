@@ -393,8 +393,9 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
     issuable = status in issuance_store.ISSUABLE and not blockers
     money = lambda minor: BookingMoney(amount_minor=minor, currency=target.currency)  # noqa: E731
     checklist = IssuanceChecklist(
-        issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor >= target.total_minor,
-        amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor, 0)),
+        # D57: a difference accepted with a reason counts as paid; the amount due leaves it out.
+        issuance_status=status, blockers=blockers, full_payment_recorded=target.paid_minor + target.shortfall_minor >= target.total_minor,
+        amount_paid=money(target.paid_minor), amount_due=money(max(target.total_minor - target.paid_minor - target.shortfall_minor, 0)),
         hold_expires_at=target.hold_expires_at, ticketing_enabled=issuance_service.ticketing_on(target.provider, target.product),
         # One reason at a time (gateway#44): while a flight's hold is gone, the hold is the reason, not the ticketing switch.
         ticketing_note=None if target.product == "flight" and issuance_store.hold_blocker(target, _now(), settings.ticketing_deadline_margin_seconds)
@@ -420,6 +421,9 @@ async def issuance_checklist(viewer: Viewer, booking_id: Annotated[str, Path(max
         logger.warning("Supplier balance warning couldn't be worked out", exc_info=True)
     if viewer.visibility.cost_and_margin and target.supplier_cost_minor is not None:
         checklist.supplier_amount = money(target.supplier_cost_minor)
+        billable = await run_in_threadpool(_billable_minor, target.id)
+        if billable is not None:  # issue #202: the supplier billable amount is the one figure for what the supplier charges
+            checklist.supplier_amount = money(billable)
         checklist.margin = money(target.total_minor - target.supplier_cost_minor)
         try:
             # Southair's balance only for a Southair booking: it says nothing about another supplier's account.
@@ -469,3 +473,20 @@ async def resolve_issuance(viewer: Viewer, request: IssuanceResolveRequest, book
     if len(tickets) != len(request.ticket_numbers):
         raise HTTPException(422, "Give one ticket number per traveler.")
     return await _ticket_email(await _run(issuance_service.resolve(booking_id, viewer, request.outcome, request.reason.strip(), tickets)), booking_id)
+
+
+def _billable_minor(booking_id: str) -> int | None:
+    """Issue #202: the booking's supplier billable amount, or None (not set, before migration 0037, or unreadable)."""
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db import agencies, finance_ops, online_attempts
+
+    try:
+        with agencies.application_engine().begin() as connection:
+            if not online_attempts.has_finance_ops(connection):
+                return None
+            found = finance_ops.billing(booking_id, connection)
+    except (HTTPException, SQLAlchemyError):
+        return None
+    return found.billable_minor if found else None

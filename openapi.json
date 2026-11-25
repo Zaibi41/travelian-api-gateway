@@ -1,6 +1,225 @@
 {
   "components": {
     "schemas": {
+      "AccountList": {
+        "properties": {
+          "business": {
+            "items": {
+              "$ref": "#/components/schemas/AccountView"
+            },
+            "title": "Business",
+            "type": "array"
+          },
+          "business_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "personal": {
+            "items": {
+              "$ref": "#/components/schemas/AccountView"
+            },
+            "title": "Personal",
+            "type": "array"
+          },
+          "personal_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "business",
+          "personal",
+          "business_total",
+          "personal_total"
+        ],
+        "title": "AccountList",
+        "type": "object"
+      },
+      "AccountUpdate": {
+        "properties": {
+          "opening_balance_minor": {
+            "anyOf": [
+              {
+                "maximum": 100000000000.0,
+                "minimum": -100000000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Balance Minor"
+          },
+          "ownership": {
+            "anyOf": [
+              {
+                "enum": [
+                  "business",
+                  "personal"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ownership"
+          }
+        },
+        "title": "AccountUpdate",
+        "type": "object"
+      },
+      "AccountView": {
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number"
+          },
+          "account_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Title"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "current_balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iban"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "opening_balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "ownership": {
+            "enum": [
+              "business",
+              "personal"
+            ],
+            "title": "Ownership",
+            "type": "string"
+          },
+          "sales_received": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Booking payments recorded into it + Ticket Sale Entry amounts received into it."
+          },
+          "top_ups_paid": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Supplier top-ups paid from it."
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "method",
+          "ownership",
+          "active",
+          "opening_balance",
+          "sales_received",
+          "top_ups_paid",
+          "current_balance"
+        ],
+        "title": "AccountView",
+        "type": "object"
+      },
+      "ActivityView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Role"
+          },
+          "kind": {
+            "enum": [
+              "top_up",
+              "ticket_sale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "title",
+          "amount"
+        ],
+        "title": "ActivityView",
+        "type": "object"
+      },
       "AddPaymentFeeRequest": {
         "properties": {
           "amount_minor": {
@@ -166,6 +385,58 @@
           "reason"
         ],
         "title": "AddSupplierChargeRequest",
+        "type": "object"
+      },
+      "AddSupplierRequest": {
+        "properties": {
+          "low_threshold_minor": {
+            "anyOf": [
+              {
+                "maximum": 100000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Threshold Minor"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          },
+          "section": {
+            "default": "direct",
+            "enum": [
+              "api",
+              "direct"
+            ],
+            "title": "Section",
+            "type": "string"
+          },
+          "settlement_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DTS",
+                  "IATA"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Tag"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AddSupplierRequest",
         "type": "object"
       },
       "AdminOverview": {
@@ -541,52 +812,39 @@
         "title": "AnnouncementView",
         "type": "object"
       },
-      "AttentionItem": {
+      "ApplyCreditRequest": {
         "properties": {
-          "booking_id": {
-            "title": "Booking Id",
-            "type": "string"
-          },
-          "due_at": {
+          "billable_minor": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000000000.0,
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Due At"
+            "description": "Set the booking's supplier billable amount first (if not set).",
+            "title": "Billable Minor"
           },
-          "reference": {
-            "description": "PNR when present, otherwise the booking ID.",
-            "title": "Reference",
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "pending_issuance",
-              "payment_pending",
-              "hold_expiring"
-            ],
-            "title": "Type",
+          "booking_reference": {
+            "pattern": "^[A-Za-z0-9-]{4,32}$",
+            "title": "Booking Reference",
             "type": "string"
           }
         },
         "required": [
-          "booking_id",
-          "reference",
-          "type"
+          "booking_reference"
         ],
-        "title": "AttentionItem",
+        "title": "ApplyCreditRequest",
         "type": "object"
       },
       "AttentionQueue": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/AttentionItem"
+              "$ref": "#/components/schemas/app__schemas__admin_dashboard__AttentionItem"
             },
             "title": "Items",
             "type": "array"
@@ -813,6 +1071,127 @@
         "title": "BankAccountView",
         "type": "object"
       },
+      "BillableRequest": {
+        "properties": {
+          "billable_minor": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000000.0,
+            "title": "Billable Minor",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          }
+        },
+        "required": [
+          "billable_minor"
+        ],
+        "title": "BillableRequest",
+        "type": "object"
+      },
+      "BillingView": {
+        "properties": {
+          "billable_amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "credit_used": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refund_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund Number"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "settlement_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fresh",
+                  "refund_credit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Method"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Name"
+          }
+        },
+        "required": [
+          "billable_amount"
+        ],
+        "title": "BillingView",
+        "type": "object"
+      },
       "BookingAuditEntry": {
         "properties": {
           "action": {
@@ -906,7 +1285,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total less recorded payments."
+            "description": "Total less recorded payments (and less an accepted difference, D57)."
           },
           "amount_paid": {
             "anyOf": [
@@ -938,10 +1317,21 @@
             "title": "Booking Id",
             "type": "string"
           },
+          "can_accept_shortfall": {
+            "default": false,
+            "description": "Part paid, nothing accepted yet, and this viewer may record payments.",
+            "title": "Can Accept Shortfall",
+            "type": "boolean"
+          },
           "can_edit_group_tickets": {
             "default": false,
             "description": "Group bookings: this viewer may record the final PNR and ticket numbers on the Tickets tab (issue tickets permission, paid in full; the endpoint still checks).",
             "title": "Can Edit Group Tickets",
+            "type": "boolean"
+          },
+          "can_edit_sold_through": {
+            "default": false,
+            "title": "Can Edit Sold Through",
             "type": "boolean"
           },
           "can_issue_tickets": {
@@ -1114,6 +1504,17 @@
             "description": "The Passengers tab. Omitted when no travelers were saved.",
             "title": "Passengers"
           },
+          "payment_shortfall": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaymentShortfall"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D57: accepted as paid with less received, and why."
+          },
           "payment_slips": {
             "anyOf": [
               {
@@ -1208,6 +1609,18 @@
             },
             "title": "Sections Not Available",
             "type": "array"
+          },
+          "sold_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reseller or channel the booking was sold through (not the customer).",
+            "title": "Sold Through"
           },
           "source": {
             "const": "gateway_bookings",
@@ -1473,7 +1886,7 @@
           },
           "refunds": {
             "items": {
-              "$ref": "#/components/schemas/RefundView"
+              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
             },
             "title": "Refunds",
             "type": "array"
@@ -1935,7 +2348,8 @@
               "bank_transfer",
               "jazzcash",
               "1link",
-              "payfast"
+              "payfast",
+              "alfalah"
             ],
             "title": "Method",
             "type": "string"
@@ -2052,6 +2466,7 @@
           },
           "supplier_charge_basis": {
             "enum": [
+              "billable",
               "recorded",
               "quoted",
               "not_known"
@@ -3519,6 +3934,88 @@
         "title": "DocumentInput",
         "type": "object"
       },
+      "DueList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DueView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total_due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "items",
+          "total_due"
+        ],
+        "title": "DueList",
+        "type": "object"
+      },
+      "DueView": {
+        "properties": {
+          "customer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer"
+          },
+          "days_outstanding": {
+            "title": "Days Outstanding",
+            "type": "integer"
+          },
+          "due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "kind": {
+            "enum": [
+              "booking",
+              "ticket_sale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "payment_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the part payment went (partly paid only).",
+            "title": "Payment Account"
+          },
+          "received": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "kind",
+          "reference",
+          "total",
+          "received",
+          "due",
+          "days_outstanding"
+        ],
+        "title": "DueView",
+        "type": "object"
+      },
       "DuplicateChoice": {
         "properties": {
           "choice": {
@@ -3951,7 +4448,8 @@
               "bank_transfer",
               "jazzcash",
               "1link",
-              "payfast"
+              "payfast",
+              "alfalah"
             ],
             "title": "Method",
             "type": "string"
@@ -8305,6 +8803,132 @@
         "title": "JourneyView",
         "type": "object"
       },
+      "LedgerItemView": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "+ adds, - deducts. None for a balance read."
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "balance_after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Running balance (manual suppliers), or the balance read (API)."
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Role"
+          },
+          "counted": {
+            "default": true,
+            "description": "False: before the balance started (shown for history, not in the balance).",
+            "title": "Counted",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "opening",
+              "top_up",
+              "adjustment",
+              "refund_credit",
+              "booking_charge",
+              "ticket_sale",
+              "balance_check"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "ticket_sale_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Sale Number"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "description"
+        ],
+        "title": "LedgerItemView",
+        "type": "object"
+      },
+      "LedgerView": {
+        "properties": {
+          "items": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerItemView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "supplier": {
+            "$ref": "#/components/schemas/SupplierView"
+          }
+        },
+        "required": [
+          "supplier",
+          "items"
+        ],
+        "title": "LedgerView",
+        "type": "object"
+      },
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8924,6 +9548,91 @@
         "title": "NotificationView",
         "type": "object"
       },
+      "OpenRefundRequest": {
+        "properties": {
+          "amount_minor": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000000.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "opened_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened On"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "supplier_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+            "title": "Supplier Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "amount_minor",
+          "reason"
+        ],
+        "title": "OpenRefundRequest",
+        "type": "object"
+      },
+      "OpeningRequest": {
+        "properties": {
+          "amount_minor": {
+            "maximum": 100000000000.0,
+            "minimum": -100000000000.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "as_of"
+        ],
+        "title": "OpeningRequest",
+        "type": "object"
+      },
       "OperationCall": {
         "properties": {
           "payload": {
@@ -9003,6 +9712,137 @@
           "data"
         ],
         "title": "OperationResult",
+        "type": "object"
+      },
+      "Option": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Option",
+        "type": "object"
+      },
+      "OverviewView": {
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityView"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/app__api__routes__finance_ops__AttentionItem"
+            },
+            "title": "Attention",
+            "type": "array"
+          },
+          "customer_dues_count": {
+            "title": "Customer Dues Count",
+            "type": "integer"
+          },
+          "include_personal": {
+            "title": "Include Personal",
+            "type": "boolean"
+          },
+          "pending_refunds_count": {
+            "title": "Pending Refunds Count",
+            "type": "integer"
+          },
+          "pending_refunds_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "pending_sales_count": {
+            "title": "Pending Sales Count",
+            "type": "integer"
+          },
+          "profit_not_known": {
+            "default": 0,
+            "title": "Profit Not Known",
+            "type": "integer"
+          },
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "title": "Suppliers",
+            "type": "array"
+          },
+          "suppliers_attention_count": {
+            "default": 0,
+            "description": "Negative or below threshold.",
+            "title": "Suppliers Attention Count",
+            "type": "integer"
+          },
+          "suppliers_negative_count": {
+            "default": 0,
+            "title": "Suppliers Negative Count",
+            "type": "integer"
+          },
+          "total_bank_balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_customer_dues": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Booking profit (as Reports) + Ticket Sale Entry profit, in the range. Cost and margin only."
+          },
+          "total_supplier_balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Suppliers whose balance is known. Cost and margin only."
+          }
+        },
+        "required": [
+          "total_bank_balance",
+          "include_personal",
+          "total_customer_dues",
+          "customer_dues_count",
+          "pending_refunds_count",
+          "pending_refunds_total",
+          "pending_sales_count",
+          "attention",
+          "activity",
+          "suppliers"
+        ],
+        "title": "OverviewView",
         "type": "object"
       },
       "PassengerPrice": {
@@ -9113,7 +9953,8 @@
               "bank_transfer",
               "jazzcash",
               "1link",
-              "payfast"
+              "payfast",
+              "alfalah"
             ],
             "title": "Method",
             "type": "string"
@@ -9279,6 +10120,45 @@
         "title": "PaymentSettings",
         "type": "object"
       },
+      "PaymentShortfall": {
+        "description": "D57: the booking accepted as paid with less received than its total, with the reason.",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_kind": {
+            "enum": [
+              "discount",
+              "goodwill",
+              "channel_rate"
+            ],
+            "title": "Reason Kind",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "reason_kind",
+          "reason",
+          "note",
+          "recorded_at"
+        ],
+        "title": "PaymentShortfall",
+        "type": "object"
+      },
       "ProductResults": {
         "description": "One product's share of the business results (same rules, same filters).",
         "properties": {
@@ -9393,6 +10273,7 @@
           },
           "supplier_charge_basis": {
             "enum": [
+              "billable",
               "recorded",
               "quoted",
               "not_known"
@@ -10230,6 +11111,45 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "RefundCreditOption": {
+        "description": "An open Supplier Refund held as credit by this booking's supplier, usable to settle it.",
+        "properties": {
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "remaining",
+          "reason"
+        ],
+        "title": "RefundCreditOption",
+        "type": "object"
+      },
       "RefundDue": {
         "properties": {
           "booking_reference": {
@@ -10300,193 +11220,34 @@
         "title": "RefundDue",
         "type": "object"
       },
-      "RefundList": {
+      "RefundStatusRequest": {
         "properties": {
-          "refunds": {
-            "items": {
-              "$ref": "#/components/schemas/RefundView"
-            },
-            "title": "Refunds",
-            "type": "array"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "refunds",
-          "total"
-        ],
-        "title": "RefundList",
-        "type": "object"
-      },
-      "RefundView": {
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "approved_at": {
+          "note": {
             "anyOf": [
               {
-                "format": "date-time",
+                "maxLength": 500,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Approved At"
-          },
-          "approved_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Approved By User Id"
-          },
-          "booking_reference": {
-            "title": "Booking Reference",
-            "type": "string"
-          },
-          "customer_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Customer Name"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "bank_transfer",
-              "jazzcash",
-              "1link",
-              "payfast"
-            ],
-            "title": "Method",
-            "type": "string"
-          },
-          "paid_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Paid At"
-          },
-          "paid_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Paid By User Id"
-          },
-          "payout_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Payout Reference"
-          },
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          },
-          "rejected_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejected At"
-          },
-          "rejected_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejected By User Id"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "requested_at": {
-            "format": "date-time",
-            "title": "Requested At",
-            "type": "string"
-          },
-          "requested_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Requested By User Id"
+            "title": "Note"
           },
           "status": {
             "enum": [
-              "requested",
-              "approved",
-              "paid",
-              "rejected"
+              "chased",
+              "received",
+              "written_off"
             ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "booking_reference",
-          "amount",
-          "method",
-          "status",
-          "reason",
-          "requested_at"
+          "status"
         ],
-        "title": "RefundView",
+        "title": "RefundStatusRequest",
         "type": "object"
       },
       "RefundsDueView": {
@@ -10494,7 +11255,7 @@
           "open": {
             "description": "Refunds requested or approved, not paid yet.",
             "items": {
-              "$ref": "#/components/schemas/RefundView"
+              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
             },
             "title": "Open",
             "type": "array"
@@ -10562,6 +11323,21 @@
           "reason"
         ],
         "title": "RejectRefundRequest",
+        "type": "object"
+      },
+      "RejectRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectRequest",
         "type": "object"
       },
       "RejectSlipRequest": {
@@ -10920,7 +11696,8 @@
               "bank_transfer",
               "jazzcash",
               "1link",
-              "payfast"
+              "payfast",
+              "alfalah"
             ],
             "title": "Method",
             "type": "string"
@@ -11145,6 +11922,462 @@
           "adults"
         ],
         "title": "RoomRequest",
+        "type": "object"
+      },
+      "SaleList": {
+        "properties": {
+          "can_confirm": {
+            "title": "Can Confirm",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SaleView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "can_confirm"
+        ],
+        "title": "SaleList",
+        "type": "object"
+      },
+      "SaleOptions": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "is_finance": {
+            "title": "Is Finance",
+            "type": "boolean"
+          },
+          "partners": {
+            "description": "B2B partner agencies.",
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "title": "Partners",
+            "type": "array"
+          },
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "title": "Suppliers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "suppliers",
+          "accounts",
+          "partners",
+          "is_finance"
+        ],
+        "title": "SaleOptions",
+        "type": "object"
+      },
+      "SalePreviewView": {
+        "properties": {
+          "confirmed_on_save": {
+            "description": "True for Finance (saved confirmed); False: submitted for Finance to confirm.",
+            "title": "Confirmed On Save",
+            "type": "boolean"
+          },
+          "due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "effects": {
+            "description": "What saving will do, in order (the 'This entry will also' box).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Effects",
+            "type": "array"
+          },
+          "problems": {
+            "description": "Why it can't be saved yet; empty when it can.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "profit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "profit",
+          "due",
+          "effects",
+          "problems",
+          "confirmed_on_save"
+        ],
+        "title": "SalePreviewView",
+        "type": "object"
+      },
+      "SaleRequest": {
+        "properties": {
+          "agency_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency Id"
+          },
+          "channel": {
+            "enum": [
+              "direct",
+              "b2b",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "cost_minor": {
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Cost Minor",
+            "type": "integer"
+          },
+          "customer_person_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Person Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "passenger_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passenger Name"
+          },
+          "payment_account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Account Id"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "received_minor": {
+            "default": 0,
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Received Minor",
+            "type": "integer"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "sale_minor": {
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Sale Minor",
+            "type": "integer"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "ticket_status": {
+            "default": "issued",
+            "enum": [
+              "issued",
+              "on_hold"
+            ],
+            "title": "Ticket Status",
+            "type": "string"
+          },
+          "travel_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Travel Date"
+          }
+        },
+        "required": [
+          "channel",
+          "cost_minor",
+          "sale_minor"
+        ],
+        "title": "SaleRequest",
+        "type": "object"
+      },
+      "SaleView": {
+        "properties": {
+          "agency_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency Name"
+          },
+          "channel": {
+            "enum": [
+              "direct",
+              "b2b",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "due": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "passenger_name": {
+            "title": "Passenger Name",
+            "type": "string"
+          },
+          "payment_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Account"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "profit": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "received": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "rejected_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected Reason"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "sale": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "state": {
+            "enum": [
+              "confirmed",
+              "pending",
+              "rejected"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "submitted_by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted By Role"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Name"
+          },
+          "ticket_status": {
+            "enum": [
+              "issued",
+              "on_hold"
+            ],
+            "title": "Ticket Status",
+            "type": "string"
+          },
+          "travel_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Travel Date"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "channel",
+          "passenger_name",
+          "cost",
+          "sale",
+          "received",
+          "due",
+          "profit",
+          "ticket_status",
+          "state",
+          "submitted_at"
+        ],
+        "title": "SaleView",
         "type": "object"
       },
       "SaveOutcomeView": {
@@ -12240,6 +13473,98 @@
         "title": "SetSellingPriceRequest",
         "type": "object"
       },
+      "SettleRequest": {
+        "properties": {
+          "method": {
+            "enum": [
+              "fresh",
+              "refund_credit"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "refund_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund Id"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "SettleRequest",
+        "type": "object"
+      },
+      "ShortfallRequest": {
+        "properties": {
+          "note": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "reason_kind": {
+            "enum": [
+              "discount",
+              "goodwill",
+              "channel_rate"
+            ],
+            "title": "Reason Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_kind",
+          "note"
+        ],
+        "title": "ShortfallRequest",
+        "type": "object"
+      },
+      "ShortfallView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_kind": {
+            "enum": [
+              "discount",
+              "goodwill",
+              "channel_rate"
+            ],
+            "title": "Reason Kind",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "reason_kind",
+          "reason",
+          "note",
+          "recorded_at"
+        ],
+        "title": "ShortfallView",
+        "type": "object"
+      },
       "SignUploadRequest": {
         "properties": {
           "content_type": {
@@ -12683,6 +14008,41 @@
           "submitted_at"
         ],
         "title": "SlipView",
+        "type": "object"
+      },
+      "SoldThroughRequest": {
+        "properties": {
+          "sold_through": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold Through"
+          }
+        },
+        "title": "SoldThroughRequest",
+        "type": "object"
+      },
+      "SoldThroughView": {
+        "properties": {
+          "sold_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold Through"
+          }
+        },
+        "title": "SoldThroughView",
         "type": "object"
       },
       "StatementColumns": {
@@ -13402,10 +14762,59 @@
         "title": "SupplierChargeView",
         "type": "object"
       },
+      "SupplierList": {
+        "properties": {
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierView"
+            },
+            "title": "Suppliers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "suppliers"
+        ],
+        "title": "SupplierList",
+        "type": "object"
+      },
       "SupplierPayment": {
         "description": "The Supplier payment tab. Only sent with the cost and margin permission.",
         "properties": {
           "amount_due": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "available": {
+            "default": true,
+            "description": "False before the finance update (migration 0037) is applied.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "billable_amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Issue #202: what the supplier actually bills (editable until settled). The Fare tab and Issue the ticket read this figure."
+          },
+          "can_edit": {
+            "default": false,
+            "description": "This viewer may set the billable amount and settle (Finance, or record payments).",
+            "title": "Can Edit",
+            "type": "boolean"
+          },
+          "credit_used": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/BookingMoney"
@@ -13426,6 +14835,94 @@
               }
             ],
             "title": "Hold Deadline"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "refund_credits": {
+            "description": "Open refund credits with this supplier.",
+            "items": {
+              "$ref": "#/components/schemas/RefundCreditOption"
+            },
+            "title": "Refund Credits",
+            "type": "array"
+          },
+          "refund_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund Number"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "settlement_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fresh",
+                  "refund_credit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Method"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Name"
+          },
+          "suppliers": {
+            "description": "Suppliers to choose from: [{id, name}].",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Suppliers",
+            "type": "array"
           }
         },
         "title": "SupplierPayment",
@@ -13463,6 +14960,153 @@
           "top_ups"
         ],
         "title": "SupplierSpendRow",
+        "type": "object"
+      },
+      "SupplierView": {
+        "properties": {
+          "balance_mode": {
+            "enum": [
+              "api",
+              "manual"
+            ],
+            "title": "Balance Mode",
+            "type": "string"
+          },
+          "booking_mode": {
+            "enum": [
+              "api",
+              "manual"
+            ],
+            "title": "Booking Mode",
+            "type": "string"
+          },
+          "current_balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None: not set up yet (manual) or not read yet (API)."
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_updated": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated"
+          },
+          "low_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "opening_balance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opening_set_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Set At"
+          },
+          "section": {
+            "enum": [
+              "api",
+              "direct"
+            ],
+            "title": "Section",
+            "type": "string"
+          },
+          "settlement_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DTS",
+                  "IATA"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reference only (D53).",
+            "title": "Settlement Tag"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "low",
+              "negative",
+              "not_set_up"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_deducted": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "total_topped_up": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "tracking_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Since"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "section",
+          "booking_mode",
+          "balance_mode",
+          "total_topped_up",
+          "total_deducted",
+          "status"
+        ],
+        "title": "SupplierView",
         "type": "object"
       },
       "SupplierWalletList": {
@@ -13644,6 +15288,72 @@
         "title": "TokenResponse",
         "type": "object"
       },
+      "TopUpRequest": {
+        "properties": {
+          "amount_minor": {
+            "maximum": 100000000000.0,
+            "minimum": -100000000000.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "kind": {
+            "default": "top_up",
+            "enum": [
+              "top_up",
+              "adjustment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "paid_from_account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid From Account Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "amount_minor",
+          "occurred_at"
+        ],
+        "title": "TopUpRequest",
+        "type": "object"
+      },
       "UpdatePaymentSettings": {
         "properties": {
           "card_fee_bps": {
@@ -13778,6 +15488,55 @@
           }
         },
         "title": "UpdateReceivingAccountRequest",
+        "type": "object"
+      },
+      "UpdateSupplierRequest": {
+        "properties": {
+          "fields": {
+            "description": "Which fields to change (null clears).",
+            "items": {
+              "enum": [
+                "low_threshold_minor",
+                "settlement_tag"
+              ],
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "low_threshold_minor": {
+            "anyOf": [
+              {
+                "maximum": 100000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Threshold Minor"
+          },
+          "settlement_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DTS",
+                  "IATA"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Tag"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "UpdateSupplierRequest",
         "type": "object"
       },
       "UserAdminEvent": {
@@ -14243,6 +16002,185 @@
         "title": "WalletThresholdRequest",
         "type": "object"
       },
+      "app__api__routes__finance_ops__AttentionItem": {
+        "properties": {
+          "current_balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "low_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "low",
+              "negative"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supplier_id": {
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "supplier_name": {
+            "title": "Supplier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "supplier_name",
+          "status",
+          "current_balance"
+        ],
+        "title": "AttentionItem",
+        "type": "object"
+      },
+      "app__api__routes__finance_ops__RefundList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "pending_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "items",
+          "pending_count",
+          "pending_total"
+        ],
+        "title": "RefundList",
+        "type": "object"
+      },
+      "app__api__routes__finance_ops__RefundView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "applied": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "can_apply_credit": {
+            "title": "Can Apply Credit",
+            "type": "boolean"
+          },
+          "days_outstanding": {
+            "title": "Days Outstanding",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "next_statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Next Statuses",
+            "type": "array"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "opened_on": {
+            "format": "date",
+            "title": "Opened On",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "chased",
+              "received",
+              "written_off"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Note"
+          },
+          "supplier_id": {
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "supplier_name": {
+            "title": "Supplier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "supplier_id",
+          "supplier_name",
+          "amount",
+          "applied",
+          "remaining",
+          "reason",
+          "status",
+          "opened_on",
+          "days_outstanding",
+          "next_statuses",
+          "can_apply_credit"
+        ],
+        "title": "RefundView",
+        "type": "object"
+      },
       "app__api__routes__group_ticketing__BookingPassenger": {
         "additionalProperties": true,
         "properties": {
@@ -14501,6 +16439,237 @@
           "id_type"
         ],
         "title": "BookingPassenger",
+        "type": "object"
+      },
+      "app__schemas__admin_dashboard__AttentionItem": {
+        "properties": {
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "reference": {
+            "description": "PNR when present, otherwise the booking ID.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "pending_issuance",
+              "payment_pending",
+              "hold_expiring"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking_id",
+          "reference",
+          "type"
+        ],
+        "title": "AttentionItem",
+        "type": "object"
+      },
+      "app__schemas__finance__RefundList": {
+        "properties": {
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+            },
+            "title": "Refunds",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "refunds",
+          "total"
+        ],
+        "title": "RefundList",
+        "type": "object"
+      },
+      "app__schemas__finance__RefundView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By User Id"
+          },
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast",
+              "alfalah"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "paid_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid By User Id"
+          },
+          "payout_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout Reference"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
+          "rejected_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By User Id"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By User Id"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "approved",
+              "paid",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "booking_reference",
+          "amount",
+          "method",
+          "status",
+          "reason",
+          "requested_at"
+        ],
+        "title": "RefundView",
         "type": "object"
       }
     },
@@ -17054,6 +19223,266 @@
         ]
       }
     },
+    "/v1/admin/bookings/{reference}/payment-shortfall": {
+      "post": {
+        "description": "D57: accept the booking as paid with less received than its total, with the reason. Issuance can then go ahead.",
+        "operationId": "accept_shortfall_v1_admin_bookings__reference__payment_shortfall_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9-]{4,32}$",
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShortfallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShortfallView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accept Shortfall",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{reference}/sold-through": {
+      "put": {
+        "description": "The reseller or channel the booking was sold through (not the customer). Empty clears it.",
+        "operationId": "set_sold_through_v1_admin_bookings__reference__sold_through_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9-]{4,32}$",
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SoldThroughRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoldThroughView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Sold Through",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{reference}/supplier-billing": {
+      "put": {
+        "description": "Issue #202: the supplier billable amount, the one figure the Fare and Payments tabs read. Editable until settled.",
+        "operationId": "set_billable_v1_admin_bookings__reference__supplier_billing_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9-]{4,32}$",
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Billable",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{reference}/supplier-billing/settle": {
+      "post": {
+        "description": "Settle at the billable amount: fresh payment (the supplier balance pays) or a refund credit (D56). D52: no negative balance.",
+        "operationId": "settle_v1_admin_bookings__reference__supplier_billing_settle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9-]{4,32}$",
+              "title": "Reference",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "negative_balance (D52), already settled, refund closed."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Settle",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/customers": {
       "get": {
         "description": "With q: exact full document number first, then phone or email, then name prefix. Without q:\nthe most recent people (latest booking first, then the most recently saved).",
@@ -17944,6 +20373,99 @@
         ]
       }
     },
+    "/v1/admin/finance/accounts": {
+      "get": {
+        "description": "Business and personal accounts (D54: personal accounts are never in the company totals).",
+        "operationId": "accounts_v1_admin_finance_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accounts",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/accounts/{account_id}": {
+      "patch": {
+        "operationId": "update_account_v1_admin_finance_accounts__account_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
     "/v1/admin/finance/audit-log": {
       "get": {
         "description": "Every finance action, newest first. Read-only. Dates are whole days in Pakistan time.",
@@ -18184,7 +20706,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefundView"
+                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
                 }
               }
             },
@@ -18282,6 +20804,148 @@
           }
         ],
         "summary": "Add Supplier Charge",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/customer-dues": {
+      "get": {
+        "operationId": "customer_dues_v1_admin_finance_customer_dues_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DueList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Customer Dues",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/overview": {
+      "get": {
+        "description": "Finance overview tiles. Supplier and profit figures need the cost and margin permission.",
+        "operationId": "overview_v1_admin_finance_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_type",
+            "required": false,
+            "schema": {
+              "default": "business",
+              "enum": [
+                "business",
+                "all"
+              ],
+              "title": "Account Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "supplier_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview",
         "tags": [
           "admin finance"
         ]
@@ -19512,7 +22176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefundList"
+                  "$ref": "#/components/schemas/app__schemas__finance__RefundList"
                 }
               }
             },
@@ -19598,7 +22262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefundView"
+                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
                 }
               }
             },
@@ -19668,7 +22332,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefundView"
+                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
                 }
               }
             },
@@ -19737,7 +22401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefundView"
+                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
                 }
               }
             },
@@ -20716,6 +23380,914 @@
           }
         ],
         "summary": "Record Top Up",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-refunds": {
+      "get": {
+        "operationId": "list_refunds_v1_admin_finance_supplier_refunds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "requested",
+                    "chased",
+                    "received",
+                    "written_off"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "supplier_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Refunds",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "operationId": "open_refund_v1_admin_finance_supplier_refunds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRefundRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-refunds/{refund_id}/apply": {
+      "post": {
+        "description": "D56: settle a booking's supplier charge with this refund credit instead of fresh cash (the balance pays any rest; D52).",
+        "operationId": "apply_credit_v1_admin_finance_supplier_refunds__refund_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "refund_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Refund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyCreditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Credit",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/supplier-refunds/{refund_id}/status": {
+      "post": {
+        "operationId": "move_refund_v1_admin_finance_supplier_refunds__refund_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "refund_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Refund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Refund",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/suppliers": {
+      "get": {
+        "description": "Every supplier: API-integrated first, then direct airline IDs. Balance, totals, status and threshold.",
+        "operationId": "list_suppliers_v1_admin_finance_suppliers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Suppliers",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "description": "Onboard a supplier (manual booking and balance). Its balance starts once an opening balance or top-up is recorded.",
+        "operationId": "add_supplier_v1_admin_finance_suppliers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Supplier",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/suppliers/{supplier_id}": {
+      "patch": {
+        "description": "The low-balance threshold and the DTS / IATA reference tag. The balance itself is never edited here.",
+        "operationId": "update_supplier_v1_admin_finance_suppliers__supplier_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "supplier_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+              "title": "Supplier Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Supplier",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/suppliers/{supplier_id}/ledger": {
+      "get": {
+        "description": "Every balance-affecting event in order: opening, top-ups, adjustments, refund credits applied, and each deduction with\nwhat caused it (a Ticket Sale Entry, a booking issued automatically or by staff, or a Supplier payment settlement).",
+        "operationId": "supplier_ledger_v1_admin_finance_suppliers__supplier_id__ledger_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "supplier_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+              "title": "Supplier Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Supplier Ledger",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/suppliers/{supplier_id}/opening": {
+      "post": {
+        "description": "Once per manual supplier: the balance it held on `as_of` (from the portal or the Excel sheet). Later: adjustments.",
+        "operationId": "set_opening_v1_admin_finance_suppliers__supplier_id__opening_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "supplier_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+              "title": "Supplier Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpeningRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Opening",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/suppliers/{supplier_id}/top-ups": {
+      "post": {
+        "description": "A top-up (adds) or an adjustment (+/-, with a reason; refused if it would take the balance below zero, D52).",
+        "operationId": "add_top_up_v1_admin_finance_suppliers__supplier_id__top_ups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "supplier_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{1,39}$",
+              "title": "Supplier Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Top Up",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales": {
+      "get": {
+        "description": "Finance sees every entry; other staff see only the ones they submitted.",
+        "operationId": "list_sales_v1_admin_finance_ticket_sales_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "confirmed",
+                    "pending",
+                    "rejected"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sales",
+        "tags": [
+          "admin finance"
+        ]
+      },
+      "post": {
+        "description": "D55: Finance saves it confirmed (and the supplier deduction, if any, is checked against D52 first); anyone else submits it\nfor Finance to confirm.",
+        "operationId": "create_sale_v1_admin_finance_ticket_sales_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "409": {
+            "description": "negative_balance (D52)."
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Sale",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/options": {
+      "get": {
+        "operationId": "sale_options_v1_admin_finance_ticket_sales_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sale Options",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/preview": {
+      "post": {
+        "description": "Worked out by the gateway as the form is filled: profit, what's due, and what saving will do. Saves nothing.",
+        "operationId": "preview_sale_v1_admin_finance_ticket_sales_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalePreviewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Sale",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/{sale_id}/confirm": {
+      "post": {
+        "operationId": "confirm_sale_v1_admin_finance_ticket_sales__sale_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sale_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Sale Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm Sale",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/{sale_id}/reject": {
+      "post": {
+        "operationId": "reject_sale_v1_admin_finance_ticket_sales__sale_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sale_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Sale Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Sale",
         "tags": [
           "admin finance"
         ]
