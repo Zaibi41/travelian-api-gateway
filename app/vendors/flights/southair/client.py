@@ -118,7 +118,8 @@ class SouthairClient:
             status, body = await self._raw_post(
                 "/login", [("username", self._username), ("password", self._password.get_secret_value())], token=None,
             )
-            token = (body or {}).get("data", {}).get("token") if isinstance(body, dict) else None
+            data = body.get("data") if isinstance(body, dict) else None
+            token = data.get("token") if isinstance(data, dict) else None  # a refused login can send data: null / []
             if status >= 300 or not isinstance(token, str) or not token.strip():
                 logger.warning("Southair login failed", extra={"status": status})
                 raise SouthairError("login_failed", "The flight supplier rejected the gateway's credentials.", status=status)
