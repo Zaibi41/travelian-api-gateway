@@ -79,7 +79,9 @@ def test_one_ledger_shows_ticket_sales_and_real_booking_deductions_and_blocks_ne
     # Staff without Finance aren't shown supplier balance figures, only that Finance can't confirm it yet.
     staff_view = ops.preview_sale(sale(cost_minor=50_000 * RS, sale_minor=51_000 * RS), confirmed=False)
     assert not staff_view.problems and not any("40,000" in e or "-10,000" in e for e in staff_view.effects)
-    assert any("Finance can't confirm it until AirSial is topped up" in e for e in staff_view.effects)
+    # ...and the same whatever the cost, so a submission can't be used to probe the balance.
+    cheap = ops.preview_sale(sale(cost_minor=1 * RS, sale_minor=51_000 * RS), confirmed=False)
+    assert [e for e in cheap.effects if "balance" in e] == [e for e in staff_view.effects if "balance" in e]
     assert refused_code(ops.confirm_sale, FIN, pending.id) == ledger.NEGATIVE
     # An adjustment can't take it negative either (the balance only moves the three ways).
     assert refused_code(ledger.add_top_up, FIN, "airsial", kind="adjustment", amount_minor=-50_000 * RS, reference=None, reason="x",

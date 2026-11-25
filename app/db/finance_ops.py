@@ -110,15 +110,11 @@ def _preview(connection, sale: SaleInput, confirmed: bool) -> SalePreview:
             effects.append(f"Deduct {rupees(sale.cost_minor)} from {supplier}'s balance ({rupees(b.current_minor)} → {rupees(after)}).")
             if after < 0:
                 problems.append(f"{supplier}'s balance would go below zero ({rupees(after)}). Top up {supplier} first.")  # D52
-        elif b is not None and b.current_minor is not None:
-            effects.append(f"Deduct the cost from {supplier}'s balance when Finance confirms it.")
-            if b.current_minor - sale.cost_minor < 0:
-                effects.append(f"Not enough {supplier} balance right now: Finance can't confirm it until {supplier} is topped up.")
+        elif not confirmed:
+            # Nothing here depends on the balance, so a submission can't be used to probe it; Finance's confirm checks D52.
+            effects.append(f"Deduct the cost from {supplier}'s balance when Finance confirms it (if the balance covers it).")
         elif s is not None and s.balance_mode == "api":
-            if confirmed:
-                problems.append(f"{supplier}'s balance hasn't been read yet. Refresh it on Supplier Balances first.")
-            else:
-                effects.append(f"Deduct the cost from {supplier}'s balance when Finance confirms it.")
+            problems.append(f"{supplier}'s balance hasn't been read yet. Refresh it on Supplier Balances first.")
         else:
             effects.append(f"Deduct {rupees(sale.cost_minor)} from {supplier}'s balance (its balance isn't set up yet).")
     elif supplier:
