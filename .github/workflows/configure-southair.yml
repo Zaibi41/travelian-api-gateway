@@ -6,7 +6,8 @@ name: Configure South Air
 # Credentials travel over scp; they are never printed, never on a command line and never in the repository.
 # The previous .env is kept as .env.bak-<time>.
 #
-# Secrets (Settings → Environments → production): SOUTHAIR_USERNAME, SOUTHAIR_PASSWORD.
+# Secrets (Settings → Environments → production), optional: SOUTHAIR_USERNAME, SOUTHAIR_PASSWORD. When not set, the
+# username and password already on the server are kept (only the URL and switches change).
 
 on:
   workflow_dispatch:
@@ -68,16 +69,17 @@ jobs:
           PASSWORD: ${{ secrets.SOUTHAIR_PASSWORD }}
         run: |
           set -euo pipefail
-          [[ "$BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://host[:port] with no path."; exit 1; }
-          [[ -n "$USERNAME" && -n "$PASSWORD" ]] || { echo "ERROR: add the SOUTHAIR_USERNAME and SOUTHAIR_PASSWORD secrets first."; exit 1; }
+          # Only South Air's own hosts: the saved password is sent to this URL.
+          [[ "$BASE_URL" =~ ^https://([a-z0-9-]+\.)*southair\.com\.pk(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://<host>.southair.com.pk[:port] with no path."; exit 1; }
+          if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then echo "No credential secrets set: keeping the username and password on the server."; fi
           for value in "$USERNAME" "$PASSWORD"; do
             [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || { echo "ERROR: a secret has a line break."; exit 1; }
           done
           umask 077
           {
             printf 'SOUTHAIR_BASE_URL=%s\n' "$BASE_URL"
-            printf 'SOUTHAIR_USERNAME=%s\n' "$USERNAME"
-            printf 'SOUTHAIR_PASSWORD=%s\n' "$PASSWORD"
+            [[ -z "$USERNAME" ]] || printf 'SOUTHAIR_USERNAME=%s\n' "$USERNAME"
+            [[ -z "$PASSWORD" ]] || printf 'SOUTHAIR_PASSWORD=%s\n' "$PASSWORD"
             [[ "$BOOKING" == keep ]] || printf 'SOUTHAIR_BOOKING_ENABLED=%s\n' "$([[ "$BOOKING" == on ]] && echo true || echo false)"
             [[ "$TICKETING" == keep ]] || printf 'SOUTHAIR_TICKETING_ENABLED=%s\n' "$([[ "$TICKETING" == on ]] && echo true || echo false)"
           } > "$RUNNER_TEMP/southair.env"
@@ -102,11 +104,21 @@ jobs:
           cd "$(readlink -f "$APP_DIR/current")"
 
           # 1. Log in with the new values (from the server, whose IP South Air allows). Prints no balance or secret.
-          .venv/bin/python - "$INCOMING" <<'PY'
+          .venv/bin/python - "$ENV_FILE" "$INCOMING" <<'PY'
           import asyncio, sys
           from pydantic import SecretStr
           from app.vendors.flights.southair.client import SouthairClient, SouthairError
-          values = dict(line.rstrip("\n").split("=", 1) for line in open(sys.argv[1]) if "=" in line)
+          read = lambda path: dict(line.rstrip("\n").split("=", 1) for line in open(path) if "=" in line and not line.startswith("#"))
+          values = {**read(sys.argv[1]), **read(sys.argv[2])}  # the server's current values, then the new ones
+          missing = [k for k in ("SOUTHAIR_USERNAME", "SOUTHAIR_PASSWORD") if not values.get(k, "").strip()]
+          if missing:
+              print(f"ERROR: {', '.join(missing)} not on the server; add them as GitHub secrets. Nothing was changed.")
+              sys.exit(1)
+          values = {k: v.strip().strip('"').strip("'") for k, v in values.items()}
+          import re
+          if not re.fullmatch(r"https://([a-z0-9-]+\.)*southair\.com\.pk(:\d{1,5})?", values["SOUTHAIR_BASE_URL"]):
+              print("ERROR: the base URL must be a southair.com.pk host. Nothing was changed.")
+              sys.exit(1)
           client = SouthairClient(values["SOUTHAIR_BASE_URL"], values["SOUTHAIR_USERNAME"], SecretStr(values["SOUTHAIR_PASSWORD"]), 20.0)
           try:
               profile = asyncio.run(client.profile())
