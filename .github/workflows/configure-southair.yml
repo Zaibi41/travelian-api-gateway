@@ -139,8 +139,12 @@ jobs:
                       body = r.json()
                       message = body.get("message") if isinstance(body, dict) else None
                   except ValueError:
-                      message = r.text[:120]
-                  print(f"  South Air answered the login with HTTP {r.status_code}: {str(message)[:160]!r}")
+                      message = None  # not JSON: never print the raw text
+                  message = str(message or "")[:160]
+                  for secret in (values["SOUTHAIR_PASSWORD"], values["SOUTHAIR_USERNAME"]):
+                      if secret:
+                          message = message.replace(secret, "***")
+                  print(f"  South Air answered the login with HTTP {r.status_code}" + (f": {message!r}" if message else "."))
               except Exception as error:
                   print(f"  South Air couldn't be reached from the server: {type(error).__name__}")
               try:
