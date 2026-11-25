@@ -150,3 +150,14 @@ def test_bad_login_raises():
     with pytest.raises(SouthairError) as error:
         run(SouthairClient("https://x.invalid", "u", SecretStr("p"), transport=httpx.MockTransport(supplier)).profile())
     assert error.value.error_code == "login_failed"
+
+
+@pytest.mark.parametrize("data", [None, [], "denied"])
+def test_refused_login_with_empty_data_is_login_failed(data):
+    """A refused login can answer data: null / [] / a string; that is login_failed, never a crash."""
+    def supplier(request):
+        return httpx.Response(200, json={"status_code": 401, "message": "These credentials do not match our records.", "data": data})
+    SouthairClient.reset_token()
+    with pytest.raises(SouthairError) as error:
+        run(SouthairClient("https://x.invalid", "u", SecretStr("p"), transport=httpx.MockTransport(supplier)).profile())
+    assert error.value.error_code == "login_failed"

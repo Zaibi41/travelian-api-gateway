@@ -17,6 +17,11 @@ on:
         required: true
         default: "https://z8.southair.com.pk:7777"
         type: string
+      username:
+        description: "South Air username (leave empty to keep the one on the server, or use the SOUTHAIR_USERNAME secret)"
+        required: false
+        default: ""
+        type: string
       booking:
         description: "Holds (bookings) through South Air"
         required: true
@@ -65,10 +70,13 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
           BOOKING: ${{ inputs.booking }}
           TICKETING: ${{ inputs.ticketing }}
-          USERNAME: ${{ secrets.SOUTHAIR_USERNAME }}
+          USERNAME_INPUT: ${{ inputs.username }}
+          USERNAME_SECRET: ${{ secrets.SOUTHAIR_USERNAME }}
           PASSWORD: ${{ secrets.SOUTHAIR_PASSWORD }}
         run: |
           set -euo pipefail
+          USERNAME="${USERNAME_INPUT:-$USERNAME_SECRET}"
+          [[ -z "$USERNAME" || "$USERNAME" =~ ^[A-Za-z0-9._@+-]{1,120}$ ]] || { echo "ERROR: the username has characters South Air doesn't use."; exit 1; }
           # Only South Air's own hosts: the saved password is sent to this URL.
           [[ "$BASE_URL" =~ ^https://([a-z0-9-]+\.)*southair\.com\.pk(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://<host>.southair.com.pk[:port] with no path."; exit 1; }
           if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then echo "No credential secrets set: keeping the username and password on the server."; fi
@@ -120,13 +128,35 @@ jobs:
               print("ERROR: the base URL must be a southair.com.pk host. Nothing was changed.")
               sys.exit(1)
           client = SouthairClient(values["SOUTHAIR_BASE_URL"], values["SOUTHAIR_USERNAME"], SecretStr(values["SOUTHAIR_PASSWORD"]), 20.0)
+          def explain():
+              """South Air's own answer to the login (status and message only; never the token or password)."""
+              import httpx, json, urllib.request
+              try:
+                  r = httpx.post(values["SOUTHAIR_BASE_URL"].rstrip("/") + "/api/ota/v1/login", timeout=20,
+                                 data={"username": values["SOUTHAIR_USERNAME"], "password": values["SOUTHAIR_PASSWORD"]},
+                                 headers={"Accept": "application/json"})
+                  try:
+                      body = r.json()
+                      message = body.get("message") if isinstance(body, dict) else None
+                  except ValueError:
+                      message = r.text[:120]
+                  print(f"  South Air answered the login with HTTP {r.status_code}: {str(message)[:160]!r}")
+              except Exception as error:
+                  print(f"  South Air couldn't be reached from the server: {type(error).__name__}")
+              try:
+                  print("  This server's public address (for South Air's allow-list): "
+                        + urllib.request.urlopen("https://checkip.amazonaws.com", timeout=5).read().decode().strip())
+              except Exception:
+                  pass
           try:
               profile = asyncio.run(client.profile())
           except SouthairError as error:
               print(f"ERROR: South Air refused the login or didn't answer ({error.error_code}). Nothing was changed.")
+              explain()
               sys.exit(1)
           except Exception as error:  # network, TLS
               print(f"ERROR: South Air couldn't be reached ({type(error).__name__}). Nothing was changed.")
+              explain()
               sys.exit(1)
           print("South Air login OK" + (" (balance readable)" if isinstance(profile, dict) and profile else "") + ".")
           PY
