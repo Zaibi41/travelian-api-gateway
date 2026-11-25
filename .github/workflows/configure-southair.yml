@@ -1,0 +1,142 @@
+name: Configure South Air
+
+# Manual only: Actions → "Configure South Air" → Run workflow.
+# Tests a login to South Air with the given URL and the SOUTHAIR_USERNAME / SOUTHAIR_PASSWORD secrets first; only if that
+# works are they written to the server's shared .env and the API restarted. Nothing changes if the login fails.
+# Credentials travel over scp; they are never printed, never on a command line and never in the repository.
+# The previous .env is kept as .env.bak-<time>.
+#
+# Secrets (Settings → Environments → production): SOUTHAIR_USERNAME, SOUTHAIR_PASSWORD.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "South Air API base URL (scheme, host and port only)"
+        required: true
+        default: "https://z8.southair.com.pk:7777"
+        type: string
+      booking:
+        description: "Holds (bookings) through South Air"
+        required: true
+        default: keep
+        type: choice
+        options: [keep, "on", "off"]
+      ticketing:
+        description: "Ticket issuing through South Air"
+        required: true
+        default: keep
+        type: choice
+        options: [keep, "on", "off"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travelian-production
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Test login, configure and restart
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.LIGHTSAIL_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Build the settings
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          BOOKING: ${{ inputs.booking }}
+          TICKETING: ${{ inputs.ticketing }}
+          USERNAME: ${{ secrets.SOUTHAIR_USERNAME }}
+          PASSWORD: ${{ secrets.SOUTHAIR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://host[:port] with no path."; exit 1; }
+          [[ -n "$USERNAME" && -n "$PASSWORD" ]] || { echo "ERROR: add the SOUTHAIR_USERNAME and SOUTHAIR_PASSWORD secrets first."; exit 1; }
+          for value in "$USERNAME" "$PASSWORD"; do
+            [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || { echo "ERROR: a secret has a line break."; exit 1; }
+          done
+          umask 077
+          {
+            printf 'SOUTHAIR_BASE_URL=%s\n' "$BASE_URL"
+            printf 'SOUTHAIR_USERNAME=%s\n' "$USERNAME"
+            printf 'SOUTHAIR_PASSWORD=%s\n' "$PASSWORD"
+            [[ "$BOOKING" == keep ]] || printf 'SOUTHAIR_BOOKING_ENABLED=%s\n' "$([[ "$BOOKING" == on ]] && echo true || echo false)"
+            [[ "$TICKETING" == keep ]] || printf 'SOUTHAIR_TICKETING_ENABLED=%s\n' "$([[ "$TICKETING" == on ]] && echo true || echo false)"
+          } > "$RUNNER_TEMP/southair.env"
+
+      - name: Test the login, write the settings, restart
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+        run: |
+          set -euo pipefail
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes)
+          scp "${SSH_OPTS[@]}" "$RUNNER_TEMP/southair.env" "deploy@${HOST}:/opt/travelian-api/shared/.southair.incoming"
+          rm -f "$RUNNER_TEMP/southair.env"
+          ssh "${SSH_OPTS[@]}" "deploy@${HOST}" "bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          APP_DIR="/opt/travelian-api"
+          ENV_FILE="$APP_DIR/shared/.env"
+          INCOMING="$APP_DIR/shared/.southair.incoming"
+          trap 'rm -f "$INCOMING" "${NEW:-}"' EXIT
+          umask 077
+          chmod 600 "$INCOMING"
+          cd "$(readlink -f "$APP_DIR/current")"
+
+          # 1. Log in with the new values (from the server, whose IP South Air allows). Prints no balance or secret.
+          .venv/bin/python - "$INCOMING" <<'PY'
+          import asyncio, sys
+          from pydantic import SecretStr
+          from app.vendors.flights.southair.client import SouthairClient, SouthairError
+          values = dict(line.rstrip("\n").split("=", 1) for line in open(sys.argv[1]) if "=" in line)
+          client = SouthairClient(values["SOUTHAIR_BASE_URL"], values["SOUTHAIR_USERNAME"], SecretStr(values["SOUTHAIR_PASSWORD"]), 20.0)
+          try:
+              profile = asyncio.run(client.profile())
+          except SouthairError as error:
+              print(f"ERROR: South Air refused the login or didn't answer ({error.error_code}). Nothing was changed.")
+              sys.exit(1)
+          except Exception as error:  # network, TLS
+              print(f"ERROR: South Air couldn't be reached ({type(error).__name__}). Nothing was changed.")
+              sys.exit(1)
+          print("South Air login OK" + (" (balance readable)" if isinstance(profile, dict) and profile else "") + ".")
+          PY
+
+          # 2. Write the settings (previous .env kept) and restart.
+          exec 9>"$APP_DIR/shared/deployment.lock"
+          flock -w 120 9 || { echo "ERROR: a deployment is running; try again in a minute."; exit 1; }
+          cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date -u +%Y%m%d%H%M%S)"
+          ls -1t "$ENV_FILE".bak-* | tail -n +6 | xargs -r rm -f
+          KEYS="$(cut -d= -f1 "$INCOMING" | paste -sd'|')"
+          NEW="$(mktemp "$APP_DIR/shared/.env.new.XXXXXX")"
+          { grep -v -E "^($KEYS)=" "$ENV_FILE" || true; cat "$INCOMING"; } > "$NEW"
+          chmod --reference="$ENV_FILE" "$NEW"
+          mv -f "$NEW" "$ENV_FILE"
+          echo "Updated: $(echo "$KEYS" | tr '|' ' ')"
+          echo "Now: $(grep -E '^SOUTHAIR_(BOOKING|TICKETING)_ENABLED=' "$ENV_FILE" | tr '\n' ' ')"
+
+          sudo -n systemctl restart travelian-api.service
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && { echo "API restarted and healthy."; exit 0; }
+            sleep 2
+          done
+          echo "ERROR: the API didn't come back healthy after the restart. Restore the newest $ENV_FILE.bak-* and restart."
+          exit 1
+          REMOTE
