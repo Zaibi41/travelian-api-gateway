@@ -28,6 +28,8 @@ _STUCK = (
     " AND b.issuance_status IN ('not_issued', 'processing') AND b.updated_at <= :before"
     " AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) >= b.total_minor"
     " AND EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid')"
+    # Never a booking paid with test money (the APG sandbox): staff review it; it is never issued automatically.
+    " AND NOT EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid' AND a.test_money)"
     " AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id = b.id AND e.action = 'auto_issue_recovery')"
 )
 

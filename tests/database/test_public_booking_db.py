@@ -222,3 +222,18 @@ def test_alfalah_payment_recorded_once_and_flagged_as_sandbox_money(database):
     review = connection.scalar(sa.text("SELECT details -> 'needs_review' FROM booking_events WHERE booking_id = :b AND action = 'payment_recorded'"),
                                {"b": booking_id})
     assert "sandbox_test_money" in review
+
+
+def test_sandbox_paid_flight_is_never_picked_for_automatic_issuing(database):
+    """flight_recovery retries stuck card-paid flights; a booking paid with test money (APG sandbox) is never one of them."""
+    from app.db import flight_recovery, issuance
+
+    connection, _, _ = database
+    booking_id, reference = _booking(connection)
+    connection.execute(sa.text("UPDATE bookings SET product = 'flight', updated_at = :t WHERE id = :b"), {"t": NOW - timedelta(hours=1), "b": booking_id})
+    public_bookings.create_attempt(reference, "TRVGSANDBOX1234", 1399700, "PKR", provider="alfalah", test_money=True)
+    public_bookings.record_result("TRVGSANDBOX1234", paid=True, err_code="00", transaction_id="1", amount_minor=1399700, message=None,
+                                 source="return", now=NOW, provider="alfalah")
+    connection.execute(sa.text("UPDATE bookings SET updated_at = :t WHERE id = :b"), {"t": NOW - timedelta(hours=1), "b": booking_id})
+    assert reference not in [ref for ref, *_ in flight_recovery.stuck_card_payments(NOW)]
+    assert issuance.load(reference).test_money is True

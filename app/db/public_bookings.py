@@ -82,16 +82,18 @@ class Attempt:
 
 
 def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: str, card_fee_minor: int = 0,
-                   provider: str = "payfast") -> Attempt:
+                   provider: str = "payfast", test_money: bool = False) -> Attempt:
     """amount_minor is what the provider (PayFast, or Bank Alfalah) is charged: the amount due plus card_fee_minor
-    (travelian#74). basket_id is the provider's order id for this attempt."""
+    (travelian#74). basket_id is the provider's order id for this attempt. test_money: made on a test system (the APG
+    sandbox); its payment never starts or retries automatic issuing (flight_recovery, flight_payments)."""
     with agencies.application_engine().begin() as connection:
         booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
         attempt_id = str(uuid4())
         connection.execute(
-            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor, provider)"
-                 " VALUES (:id, :b, :basket, :a, :c, :fee, :p)"),
-            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor, "p": provider},
+            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor, provider, test_money)"
+                 " VALUES (:id, :b, :basket, :a, :c, :fee, :p, :t)"),
+            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor, "p": provider,
+             "t": test_money},
         )
         _event(connection, booking_id, None, "online_payment_started",
                {"provider": provider, "basket_id": basket_id, "amount_minor": amount_minor, "card_fee_minor": card_fee_minor, "currency": currency})
@@ -161,7 +163,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
             review.append("paid_after_hold_ended")
         if paid_total > row["total_minor"]:
             review.append("overpaid")
-        if test_money:
+        if test_money or row.get("test_money"):
             review.append("sandbox_test_money")
         _event(connection, row["booking_id"], None, "payment_recorded", {
             "amount_minor": fare_paid, "card_fee_minor": card_fee, "currency": row["currency"], "method": provider, "received_into": PROVIDER_LABELS[provider],

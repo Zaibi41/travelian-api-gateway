@@ -886,7 +886,7 @@ async def start_alfalah_payment(reference: str, token: str) -> CheckoutView:
     except alfalah.AlfalahError as error:
         raise PublicError(503, error.message, "payments_unavailable") from None
     await run_in_threadpool(lambda: public_bookings.create_attempt(reference, order_id, charge, "PKR", card_fee_minor=fee,
-                                                                   provider="alfalah"))
+                                                                   provider="alfalah", test_money=alfalah.sandbox()))
     return CheckoutView(action=form.action, fields=form.fields, sandbox=alfalah.sandbox())
 
 
