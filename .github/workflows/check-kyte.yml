@@ -69,11 +69,11 @@ jobs:
           .venv/bin/python - "$1" "$2" "$3" <<'PY'
           import asyncio, os, sys
           from datetime import date, timedelta
-          # The service's settings (systemd reads the same file); values are never printed.
+          # Only the Kyte settings from the service's file (systemd reads the same file); values are never printed.
           for line in open("/opt/travelian-api/shared/.env", encoding="utf-8"):
               key, sep, value = line.rstrip("\n").partition("=")
-              if sep and key.strip() and not key.lstrip().startswith("#"):
-                  os.environ.setdefault(key.strip(), value)
+              if sep and key.strip().startswith("KYTE_"):
+                  os.environ[key.strip()] = value.strip().strip('"').strip("'")
           from app.core.parameter_store import load_parameter_store_settings
           from app.schemas.flights import FlightSearchRequest
           from app.services import live_flights
