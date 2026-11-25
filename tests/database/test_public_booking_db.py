@@ -202,3 +202,23 @@ def test_contact_change_online_only_on_open_unpaid_website_bookings(database):
             assert (error.status, error.code) == (409, "closed")
         staff = booking_contact.change(reference, email=None, phone_code="+92", phone="3007654321", actor_user_id=None, website=False)
         assert staff.contact.phone == "3007654321"
+
+
+def test_alfalah_payment_recorded_once_and_flagged_as_sandbox_money(database):
+    """Migration 0036: a Bank Alfalah attempt records method 'alfalah' once; a PayFast result can't settle it (nor the reverse)."""
+    connection, _, _ = database
+    booking_id, reference = _booking(connection)
+    public_bookings.create_attempt(reference, "TRVGABCDEF12345678", 1399700, "PKR", provider="alfalah")
+    wrong_provider = public_bookings.record_result("TRVGABCDEF12345678", paid=True, err_code="000", transaction_id="T1",
+                                                   amount_minor=1399700, message=None, source="return", now=NOW)
+    first = public_bookings.record_result("TRVGABCDEF12345678", paid=True, err_code="00", transaction_id="1263781929",
+                                          amount_minor=1399700, message=None, source="return", now=NOW, provider="alfalah", test_money=True)
+    again = public_bookings.record_result("TRVGABCDEF12345678", paid=True, err_code="00", transaction_id="1263781929",
+                                          amount_minor=1399700, message=None, source="notification", now=NOW, provider="alfalah")
+    assert wrong_provider.status == "unknown_basket"
+    assert (first.status, first.payment_status, again.status) == ("paid", "paid", "already_paid")
+    assert _payments(connection, booking_id) == [("alfalah", 1399700, "Bank Alfalah", "1263781929")]
+    assert public_bookings.attempt_by_basket("TRVGABCDEF12345678").reference == reference
+    review = connection.scalar(sa.text("SELECT details -> 'needs_review' FROM booking_events WHERE booking_id = :b AND action = 'payment_recorded'"),
+                               {"b": booking_id})
+    assert "sandbox_test_money" in review

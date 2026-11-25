@@ -17,6 +17,13 @@ PARAMETER_SETTINGS = {
     # Payments (D): rotated in Parameter Store without a code change; restart the service to pick them up.
     "payfast_merchant_id": "payments/payfast/merchant-id",
     "payfast_secured_key": "payments/payfast/secured-key",
+    "alfalah_merchant_id": "payments/alfalah/merchant-id",
+    "alfalah_store_id": "payments/alfalah/store-id",
+    "alfalah_merchant_hash": "payments/alfalah/merchant-hash",
+    "alfalah_merchant_username": "payments/alfalah/merchant-username",
+    "alfalah_merchant_password": "payments/alfalah/merchant-password",
+    "alfalah_key1": "payments/alfalah/key1",
+    "alfalah_key2": "payments/alfalah/key2",
     "jazzcash_merchant_id": "payments/jazzcash/merchant-id",
     "jazzcash_password": "payments/jazzcash/password",
     "jazzcash_integrity_salt": "payments/jazzcash/integrity-salt",

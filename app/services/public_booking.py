@@ -34,7 +34,7 @@ from app.services import group_holds, notifications
 from app.services.group_ticketing import GroupInventoryUnavailable, fetch_all_group_inventory, filter_group_inventory
 from app.services.group_ticketing_view import inventory_view
 from app.services import customer_emails
-from app.vendors.payments import payfast
+from app.vendors.payments import alfalah, payfast
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +328,8 @@ class BankAccountView(BaseModel):
 
 class PaymentMethodsView(BaseModel):
     card: bool = Field(description="Card / 1Link through PayFast: on production PayFast, or UAT with PAYFAST_ALLOW_UAT (testing).")
+    alfalah: bool = Field(False, description="Card on Bank Alfalah's page (Alfa Payment Gateway): on production APG, or the sandbox "
+                                             "with ALFALAH_ALLOW_SANDBOX (test money).")
     bank_transfer: bool = Field(description="Only when an active bank account with a full account number exists.")
     jazzcash: bool = Field(description="Only with JAZZCASH_ENABLED and an active JazzCash account with a full account number.")
     flights: bool = Field(False, description="Website flight fares can be held and paid here (card, bank transfer, JazzCash as above). "
@@ -406,7 +408,7 @@ async def payment_methods() -> PaymentMethodsView:
         logo = (await run_in_threadpool(site_assets)).get("site_logo")
     except Exception:  # noqa: BLE001 - the logo is optional
         logo = None
-    return PaymentMethodsView(card=payfast.payments_allowed(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
+    return PaymentMethodsView(card=payfast.payments_allowed(), alfalah=alfalah.payments_allowed(), bank_transfer=any(a.account_number for a in accounts), jazzcash=bool(wallets),
                               flights=settings.public_flight_booking_enabled, bank_accounts=accounts, jazzcash_accounts=wallets, logo_url=logo)
 
 
@@ -480,15 +482,16 @@ def _flight_hold_allowed(quote) -> bool:
 
 
 def card_allowed(provider: str | None) -> bool:
-    """Card (and 1Link, both PayFast) for every flight supplier, only while PayFast is on production (or UAT with
-    PAYFAST_ALLOW_UAT, for testing). Where the gateway
+    """Online payment (card / 1Link through PayFast, or card through Bank Alfalah) for every flight supplier, only while one
+    of them may take payments (production, or its test mode switched on). Where the gateway
     can't issue a supplier's tickets yet (SooperFare), a paid booking goes to staff with a red alert."""
-    return payfast.payments_allowed()
+    return payfast.payments_allowed() or alfalah.payments_allowed()
 
 
 class FlightPaymentOptions(BaseModel):
     held: bool = Field(description="The fare will be held at the airline and paid here. False: it is sent as a request (no payment).")
-    card: bool
+    card: bool = Field(description="Card / 1Link through PayFast.")
+    alfalah: bool = Field(False, description="Card through Bank Alfalah (Alfa Payment Gateway).")
     bank_transfer: bool
     jazzcash: bool
 
@@ -510,7 +513,9 @@ async def flight_payment_options(search_id: str, fare_ids: list[str]) -> FlightP
     if not held:
         return FlightPaymentOptions(held=False, card=False, bank_transfer=False, jazzcash=False)
     methods = await payment_methods()
-    return FlightPaymentOptions(held=True, card=card_allowed(provider), bank_transfer=methods.bank_transfer, jazzcash=methods.jazzcash)
+    online = card_allowed(provider)
+    return FlightPaymentOptions(held=True, card=online and payfast.payments_allowed(), alfalah=online and alfalah.payments_allowed(),
+                                bank_transfer=methods.bank_transfer, jazzcash=methods.jazzcash)
 
 
 #: A hold failure the guest can act on is shown as is; anything else (supplier errors, a hold that couldn't be verified or
@@ -677,7 +682,7 @@ async def _booking_view(reference: str) -> tuple[PublicBookingView, str]:
     first = booking.itinerary[0] if booking.itinerary and isinstance(booking.itinerary[0], dict) else {}
     travelers = [f"{t.title} {t.first_name} {t.last_name}".strip() for t in (people.travelers if people else [])]
     tickets = [t.ticket_number for t in (people.travelers if people else []) if t.ticket_number] if status == "issued" else []
-    can_pay = (status == "held" and booking.payment_status != "paid" and payfast.payments_allowed()
+    can_pay = (status == "held" and booking.payment_status != "paid" and card_allowed(None)
                and not booking.price_change.get("accepted") is False and booking.booking_status == "held")
     return PublicBookingView(
         reference=booking.reference, status=status, payment_status=booking.payment_status,  # type: ignore[arg-type]
@@ -841,6 +846,76 @@ async def payfast_result(params: dict[str, str], source: str) -> public_bookings
     if outcome.status == "paid" and outcome.payment_status == "paid":
         # D48: the only way into automatic flight issuance. Reached only here: a result verified with the secured key, for
         # the amount asked, recorded once (a repeat is 'already_paid'), that made the booking fully paid.
+        from app.services import flight_payments
+
+        if outcome.product == "flight":
+            flight_payments.start_after_verified_card_payment(outcome.reference)
+    return outcome
+
+
+# ---------- pay: Bank Alfalah (Alfa Payment Gateway) ----------
+
+def alfalah_return_url() -> str:
+    """Where APG sends the customer back: the website's own page, which hands the order id to the gateway."""
+    return f"{settings.public_site_url}/payment/alfalah"
+
+
+async def start_alfalah_payment(reference: str, token: str) -> CheckoutView:
+    """The APG checkout form for the amount due (plus the card fee). The browser posts `fields` to `action`."""
+    view = await open_booking(reference, token)
+    if not alfalah.payments_allowed():  # sandbox APG only with ALFALAH_ALLOW_SANDBOX (test money)
+        raise PublicError(503, "Online payment isn't available right now.", "payments_off")
+    if not view.can_pay:
+        raise PublicError(409, "This booking can't be paid online now." if view.live else
+                          "This is a booking request. Travelian will confirm the fare before payment.", "not_payable")
+    await group_holds.refresh_for_payment(reference)  # a supplier cancellation blocks the payment
+    view = await booking_view(reference)
+    if not view.can_pay:
+        raise PublicError(409, "This booking can't be paid online now.", "not_payable")
+    due = view.total.amount_minor - view.paid.amount_minor
+    if due <= 0 or view.total.currency != "PKR":
+        raise PublicError(409, "Nothing is due on this booking.", "not_payable")
+    # travelian#74: the card fee is added here, by the gateway, and APG is charged and verified against the total.
+    fee = view.card_fee.fee.amount_minor if view.card_fee else 0
+    charge = due + fee
+    order_id = alfalah.new_order_id(reference)
+    return_url = alfalah_return_url()
+    try:
+        auth_token = await alfalah.handshake(order_id, return_url)
+        form = alfalah.checkout_form(auth_token=auth_token, order_id=order_id, amount_minor=charge, return_url=return_url)
+    except alfalah.AlfalahError as error:
+        raise PublicError(503, error.message, "payments_unavailable") from None
+    await run_in_threadpool(lambda: public_bookings.create_attempt(reference, order_id, charge, "PKR", card_fee_minor=fee,
+                                                                   provider="alfalah"))
+    return CheckoutView(action=form.action, fields=form.fields, sandbox=alfalah.sandbox())
+
+
+async def alfalah_result(params: dict[str, str], source: str) -> public_bookings.Outcome | None:
+    """Apply a Bank Alfalah result. The return and the listener call only name the order: the gateway asks APG itself for
+    its status and records only "Paid" for this merchant and order, for the amount asked. None when nothing could be
+    verified (no order id, APG unreachable, or not yet paid): nothing is changed, the customer can come back later."""
+    if not alfalah.configured():
+        return None
+    order_id = alfalah.order_id_from(params)
+    if order_id is None:
+        return None
+    result = await alfalah.order_status(order_id)
+    if result is None:
+        logger.warning("Bank Alfalah status could not be verified", extra={"source": source})
+        return None
+    if not result.paid:
+        # Not paid (yet): APG's statuses besides "Paid" aren't a documented final failure, so the attempt stays open and a
+        # later return or listener call can still record it. The customer sees that the payment wasn't completed.
+        logger.info("Bank Alfalah order not paid", extra={"source": source, "status": result.status[:40]})
+        attempt = await run_in_threadpool(public_bookings.attempt_by_basket, order_id)
+        return public_bookings.Outcome(attempt.reference if attempt else "", "not_paid")
+    outcome = await run_in_threadpool(
+        lambda: public_bookings.record_result(order_id, paid=True, err_code="00", transaction_id=result.transaction_id,
+                                              amount_minor=result.amount_minor, message=result.message, source=source, now=_now(),
+                                              provider="alfalah", test_money=alfalah.sandbox()))
+    logger.info("Bank Alfalah result applied", extra={"source": source, "outcome": outcome.status, "reference": outcome.reference})
+    if outcome.status == "paid" and outcome.payment_status == "paid" and alfalah.production():
+        # D48: automatic flight issuing only after a verified payment of real money (never on the APG sandbox).
         from app.services import flight_payments
 
         if outcome.product == "flight":

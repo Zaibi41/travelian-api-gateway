@@ -320,7 +320,8 @@ async def payfast_notify(request: Request):
 
 class ReturnResult(BaseModel):
     reference: str | None = None
-    result: str = Field(description="paid, failed, already_paid, already_failed, amount_mismatch, unknown_basket or not_verified.")
+    result: str = Field(description="paid, failed, already_paid, already_failed, amount_mismatch, unknown_basket, not_verified, "
+                                    "or not_paid (Bank Alfalah: the order isn't paid, yet).")
 
 
 @router.post("/payments/payfast/return", response_model=ReturnResult)
@@ -331,6 +332,38 @@ async def payfast_return(request: Request):
     except service.PublicError as error:
         return _error(error)
     outcome = await service.payfast_result(await _params(request), source="return")
+    if outcome is None:
+        return ReturnResult(result="not_verified")
+    return ReturnResult(reference=outcome.reference or None, result=outcome.status)
+
+
+@router.post("/bookings/{reference}/payments/alfalah", response_model=service.CheckoutView)
+async def start_alfalah(reference: str, token: Token, request: Request):
+    """The Bank Alfalah (Alfa Payment Gateway) checkout form for the amount due. The browser posts `fields` to `action`."""
+    try:
+        service.check_rate(service.PAY_LIMIT, _ip(request))
+        return await service.start_alfalah_payment(reference, token)
+    except service.PublicError as error:
+        return _error(error)
+
+
+@router.api_route("/payments/alfalah/notify", methods=["GET", "POST"], include_in_schema=False)
+async def alfalah_notify(request: Request):
+    """Bank Alfalah's listener call (url=…/OrderStatus/{merchant}/{store}/{order}). Only the order id is taken from it; the
+    gateway then asks APG itself for that order's status."""
+    outcome = await service.alfalah_result(await _params(request), source="notification")
+    return JSONResponse({"status": "ok" if outcome else "ignored"})
+
+
+@router.post("/payments/alfalah/return", response_model=ReturnResult)
+async def alfalah_return(request: Request):
+    """The website forwards what APG sent the customer back with (the order id "O", in the query or the path). The gateway
+    asks APG for that order's status; nothing the browser sends is trusted as a payment."""
+    try:
+        service.check_rate(service.PAY_LIMIT, _ip(request))
+    except service.PublicError as error:
+        return _error(error)
+    outcome = await service.alfalah_result(await _params(request), source="return")
     if outcome is None:
         return ReturnResult(result="not_verified")
     return ReturnResult(reference=outcome.reference or None, result=outcome.status)

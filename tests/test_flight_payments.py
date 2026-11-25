@@ -377,8 +377,9 @@ def test_payment_options_offer_card_for_sooperfare_fares():
         with patch.object(settings, "public_flight_booking_enabled", False):
             off = client.post("/v1/public/flights/payment-options", json={"search_id": results["search_id"], "fare_ids": [fare_id]})
         expired = client.post("/v1/public/flights/payment-options", json={"search_id": "no-such-search", "fare_ids": [fare_id]})
-    assert options.json() == {"held": True, "card": True, "bank_transfer": True, "jazzcash": False}
-    assert off.json() == {"held": False, "card": False, "bank_transfer": False, "jazzcash": False}
+    # alfalah: Bank Alfalah card (not configured here).
+    assert options.json() == {"held": True, "card": True, "alfalah": False, "bank_transfer": True, "jazzcash": False}
+    assert off.json() == {"held": False, "card": False, "alfalah": False, "bank_transfer": False, "jazzcash": False}
     assert expired.status_code == 404
     assert "sooperfare" not in options.text.lower()
 

@@ -170,6 +170,19 @@ class Settings(BaseSettings):
     payfast_merchant_name: str = "Travelian"
     payfast_base_url: str = Field("https://ipguat.apps.net.pk", pattern=r"^https://[^/]+$")
     payfast_timeout_seconds: float = Field(20, gt=0, le=60)
+    # Bank Alfalah — Alfa Payment Gateway (card on APG's own page). Sandbox host: https://sandbox.bankalfalah.com,
+    # production: https://payments.bankalfalah.com. On the sandbox (test money) it is offered only with ALFALAH_ALLOW_SANDBOX,
+    # and a sandbox payment never starts automatic issuing (staff review it). Credentials and keys: Parameter Store.
+    alfalah_allow_sandbox: bool = False
+    alfalah_merchant_id: SecretStr | None = None
+    alfalah_store_id: SecretStr | None = None
+    alfalah_merchant_hash: SecretStr | None = None
+    alfalah_merchant_username: SecretStr | None = None
+    alfalah_merchant_password: SecretStr | None = None
+    alfalah_key1: SecretStr | None = None
+    alfalah_key2: SecretStr | None = None
+    alfalah_base_url: str = Field("https://sandbox.bankalfalah.com", pattern=r"^https://[^/]+$")
+    alfalah_timeout_seconds: float = Field(20, gt=0, le=60)
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
