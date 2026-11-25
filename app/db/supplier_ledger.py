@@ -34,7 +34,7 @@ STATUSES = ("ok", "low", "negative", "not_set_up")
 class Supplier:
     id: str
     name: str
-    section: str  # api | direct
+    section: str  # api (flights by API) | direct (own airline IDs) | b2b (B2B / group portals) | hotels
     booking_mode: str  # api | manual
     balance_mode: str  # api | manual
     settlement_tag: str | None
@@ -72,7 +72,7 @@ def _supplier(row) -> Supplier:
 
 def suppliers(connection=None, *, include_inactive: bool = False) -> list[Supplier]:
     sql = text("SELECT * FROM suppliers" + ("" if include_inactive else " WHERE active") +
-               " ORDER BY CASE section WHEN 'api' THEN 0 ELSE 1 END, created_at, name")
+               " ORDER BY CASE section WHEN 'api' THEN 0 WHEN 'direct' THEN 1 WHEN 'b2b' THEN 2 ELSE 3 END, created_at, name")
     if connection is not None:
         return [_supplier(r) for r in connection.execute(sql).mappings().all()]
     with agencies.application_engine().begin() as conn:
@@ -137,6 +137,7 @@ def lock(connection, supplier_id: str) -> None:
     connection.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"wallet:{supplier_id}"})
 
 
+SECTIONS = ("api", "direct", "b2b", "hotels")
 NEGATIVE = "negative_balance"
 
 
@@ -171,8 +172,8 @@ def add_supplier(actor: finance.Actor, *, name: str, section: str, settlement_ta
     name = " ".join((name or "").split())
     if not 2 <= len(name) <= 120:
         raise finance.FinanceRefused(422, "Enter the supplier's name.", "name_required")
-    if section not in ("api", "direct"):
-        raise finance.FinanceRefused(422, "Choose API-integrated or Direct airline ID.", "invalid_section")
+    if section not in SECTIONS:
+        raise finance.FinanceRefused(422, "Choose the supplier type.", "invalid_section")
     supplier_id = _ID.sub("", name.lower())[:40] or "supplier"
     with agencies.application_engine().begin() as connection:
         if connection.scalar(text("SELECT 1 FROM suppliers WHERE lower(name) = lower(:n)"), {"n": name}):

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from app.core.field_visibility import FINANCE, RECORD_PAYMENTS, BackOfficeUser, require_back_office, require_finance, require_finance_accounts
-from app.db import finance as store, finance_ops as ops, supplier_ledger as ledger
+from app.db import agency_wallets as wallets, finance as store, finance_ops as ops, supplier_ledger as ledger
 from app.schemas.booking_common import BookingMoney
 
 PKT_OFFSET = timedelta(hours=5)
@@ -52,6 +52,9 @@ async def _call(fn, *args, **kwargs):
         raise refused(error) from None
 
 
+SECTION_LABEL = {"api": "API", "direct": "Direct airline ID", "b2b": "B2B portal", "hotels": "Hotels"}
+
+
 def _is_finance(viewer: BackOfficeUser) -> bool:
     return viewer.can(FINANCE)
 
@@ -75,7 +78,7 @@ def _range(date_from: date | None, date_to: date | None) -> tuple[datetime | Non
 class SupplierView(BaseModel):
     id: str
     name: str
-    section: Literal["api", "direct"]
+    section: Literal["api", "direct", "b2b", "hotels"]
     booking_mode: Literal["api", "manual"]
     balance_mode: Literal["api", "manual"]
     settlement_tag: Literal["DTS", "IATA"] | None = Field(None, description="Reference only (D53).")
@@ -111,7 +114,7 @@ async def list_suppliers(viewer: Annotated[BackOfficeUser, Depends(require_suppl
 
 class AddSupplierRequest(BaseModel):
     name: str = Field(min_length=2, max_length=120)
-    section: Literal["api", "direct"] = "direct"
+    section: Literal["direct", "b2b", "hotels"] = Field("direct", description="api is for suppliers connected in code only.")
     settlement_tag: Literal["DTS", "IATA"] | None = None
     low_threshold_minor: int | None = Field(None, ge=0, le=100_000_000_000)
 
@@ -342,7 +345,7 @@ async def sale_options(viewer: Annotated[BackOfficeUser, Depends(require_back_of
 
     def read():
         with ops.agencies.application_engine().begin() as connection:
-            suppliers = [Option(id=s.id, name=s.name, detail="API" if s.section == "api" else "Direct airline ID") for s in ledger.suppliers(connection)]
+            suppliers = [Option(id=s.id, name=s.name, detail=SECTION_LABEL.get(s.section, s.section)) for s in ledger.suppliers(connection)]
             accounts = [Option(id=r[0], name=r[1], detail=r[2]) for r in connection.execute(text(
                 "SELECT id, label, ownership FROM payment_accounts WHERE active ORDER BY ownership, label")).all()]
             partners = [Option(id=r[0], name=r[1]) for r in connection.execute(text("SELECT id, name FROM agencies ORDER BY name LIMIT 500")).all()]
@@ -685,3 +688,87 @@ async def set_sold_through(viewer: Annotated[BackOfficeUser, Depends(require_bac
     """The reseller or channel the booking was sold through (not the customer). Empty clears it."""
     _require_booking_money(viewer, cost=False)
     return SoldThroughView(sold_through=await _call(ops.set_sold_through, actor(viewer), reference, body.sold_through))
+
+
+# ============================================================================================ Agency wallets (D3)
+class AgencyWalletView(BaseModel):
+    agency_id: str
+    agency_name: str
+    agency_status: str
+    balance: BookingMoney
+    deposits: BookingMoney
+    last_deposit_at: datetime | None = None
+    low_threshold: BookingMoney | None = None
+    low: bool | None = Field(None, description="Below its low-balance level; None when no level is set.")
+
+
+class AgencyWalletList(BaseModel):
+    wallets: list[AgencyWalletView]
+    total_balance: BookingMoney = Field(description="Money Travelian holds for agencies (wallet liability).")
+    low_count: int
+
+
+def _agency_wallet_view(w: wallets.Wallet) -> AgencyWalletView:
+    return AgencyWalletView(agency_id=w.agency_id, agency_name=w.agency_name, agency_status=w.agency_status, balance=money(w.balance_minor),  # type: ignore[arg-type]
+                            deposits=money(w.deposits_minor), last_deposit_at=w.last_deposit_at,  # type: ignore[arg-type]
+                            low_threshold=money(w.low_minor), low=w.low)
+
+
+@router.get("/agency-wallets", response_model=AgencyWalletList)
+async def agency_wallets(viewer: Annotated[BackOfficeUser, Depends(require_finance)]) -> AgencyWalletList:
+    """Every B2B agency's prepaid wallet (D3: agencies only; B2C customers have none)."""
+    items = await _call(wallets.wallets)
+    return AgencyWalletList(wallets=[_agency_wallet_view(w) for w in items], total_balance=money(sum(w.balance_minor for w in items)),  # type: ignore[arg-type]
+                            low_count=sum(1 for w in items if w.low))
+
+
+class AgencyWalletEntryView(BaseModel):
+    at: datetime
+    kind: Literal["deposit", "adjustment"]
+    amount: BookingMoney
+    balance_after: BookingMoney
+    reference: str | None = None
+    reason: str | None = None
+    account: str | None = None
+    by_role: str | None = None
+
+
+class AgencyWalletStatement(BaseModel):
+    wallet: AgencyWalletView
+    entries: list[AgencyWalletEntryView] = Field(description="Oldest first.")
+
+
+@router.get("/agency-wallets/{agency_id}", response_model=AgencyWalletStatement, responses={404: {}})
+async def agency_wallet_statement(viewer: Annotated[BackOfficeUser, Depends(require_finance)],
+                                  agency_id: str = PathParam(max_length=128)) -> AgencyWalletStatement:
+    w, entries = await _call(wallets.statement, agency_id)
+    return AgencyWalletStatement(wallet=_agency_wallet_view(w), entries=[AgencyWalletEntryView(
+        at=e.at, kind=e.kind, amount=money(e.amount_minor), balance_after=money(e.balance_minor), reference=e.reference,  # type: ignore[arg-type]
+        reason=e.reason, account=e.account, by_role=e.by_role) for e in entries])
+
+
+class AgencyWalletEntryRequest(BaseModel):
+    kind: Literal["deposit", "adjustment"]
+    amount_minor: int = Field(ge=-100_000_000_000, le=100_000_000_000)
+    reference: str | None = Field(None, max_length=120)
+    reason: str | None = Field(None, max_length=500)
+    occurred_at: datetime
+    account_id: str | None = Field(None, max_length=36, description="Deposit: the Travelian account the money arrived in.")
+
+
+@router.post("/agency-wallets/{agency_id}/entries", response_model=AgencyWalletView, status_code=201, responses={404: {}, 409: {}, 422: {}})
+async def add_agency_wallet_entry(viewer: Annotated[BackOfficeUser, Depends(require_finance)], body: AgencyWalletEntryRequest,
+                                  agency_id: str = PathParam(max_length=128)) -> AgencyWalletView:
+    """A deposit (adds) or an adjustment (+/- with a reason). A wallet never goes below zero."""
+    return _agency_wallet_view(await _call(wallets.add_entry, actor(viewer), agency_id, kind=body.kind, amount_minor=body.amount_minor,
+                                           reference=body.reference, reason=body.reason, occurred_at=body.occurred_at, account_id=body.account_id))
+
+
+class AgencyWalletLowRequest(BaseModel):
+    low_threshold_minor: int | None = Field(None, ge=0, le=100_000_000_000)
+
+
+@router.put("/agency-wallets/{agency_id}/low", response_model=AgencyWalletView, responses={404: {}, 422: {}})
+async def set_agency_wallet_low(viewer: Annotated[BackOfficeUser, Depends(require_finance)], body: AgencyWalletLowRequest,
+                                agency_id: str = PathParam(max_length=128)) -> AgencyWalletView:
+    return _agency_wallet_view(await _call(wallets.set_low, actor(viewer), agency_id, body.low_threshold_minor))
