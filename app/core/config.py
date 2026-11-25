@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     kyte_base_url: str = Field("https://api.sandbox.gokyte.com", pattern=r"^https://[^/]+$")
     kyte_api_key: SecretStr | None = None
     kyte_timeout_seconds: float = Field(25.0, gt=0, le=60)
+    # Website searches include Kyte only with this on (default: back-office searches only, e.g. while on the sandbox).
+    kyte_public_enabled: bool = False
     # SooperFare (airline aggregator: Airblue, AirSial, PIA, Fly Jinnah, ...). Calls go out from the static IP it whitelists.
     sooperfare_base_url: str | None = None
     sooperfare_username: str | None = None

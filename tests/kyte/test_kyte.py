@@ -228,3 +228,18 @@ def test_kyte_failing_leaves_the_other_results_and_a_notice():
     failing.shop = AsyncMock(side_effect=kyte.KyteError("timeout"))
     view = asyncio.run(live_flights.search(ONE_WAY, ADMIN, client_factory=southair_off, kyte_factory=lambda: failing))
     assert {p.name: p.status for p in view.providers}["kyte"] == "failed"
+
+
+def test_website_searches_skip_kyte_unless_switched_on():
+    website = BackOfficeUser("website", "website", NONE)
+    fake = fake_kyte()
+    with patch.object(settings, "kyte_api_key", SecretStr("k")), patch.object(kyte, "configured_client", lambda: fake), \
+         patch.object(settings, "kyte_public_enabled", False):
+        asyncio.run(live_flights.search(ONE_WAY, website, client_factory=southair_off))
+        assert fake.shop.await_count == 0          # sandbox fares never reach customers
+        asyncio.run(live_flights.search(ONE_WAY, ADMIN, client_factory=southair_off))
+        assert fake.shop.await_count == 1          # back-office searches include Kyte
+    with patch.object(settings, "kyte_api_key", SecretStr("k")), patch.object(kyte, "configured_client", lambda: fake), \
+         patch.object(settings, "kyte_public_enabled", True):
+        asyncio.run(live_flights.search(ONE_WAY, website, client_factory=southair_off))
+        assert fake.shop.await_count == 2

@@ -472,7 +472,8 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
     tasks = [_southair_part(request, client_factory)]
     if use_sooperfare:
         tasks.append(asyncio.wait_for(sooperfare_results(request, sooperfare_factory), SOOPERFARE_SEARCH_SECONDS))
-    use_kyte = kyte.configured() or kyte_factory is not None
+    # Website searches see Kyte only with KYTE_PUBLIC_ENABLED (sandbox fares are never shown to customers).
+    use_kyte = kyte_factory is not None or (kyte.configured() and (viewer.role != "website" or settings.kyte_public_enabled))
     if use_kyte:
         tasks.append(asyncio.wait_for(kyte_results(request, kyte_factory), KYTE_SEARCH_SECONDS))
     outcomes = await asyncio.gather(*tasks, return_exceptions=True)
