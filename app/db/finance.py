@@ -18,7 +18,7 @@ from sqlalchemy import text
 
 from app.db import agencies
 
-REFUND_METHODS = ("bank_transfer", "jazzcash", "1link", "payfast")
+REFUND_METHODS = ("bank_transfer", "jazzcash", "1link", "payfast", "alfalah")
 FEE_SOURCES = ("recorded", "estimated", "settlement")
 
 

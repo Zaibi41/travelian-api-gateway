@@ -15,7 +15,7 @@ from sqlalchemy import text
 from app.db import agencies
 
 STATUSES = ("awaiting_check", "confirmed", "rejected")
-METHODS = ("bank_transfer", "jazzcash", "1link", "payfast")
+METHODS = ("bank_transfer", "jazzcash", "1link", "payfast", "alfalah")
 
 _ROWS = """
 WITH rows AS (

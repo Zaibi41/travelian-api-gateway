@@ -4323,11 +4323,18 @@
       },
       "FlightPaymentOptions": {
         "properties": {
+          "alfalah": {
+            "default": false,
+            "description": "Card through Bank Alfalah (Alfa Payment Gateway).",
+            "title": "Alfalah",
+            "type": "boolean"
+          },
           "bank_transfer": {
             "title": "Bank Transfer",
             "type": "boolean"
           },
           "card": {
+            "description": "Card / 1Link through PayFast.",
             "title": "Card",
             "type": "boolean"
           },
@@ -9184,6 +9191,12 @@
       },
       "PaymentMethodsView": {
         "properties": {
+          "alfalah": {
+            "default": false,
+            "description": "Card on Bank Alfalah's page (Alfa Payment Gateway): on production APG, or the sandbox with ALFALAH_ALLOW_SANDBOX (test money).",
+            "title": "Alfalah",
+            "type": "boolean"
+          },
           "bank_accounts": {
             "default": [],
             "items": {
@@ -11081,7 +11094,7 @@
             "title": "Reference"
           },
           "result": {
-            "description": "paid, failed, already_paid, already_failed, amount_mismatch, unknown_basket or not_verified.",
+            "description": "paid, failed, already_paid, already_failed, amount_mismatch, unknown_basket, not_verified, or not_paid (Bank Alfalah: the order isn't paid, yet).",
             "title": "Result",
             "type": "string"
           }
@@ -26890,6 +26903,60 @@
         ]
       }
     },
+    "/v1/public/bookings/{reference}/payments/alfalah": {
+      "post": {
+        "description": "The Bank Alfalah (Alfa Payment Gateway) checkout form for the amount due. The browser posts `fields` to `action`.",
+        "operationId": "start_alfalah_v1_public_bookings__reference__payments_alfalah_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference",
+            "required": true,
+            "schema": {
+              "title": "Reference",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Booking-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "X-Booking-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Alfalah",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
     "/v1/public/bookings/{reference}/payments/payfast": {
       "post": {
         "description": "The PayFast checkout form for the amount due. The browser posts `fields` to `action`.",
@@ -27412,6 +27479,28 @@
           }
         },
         "summary": "Payment Qr",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/payments/alfalah/return": {
+      "post": {
+        "description": "The website forwards what APG sent the customer back with (the order id \"O\", in the query or the path). The gateway\nasks APG for that order's status; nothing the browser sends is trusted as a payment.",
+        "operationId": "alfalah_return_v1_public_payments_alfalah_return_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Alfalah Return",
         "tags": [
           "public website"
         ]

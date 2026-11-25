@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies, finance
+from app.db import agencies, finance, online_attempts
 from app.db.supplier_bookings import _event
 
 #: Statuses from which an approver may start issuing.
@@ -48,6 +48,7 @@ class Target:
     paid_minor: int
     traveler_types: list[tuple[int, str]]  # (position, passenger type) in booking order
     test_booking: bool = False  # marked as a test, or a passenger is named TEST: never issued
+    test_money: bool = False  # paid online on a test system (the Bank Alfalah sandbox): never issued automatically
 
 
 def _load(connection, reference: str, lock: bool) -> Target:
@@ -64,9 +65,11 @@ def _load(connection, reference: str, lock: bool) -> Target:
         {"b": row["id"]},
     ).all()
     test = bool(row["is_test"]) or any(is_test_name(t.first_name) or is_test_name(t.last_name) for t in travelers)
+    test_money = online_attempts.has_alfalah_columns(connection) and bool(connection.scalar(
+        text("SELECT EXISTS (SELECT 1 FROM payfast_attempts WHERE booking_id = :b AND status = 'paid' AND test_money)"), {"b": row["id"]}))
     return Target(row["id"], row["reference"], row["pnr"], row["provider_id"], row["product"], row["booking_status"], row["issuance_status"],
                   row["hold_expires_at"], row["currency"], row["total_minor"], row["supplier_cost_minor"], row["supplier_ref"], paid,
-                  [(t.position, t.passenger_type) for t in travelers], test)
+                  [(t.position, t.passenger_type) for t in travelers], test, test_money)
 
 
 def is_test_name(name: str | None) -> bool:

@@ -193,6 +193,15 @@ def test_sooperfare_is_never_issued_from_travelian_even_with_its_flag_on():
     assert [kind for kind, _ in alerts] == ["needs_staff"] and "never automatically" in alerts[0][1]
 
 
+def test_sandbox_money_is_never_sent_for_ticketing():
+    """A booking paid on the Bank Alfalah sandbox (test money) goes to staff, never to the supplier, even with ticketing on."""
+    target = issuance_store.Target(**{**_target().__dict__, "test_money": True})
+    result, issue, alerts = _after(target)
+    assert result == "needs_staff"
+    issue.assert_not_awaited()
+    assert [kind for kind, _ in alerts] == ["needs_staff"] and "sandbox" in alerts[0][1]
+
+
 def test_payment_after_the_hold_ended_is_never_sent_for_ticketing():
     target = _target()
     late = issuance_store.Target(**{**target.__dict__, "hold_expires_at": datetime.now(timezone.utc) - timedelta(minutes=1)})
@@ -377,8 +386,9 @@ def test_payment_options_offer_card_for_sooperfare_fares():
         with patch.object(settings, "public_flight_booking_enabled", False):
             off = client.post("/v1/public/flights/payment-options", json={"search_id": results["search_id"], "fare_ids": [fare_id]})
         expired = client.post("/v1/public/flights/payment-options", json={"search_id": "no-such-search", "fare_ids": [fare_id]})
-    assert options.json() == {"held": True, "card": True, "bank_transfer": True, "jazzcash": False}
-    assert off.json() == {"held": False, "card": False, "bank_transfer": False, "jazzcash": False}
+    # alfalah: Bank Alfalah card (not configured here).
+    assert options.json() == {"held": True, "card": True, "alfalah": False, "bank_transfer": True, "jazzcash": False}
+    assert off.json() == {"held": False, "card": False, "alfalah": False, "bank_transfer": False, "jazzcash": False}
     assert expired.status_code == 404
     assert "sooperfare" not in options.text.lower()
 

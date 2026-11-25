@@ -18,9 +18,13 @@ from sqlalchemy import text
 
 from app.db import agencies
 from app.db.booking_payments import payment_status
+from app.db import online_attempts
 from app.db.supplier_bookings import _event
 
 PAYFAST_LABEL = "PayFast"
+ALFALAH_LABEL = "Bank Alfalah"
+#: Where each online provider's payment is received, as recorded on the payment.
+PROVIDER_LABELS = {"payfast": PAYFAST_LABEL, "alfalah": ALFALAH_LABEL}
 
 
 def new_token() -> tuple[str, str]:
@@ -78,18 +82,27 @@ class Attempt:
     transaction_id: str | None
 
 
-def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: str, card_fee_minor: int = 0) -> Attempt:
-    """amount_minor is what PayFast is charged: the amount due plus card_fee_minor (travelian#74)."""
+def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: str, card_fee_minor: int = 0,
+                   provider: str = "payfast", test_money: bool = False) -> Attempt:
+    """amount_minor is what the provider (PayFast, or Bank Alfalah) is charged: the amount due plus card_fee_minor
+    (travelian#74). basket_id is the provider's order id for this attempt. test_money: made on a test system (the APG
+    sandbox); its payment never starts or retries automatic issuing (flight_recovery, flight_payments)."""
     with agencies.application_engine().begin() as connection:
         booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
         attempt_id = str(uuid4())
-        connection.execute(
-            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor)"
-                 " VALUES (:id, :b, :basket, :a, :c, :fee)"),
-            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor},
-        )
+        values = {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor}
+        if provider == "payfast" and not test_money and not online_attempts.has_alfalah_columns(connection):
+            # Before migration 0036 (deploy/migrate.sh runs after the deploy): a PayFast attempt, written as before.
+            connection.execute(text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor)"
+                                    " VALUES (:id, :b, :basket, :a, :c, :fee)"), values)
+        else:
+            connection.execute(
+                text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor, provider, test_money)"
+                     " VALUES (:id, :b, :basket, :a, :c, :fee, :p, :t)"),
+                {**values, "p": provider, "t": test_money},
+            )
         _event(connection, booking_id, None, "online_payment_started",
-               {"provider": "payfast", "basket_id": basket_id, "amount_minor": amount_minor, "card_fee_minor": card_fee_minor, "currency": currency})
+               {"provider": provider, "basket_id": basket_id, "amount_minor": amount_minor, "card_fee_minor": card_fee_minor, "currency": currency})
     return Attempt(attempt_id, booking_id, reference, basket_id, amount_minor, currency, "initiated", None)
 
 
@@ -102,8 +115,10 @@ class Outcome:
 
 
 def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: str | None, amount_minor: int | None,
-                  message: str | None, source: str, now: datetime) -> Outcome:
-    """Apply one verified PayFast result. Idempotent: an attempt changes state once; later copies are ignored."""
+                  message: str | None, source: str, now: datetime, provider: str = "payfast", test_money: bool = False) -> Outcome:
+    """Apply one verified result (PayFast's hash-checked result, or Bank Alfalah's order status asked by the gateway).
+    Idempotent: an attempt changes state once; later copies are ignored. provider must match the attempt's.
+    test_money: a sandbox payment (Bank Alfalah sandbox): recorded, but flagged for staff review."""
     with agencies.application_engine().begin() as connection:
         row = connection.execute(
             text("SELECT a.*, b.reference, b.product, b.total_minor, b.currency AS booking_currency, b.booking_status,"
@@ -111,7 +126,7 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
                  " FROM payfast_attempts a JOIN bookings b ON b.id = a.booking_id WHERE a.basket_id = :basket FOR UPDATE OF a, b"),
             {"basket": basket_id, "now": now},
         ).mappings().one_or_none()
-        if row is None:
+        if row is None or (row.get("provider") or "payfast") != provider:
             return Outcome("", "unknown_basket")
         if row["status"] != "initiated":
             return Outcome(row["reference"], "already_paid" if row["status"] == "paid" else "already_failed")
@@ -119,14 +134,14 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
             connection.execute(text("UPDATE payfast_attempts SET status = 'failed', err_code = :e, transaction_id = :t, updated_at = now()"
                                     " WHERE id = :id"), {"e": err_code[:8], "t": transaction_id, "id": row["id"]})
             _event(connection, row["booking_id"], None, "online_payment_failed",
-                   {"provider": "payfast", "basket_id": basket_id, "err_code": err_code[:8], "message": (message or "")[:200], "source": source})
+                   {"provider": provider, "basket_id": basket_id, "err_code": err_code[:8], "message": (message or "")[:200], "source": source})
             return Outcome(row["reference"], "failed")
         if amount_minor is not None and amount_minor != row["amount_minor"]:
             # Genuine PayFast result for a different amount than we asked: not recorded as a payment; staff check it.
             connection.execute(text("UPDATE payfast_attempts SET err_code = :e, transaction_id = :t, updated_at = now() WHERE id = :id"),
                                {"e": err_code[:8], "t": transaction_id, "id": row["id"]})
             _event(connection, row["booking_id"], None, "online_payment_needs_review",
-                   {"provider": "payfast", "basket_id": basket_id, "reason": "amount_mismatch", "expected_minor": row["amount_minor"],
+                   {"provider": provider, "basket_id": basket_id, "reason": "amount_mismatch", "expected_minor": row["amount_minor"],
                     "reported_minor": amount_minor, "transaction_id": transaction_id, "source": source})
             return Outcome(row["reference"], "amount_mismatch")
         connection.execute(text("UPDATE payfast_attempts SET status = 'paid', err_code = :e, transaction_id = :t, updated_at = now() WHERE id = :id"),
@@ -139,9 +154,10 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
         connection.execute(
             text("INSERT INTO booking_payments (id, booking_id, amount_minor, currency, method, received_into, account_id, reference,"
                  " received_at, recorded_by_user_id, card_fee_minor)"
-                 " VALUES (:id, :b, :amount, :currency, 'payfast', :into, NULL, :ref, :at, NULL, :fee)"),
+                 " VALUES (:id, :b, :amount, :currency, :method, :into, NULL, :ref, :at, NULL, :fee)"),
             {"id": payment_id, "b": row["booking_id"], "amount": fare_paid, "currency": row["currency"],
-             "into": PAYFAST_LABEL, "ref": (transaction_id or basket_id)[:64], "at": now, "fee": card_fee},
+             "method": provider, "into": PROVIDER_LABELS[provider], "ref": (transaction_id or basket_id)[:64], "at": now,
+             "fee": card_fee},
         )
         paid_total = connection.scalar(text("SELECT COALESCE(SUM(amount_minor), 0) FROM booking_payments WHERE booking_id = :b"),
                                        {"b": row["booking_id"]})
@@ -153,11 +169,26 @@ def record_result(basket_id: str, *, paid: bool, err_code: str, transaction_id: 
             review.append("paid_after_hold_ended")
         if paid_total > row["total_minor"]:
             review.append("overpaid")
+        if test_money or row.get("test_money"):
+            review.append("sandbox_test_money")
         _event(connection, row["booking_id"], None, "payment_recorded", {
-            "amount_minor": fare_paid, "card_fee_minor": card_fee, "currency": row["currency"], "method": "payfast", "received_into": PAYFAST_LABEL,
+            "amount_minor": fare_paid, "card_fee_minor": card_fee, "currency": row["currency"], "method": provider, "received_into": PROVIDER_LABELS[provider],
             "payer_reference": transaction_id or basket_id, "payment_status": status, "source": source, "needs_review": review,
         })
     return Outcome(row["reference"], "paid", status, row["product"])
+
+
+def attempt_by_basket(basket_id: str) -> Attempt | None:
+    """The checkout attempt with this provider order id (PayFast basket id, or Bank Alfalah order id)."""
+    with agencies.application_engine().begin() as connection:
+        row = connection.execute(
+            text("SELECT a.*, b.reference FROM payfast_attempts a JOIN bookings b ON b.id = a.booking_id WHERE a.basket_id = :basket"),
+            {"basket": basket_id},
+        ).mappings().one_or_none()
+    if row is None:
+        return None
+    return Attempt(row["id"], row["booking_id"], row["reference"], row["basket_id"], row["amount_minor"], row["currency"],
+                   row["status"], row["transaction_id"])
 
 
 def latest_attempt(reference: str) -> Attempt | None:

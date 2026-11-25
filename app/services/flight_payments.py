@@ -120,6 +120,8 @@ async def after_verified_card_payment(reference: str, client_factory=None, now: 
     if hold_over(target, now):
         # Paid after the airline hold ended (or too close to it to ticket): never sent to the supplier for ticketing.
         return await staff("the card payment arrived after the airline hold ended (or too close to it to issue automatically)")
+    if target.test_money:
+        return await staff("this booking was paid on the Bank Alfalah sandbox (test money), so nothing was sent to the supplier")
     if not payfast.payments_allowed():
         return await staff(f"automatic issuing is off: PayFast is in {payfast.mode()} mode, so nothing was sent to the supplier")
     if target.provider not in AUTO_ISSUING_PROVIDERS:
