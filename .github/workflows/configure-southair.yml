@@ -69,7 +69,8 @@ jobs:
           PASSWORD: ${{ secrets.SOUTHAIR_PASSWORD }}
         run: |
           set -euo pipefail
-          [[ "$BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://host[:port] with no path."; exit 1; }
+          # Only South Air's own hosts: the saved password is sent to this URL.
+          [[ "$BASE_URL" =~ ^https://([a-z0-9-]+\.)*southair\.com\.pk(:[0-9]{1,5})?$ ]] || { echo "ERROR: the base URL must be https://<host>.southair.com.pk[:port] with no path."; exit 1; }
           if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then echo "No credential secrets set: keeping the username and password on the server."; fi
           for value in "$USERNAME" "$PASSWORD"; do
             [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || { echo "ERROR: a secret has a line break."; exit 1; }
@@ -114,6 +115,10 @@ jobs:
               print(f"ERROR: {', '.join(missing)} not on the server; add them as GitHub secrets. Nothing was changed.")
               sys.exit(1)
           values = {k: v.strip().strip('"').strip("'") for k, v in values.items()}
+          import re
+          if not re.fullmatch(r"https://([a-z0-9-]+\.)*southair\.com\.pk(:\d{1,5})?", values["SOUTHAIR_BASE_URL"]):
+              print("ERROR: the base URL must be a southair.com.pk host. Nothing was changed.")
+              sys.exit(1)
           client = SouthairClient(values["SOUTHAIR_BASE_URL"], values["SOUTHAIR_USERNAME"], SecretStr(values["SOUTHAIR_PASSWORD"]), 20.0)
           try:
               profile = asyncio.run(client.profile())
