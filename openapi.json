@@ -410,9 +410,11 @@
           },
           "section": {
             "default": "direct",
+            "description": "api is for suppliers connected in code only.",
             "enum": [
-              "api",
-              "direct"
+              "direct",
+              "b2b",
+              "hotels"
             ],
             "title": "Section",
             "type": "string"
@@ -745,6 +747,279 @@
           "expected_revision"
         ],
         "title": "AgencyUpdate",
+        "type": "object"
+      },
+      "AgencyWalletEntryRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deposit: the Travelian account the money arrived in.",
+            "title": "Account Id"
+          },
+          "amount_minor": {
+            "maximum": 100000000000.0,
+            "minimum": -100000000000.0,
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "deposit",
+              "adjustment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "kind",
+          "amount_minor",
+          "occurred_at"
+        ],
+        "title": "AgencyWalletEntryRequest",
+        "type": "object"
+      },
+      "AgencyWalletEntryView": {
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "balance_after": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Role"
+          },
+          "kind": {
+            "enum": [
+              "deposit",
+              "adjustment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "amount",
+          "balance_after"
+        ],
+        "title": "AgencyWalletEntryView",
+        "type": "object"
+      },
+      "AgencyWalletList": {
+        "properties": {
+          "low_count": {
+            "title": "Low Count",
+            "type": "integer"
+          },
+          "total_balance": {
+            "$ref": "#/components/schemas/BookingMoney",
+            "description": "Money Travelian holds for agencies (wallet liability)."
+          },
+          "wallets": {
+            "items": {
+              "$ref": "#/components/schemas/AgencyWalletView"
+            },
+            "title": "Wallets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "wallets",
+          "total_balance",
+          "low_count"
+        ],
+        "title": "AgencyWalletList",
+        "type": "object"
+      },
+      "AgencyWalletLowRequest": {
+        "properties": {
+          "low_threshold_minor": {
+            "anyOf": [
+              {
+                "maximum": 100000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Threshold Minor"
+          }
+        },
+        "title": "AgencyWalletLowRequest",
+        "type": "object"
+      },
+      "AgencyWalletStatement": {
+        "properties": {
+          "entries": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/AgencyWalletEntryView"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "wallet": {
+            "$ref": "#/components/schemas/AgencyWalletView"
+          }
+        },
+        "required": [
+          "wallet",
+          "entries"
+        ],
+        "title": "AgencyWalletStatement",
+        "type": "object"
+      },
+      "AgencyWalletView": {
+        "properties": {
+          "agency_id": {
+            "title": "Agency Id",
+            "type": "string"
+          },
+          "agency_name": {
+            "title": "Agency Name",
+            "type": "string"
+          },
+          "agency_status": {
+            "title": "Agency Status",
+            "type": "string"
+          },
+          "balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "deposits": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "last_deposit_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Deposit At"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Below its low-balance level; None when no level is set.",
+            "title": "Low"
+          },
+          "low_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "agency_id",
+          "agency_name",
+          "agency_status",
+          "balance",
+          "deposits"
+        ],
+        "title": "AgencyWalletView",
         "type": "object"
       },
       "AnnouncementList": {
@@ -15467,7 +15742,9 @@
           "section": {
             "enum": [
               "api",
-              "direct"
+              "direct",
+              "b2b",
+              "hotels"
             ],
             "title": "Section",
             "type": "string"
@@ -20472,6 +20749,220 @@
           }
         ],
         "summary": "Update Account",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/agency-wallets": {
+      "get": {
+        "description": "Every B2B agency's prepaid wallet (D3: agencies only; B2C customers have none).",
+        "operationId": "agency_wallets_v1_admin_finance_agency_wallets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgencyWalletList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Agency Wallets",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/agency-wallets/{agency_id}": {
+      "get": {
+        "operationId": "agency_wallet_statement_v1_admin_finance_agency_wallets__agency_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agency_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Agency Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgencyWalletStatement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Agency Wallet Statement",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/agency-wallets/{agency_id}/entries": {
+      "post": {
+        "description": "A deposit (adds) or an adjustment (+/- with a reason). A wallet never goes below zero.",
+        "operationId": "add_agency_wallet_entry_v1_admin_finance_agency_wallets__agency_id__entries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agency_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Agency Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgencyWalletEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgencyWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Agency Wallet Entry",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/agency-wallets/{agency_id}/low": {
+      "put": {
+        "operationId": "set_agency_wallet_low_v1_admin_finance_agency_wallets__agency_id__low_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agency_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Agency Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgencyWalletLowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgencyWalletView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Agency Wallet Low",
         "tags": [
           "admin finance"
         ]
