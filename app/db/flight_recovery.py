@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.db import agencies
+from app.db import agencies, online_attempts
 from app.db.supplier_bookings import _event
 
 OPEN = ("held", "pending_payment", "payment_received")
@@ -28,16 +28,21 @@ _STUCK = (
     " AND b.issuance_status IN ('not_issued', 'processing') AND b.updated_at <= :before"
     " AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM booking_payments p WHERE p.booking_id = b.id) >= b.total_minor"
     " AND EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid')"
-    # Never a booking paid with test money (the APG sandbox): staff review it; it is never issued automatically.
-    " AND NOT EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid' AND a.test_money)"
     " AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id = b.id AND e.action = 'auto_issue_recovery')"
 )
+# Never a booking paid with test money (the APG sandbox): staff review it; it is never issued automatically. (Added once
+# migration 0036 is applied; before it no test-money attempt can exist.)
+_NOT_TEST_MONEY = " AND NOT EXISTS (SELECT 1 FROM payfast_attempts a WHERE a.booking_id = b.id AND a.status = 'paid' AND a.test_money)"
+
+
+def _stuck(connection) -> str:
+    return _STUCK + (_NOT_TEST_MONEY if online_attempts.has_alfalah_columns(connection) else "")
 
 
 def stuck_card_payments(before: datetime) -> list[tuple[str, str, str | None]]:
     """(reference, issuance status, provider) of each candidate, oldest first. Read-only."""
     with agencies.application_engine().begin() as connection:
-        rows = connection.execute(text("SELECT b.reference, b.issuance_status, b.provider_id" + _STUCK + " ORDER BY b.updated_at"),
+        rows = connection.execute(text("SELECT b.reference, b.issuance_status, b.provider_id" + _stuck(connection) + " ORDER BY b.updated_at"),
                                   {"before": before}).all()
     return [(row.reference, row.issuance_status, row.provider_id) for row in rows]
 
@@ -46,7 +51,7 @@ def claim_recovery(reference: str, before: datetime, details: dict[str, Any]) ->
     """Take this booking's one recovery, if it still qualifies: returns its issuance status then, else None (another worker
     has it, it changed meanwhile, or it was already retried). A locked row is skipped, never waited for."""
     with agencies.application_engine().begin() as connection:
-        row = connection.execute(text("SELECT b.id, b.issuance_status" + _STUCK + " AND b.reference = :r FOR UPDATE OF b SKIP LOCKED"),
+        row = connection.execute(text("SELECT b.id, b.issuance_status" + _stuck(connection) + " AND b.reference = :r FOR UPDATE OF b SKIP LOCKED"),
                                  {"before": before, "r": reference}).one_or_none()
         if row is None:
             return None

@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from app.db import agencies
 from app.db.booking_payments import payment_status
+from app.db import online_attempts
 from app.db.supplier_bookings import _event
 
 PAYFAST_LABEL = "PayFast"
@@ -89,12 +90,17 @@ def create_attempt(reference: str, basket_id: str, amount_minor: int, currency: 
     with agencies.application_engine().begin() as connection:
         booking_id = connection.scalar(text("SELECT id FROM bookings WHERE reference = :r"), {"r": reference})
         attempt_id = str(uuid4())
-        connection.execute(
-            text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor, provider, test_money)"
-                 " VALUES (:id, :b, :basket, :a, :c, :fee, :p, :t)"),
-            {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor, "p": provider,
-             "t": test_money},
-        )
+        values = {"id": attempt_id, "b": booking_id, "basket": basket_id, "a": amount_minor, "c": currency, "fee": card_fee_minor}
+        if provider == "payfast" and not test_money and not online_attempts.has_alfalah_columns(connection):
+            # Before migration 0036 (deploy/migrate.sh runs after the deploy): a PayFast attempt, written as before.
+            connection.execute(text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor)"
+                                    " VALUES (:id, :b, :basket, :a, :c, :fee)"), values)
+        else:
+            connection.execute(
+                text("INSERT INTO payfast_attempts (id, booking_id, basket_id, amount_minor, currency, card_fee_minor, provider, test_money)"
+                     " VALUES (:id, :b, :basket, :a, :c, :fee, :p, :t)"),
+                {**values, "p": provider, "t": test_money},
+            )
         _event(connection, booking_id, None, "online_payment_started",
                {"provider": provider, "basket_id": basket_id, "amount_minor": amount_minor, "card_fee_minor": card_fee_minor, "currency": currency})
     return Attempt(attempt_id, booking_id, reference, basket_id, amount_minor, currency, "initiated", None)

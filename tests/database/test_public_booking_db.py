@@ -237,3 +237,26 @@ def test_sandbox_paid_flight_is_never_picked_for_automatic_issuing(database):
     connection.execute(sa.text("UPDATE bookings SET updated_at = :t WHERE id = :b"), {"t": NOW - timedelta(hours=1), "b": booking_id})
     assert reference not in [ref for ref, *_ in flight_recovery.stuck_card_payments(NOW)]
     assert issuance.load(reference).test_money is True
+
+
+def test_payfast_works_before_migration_0036(database, monkeypatch):
+    """Migrations run by hand after a deploy: with the new release on the old schema, a PayFast payment, the issuance check
+    and the recovery job work as before (no provider / test_money columns yet)."""
+    from alembic import command
+
+    from app.db import flight_recovery, issuance, online_attempts
+
+    connection, _, config = database
+    command.downgrade(config, "0035_document_issue_date")
+    monkeypatch.setattr(online_attempts, "_has_columns", False)
+    booking_id, reference = _booking(connection)
+    connection.execute(sa.text("UPDATE bookings SET product = 'flight' WHERE id = :b"), {"b": booking_id})
+    public_bookings.create_attempt(reference, "B-OLD-SCHEMA", 1399700, "PKR")
+    paid = public_bookings.record_result("B-OLD-SCHEMA", paid=True, err_code="000", transaction_id="T1", amount_minor=1399700,
+                                         message=None, source="notification", now=NOW)
+    assert (paid.status, paid.payment_status) == ("paid", "paid")
+    assert _payments(connection, booking_id) == [("payfast", 1399700, "PayFast", "T1")]
+    assert issuance.load(reference).test_money is False
+    connection.execute(sa.text("UPDATE bookings SET updated_at = :t WHERE id = :b"), {"t": NOW - timedelta(hours=1), "b": booking_id})
+    assert reference in [ref for ref, *_ in flight_recovery.stuck_card_payments(NOW)]
+    assert online_attempts.has_alfalah_columns(connection) is False
