@@ -24,6 +24,7 @@ PARAMETER_SETTINGS = {
     "alfalah_merchant_password": "payments/alfalah/merchant-password",
     "alfalah_key1": "payments/alfalah/key1",
     "alfalah_key2": "payments/alfalah/key2",
+    "kyte_api_key": "flights/kyte/api-key",
     "jazzcash_merchant_id": "payments/jazzcash/merchant-id",
     "jazzcash_password": "payments/jazzcash/password",
     "jazzcash_integrity_salt": "payments/jazzcash/integrity-salt",
