@@ -130,7 +130,7 @@ def profit_view(data: store.BookingFinance) -> ProfitView:
                       supplier_charge=None if p.supplier_charge_minor is None else money(p.supplier_charge_minor, currency),
                       supplier_charge_basis=p.supplier_charge_basis, payment_fees=money(p.payment_fees_minor, currency),
                       refunds=money(p.refunds_minor, currency), profit=None if p.profit_minor is None else money(p.profit_minor, currency),
-                      missing=list(p.missing))
+                      shortfall=money(p.shortfall_minor, currency) if p.shortfall_minor else None, missing=list(p.missing))
 
 
 #: Audit entries whose before/after carry supplier cost; sent only with the cost and margin permission.

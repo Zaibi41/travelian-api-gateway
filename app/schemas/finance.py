@@ -117,6 +117,7 @@ class ProfitView(BaseModel):
     supplier_charge_basis: Literal["billable", "recorded", "quoted", "not_known"]
     payment_fees: BookingMoney
     refunds: BookingMoney
+    shortfall: BookingMoney | None = Field(None, description="D57: accepted payment difference (less received than the total).")
     profit: BookingMoney | None = Field(None, description="Null = 'Profit: not known' (no real supplier cost).")
     missing: list[Literal["payment_fees"]] = Field(default_factory=list, description="Parts not recorded yet; shown as 'Not recorded'.")
 

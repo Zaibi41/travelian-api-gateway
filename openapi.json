@@ -10301,6 +10301,17 @@
           "selling": {
             "$ref": "#/components/schemas/BookingMoney"
           },
+          "shortfall": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D57: accepted payment difference (less received than the total)."
+          },
           "supplier_charge": {
             "anyOf": [
               {

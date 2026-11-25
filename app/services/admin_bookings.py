@@ -97,7 +97,7 @@ def _add_profit(fare, booking) -> None:
         supplier_charge=None if profit.supplier_charge_minor is None else _money(profit.supplier_charge_minor, currency),
         supplier_charge_basis=profit.supplier_charge_basis, payment_fees=_money(profit.payment_fees_minor, currency),
         refunds=_money(profit.refunds_minor, currency), profit=None if profit.profit_minor is None else _money(profit.profit_minor, currency),
-        missing=list(profit.missing))
+        shortfall=_money(profit.shortfall_minor, currency) if profit.shortfall_minor else None, missing=list(profit.missing))
 
 
 def _add_slips(detail, reference: str) -> None:
@@ -459,6 +459,7 @@ def _add_finance_ops(detail: BookingDetail, booking: BookingRow, visibility, can
                                                 booking_reference=r.booking_reference) for r in extras.refund_credits]
         if g is not None:
             sp.billable_amount = _money(g.billable_minor, currency)
+            sp.amount_due = sp.billable_amount  # issue #202: one figure for what the supplier is owed
             sp.supplier_id, sp.supplier_name = g.supplier_id, g.supplier_name
             sp.settlement_method, sp.refund_number, sp.settled_at, sp.note = g.settlement_method, g.refund_number, g.settled_at, g.note  # type: ignore[assignment]
             sp.credit_used = _money(g.credit_used_minor, currency) if g.credit_used_minor else None
