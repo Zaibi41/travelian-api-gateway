@@ -99,18 +99,26 @@ def _preview(connection, sale: SaleInput, confirmed: bool) -> SalePreview:
     after = None
     who = customer or (sale.passenger_name or "").strip() or "the passenger"
     if not confirmed:
-        effects.append("Go to Finance to confirm. Nothing below happens until Finance confirms it.")
+        effects.append("Be sent to Finance to confirm. Nothing below happens until Finance confirms it.")
     effects.append(f"Record a sale of {rupees(sale.sale_minor)} for {who}" + (f", sold through {agency}" if agency else "") + ".")
     if supplier and sale.ticket_status == "issued":
         s = ledger.supplier(connection, sale.supplier_id)  # type: ignore[arg-type]
         b = ledger.balance(connection, s) if s else None
-        if b is not None and b.current_minor is not None:
+        # Supplier balances are Finance figures: only Finance (who can see Supplier Balances) is shown the amounts.
+        if b is not None and b.current_minor is not None and confirmed:
             after = b.current_minor - sale.cost_minor
             effects.append(f"Deduct {rupees(sale.cost_minor)} from {supplier}'s balance ({rupees(b.current_minor)} → {rupees(after)}).")
             if after < 0:
-                problems.append(f"{supplier}'s balance would go below zero ({rupees(after)}). Top up {supplier} first.")
+                problems.append(f"{supplier}'s balance would go below zero ({rupees(after)}). Top up {supplier} first.")  # D52
+        elif b is not None and b.current_minor is not None:
+            effects.append(f"Deduct the cost from {supplier}'s balance when Finance confirms it.")
+            if b.current_minor - sale.cost_minor < 0:
+                effects.append(f"Not enough {supplier} balance right now: Finance can't confirm it until {supplier} is topped up.")
         elif s is not None and s.balance_mode == "api":
-            problems.append(f"{supplier}'s balance hasn't been read yet. Refresh it on Supplier Balances first.")
+            if confirmed:
+                problems.append(f"{supplier}'s balance hasn't been read yet. Refresh it on Supplier Balances first.")
+            else:
+                effects.append(f"Deduct the cost from {supplier}'s balance when Finance confirms it.")
         else:
             effects.append(f"Deduct {rupees(sale.cost_minor)} from {supplier}'s balance (its balance isn't set up yet).")
     elif supplier:

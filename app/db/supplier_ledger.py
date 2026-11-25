@@ -315,7 +315,7 @@ def ledger(supplier_id: str, limit: int = 500) -> tuple[Supplier, Balance, list[
               UNION ALL
               SELECT checked_at, 'balance_check', NULL, NULL, NULL, NULL, NULL, requested_by_user_id, NULL, NULL, balance_minor::text
               FROM supplier_balance_snapshots WHERE provider_id = :p
-            ) h ORDER BY at, kind LIMIT :limit"""), {"p": supplier_id, "limit": limit}).mappings().all()
+            ) h ORDER BY at, CASE kind WHEN 'top_up' THEN 0 WHEN 'adjustment' THEN 0 WHEN 'refund_credit' THEN 0 ELSE 1 END, kind LIMIT :limit"""), {"p": supplier_id, "limit": limit}).mappings().all()
         roles = _roles(connection, {r["by_user"] for r in rows if r["by_user"]})
     items: list[LedgerItem] = []
     running = b.opening_minor if s.balance_mode == "manual" and b.tracking_since is not None else None

@@ -72,7 +72,7 @@ def upgrade() -> None:
         sa.CheckConstraint("settlement_tag IS NULL OR settlement_tag IN ('DTS', 'IATA')", name="ck_suppliers_settlement_tag"),
         sa.CheckConstraint("low_threshold_minor IS NULL OR low_threshold_minor >= 0", name="ck_suppliers_threshold"),
     )
-    table = sa.table("suppliers", sa.column("id"), sa.column("name"), sa.column("section"), sa.column("booking_mode"), sa.column("balance_mode"))
+    table = sa.table("suppliers", *(sa.column(c, sa.String()) for c in ("id", "name", "section", "booking_mode", "balance_mode")))  # typed: offline SQL
     op.bulk_insert(table, [dict(zip(("id", "name", "section", "booking_mode", "balance_mode"), row)) for row in SUPPLIERS])
     # The low-balance levels already set on Finance > Wallets (travelian#68) carry over.
     op.execute("UPDATE suppliers s SET low_threshold_minor = (f.value #>> '{}')::bigint FROM finance_settings f"

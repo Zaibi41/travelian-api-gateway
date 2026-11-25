@@ -351,7 +351,7 @@ async def sale_options(viewer: Annotated[BackOfficeUser, Depends(require_back_of
 
 
 # ============================================================================================ Supplier Refunds
-class RefundView(BaseModel):
+class SupplierRefundView(BaseModel):
     id: str
     number: int
     supplier_id: str
@@ -370,27 +370,27 @@ class RefundView(BaseModel):
     can_apply_credit: bool
 
 
-def _refund_view(r: ops.SupplierRefund) -> RefundView:
-    return RefundView(id=r.id, number=r.number, supplier_id=r.supplier_id, supplier_name=r.supplier_name, booking_reference=r.booking_reference,
+def _refund_view(r: ops.SupplierRefund) -> SupplierRefundView:
+    return SupplierRefundView(id=r.id, number=r.number, supplier_id=r.supplier_id, supplier_name=r.supplier_name, booking_reference=r.booking_reference,
                       reference=r.reference, amount=money(r.amount_minor), applied=money(r.applied_minor), remaining=money(r.remaining_minor),  # type: ignore[arg-type]
                       reason=r.reason, status=r.status, opened_on=r.opened_on, days_outstanding=r.days_outstanding(ops.today_pkt()),  # type: ignore[arg-type]
                       status_note=r.status_note, next_statuses=list(ops.REFUND_FLOW.get(r.status, ())),
                       can_apply_credit=r.status in ops.REFUND_OPEN and r.remaining_minor > 0)
 
 
-class RefundList(BaseModel):
-    items: list[RefundView]
+class SupplierRefundList(BaseModel):
+    items: list[SupplierRefundView]
     pending_count: int
     pending_total: BookingMoney
 
 
-@router.get("/supplier-refunds", response_model=RefundList)
+@router.get("/supplier-refunds", response_model=SupplierRefundList)
 async def list_refunds(viewer: Annotated[BackOfficeUser, Depends(require_supplier_viewer)],
                        status: Literal["requested", "chased", "received", "written_off"] | None = None,
-                       supplier_id: str | None = Query(None, pattern=SUPPLIER_ID)) -> RefundList:
+                       supplier_id: str | None = Query(None, pattern=SUPPLIER_ID)) -> SupplierRefundList:
     items = await run_in_threadpool(lambda: ops.list_refunds(status=status, supplier_id=supplier_id))
     pending = await run_in_threadpool(lambda: [r for r in ops.list_refunds() if r.status in ops.REFUND_OPEN])
-    return RefundList(items=[_refund_view(r) for r in items], pending_count=len(pending),
+    return SupplierRefundList(items=[_refund_view(r) for r in items], pending_count=len(pending),
                       pending_total=money(sum(r.remaining_minor for r in pending)))  # type: ignore[arg-type]
 
 
@@ -403,8 +403,8 @@ class OpenRefundRequest(BaseModel):
     opened_on: date | None = None
 
 
-@router.post("/supplier-refunds", response_model=RefundView, status_code=201, responses={422: {}})
-async def open_refund(viewer: Annotated[BackOfficeUser, Depends(require_supplier_viewer)], body: OpenRefundRequest) -> RefundView:
+@router.post("/supplier-refunds", response_model=SupplierRefundView, status_code=201, responses={422: {}})
+async def open_refund(viewer: Annotated[BackOfficeUser, Depends(require_supplier_viewer)], body: OpenRefundRequest) -> SupplierRefundView:
     return _refund_view(await _call(ops.open_refund, actor(viewer), **body.model_dump()))
 
 
@@ -413,9 +413,9 @@ class RefundStatusRequest(BaseModel):
     note: str | None = Field(None, max_length=500)
 
 
-@router.post("/supplier-refunds/{refund_id}/status", response_model=RefundView, responses={404: {}, 409: {}, 422: {}})
+@router.post("/supplier-refunds/{refund_id}/status", response_model=SupplierRefundView, responses={404: {}, 409: {}, 422: {}})
 async def move_refund(viewer: Annotated[BackOfficeUser, Depends(require_supplier_viewer)], body: RefundStatusRequest,
-                      refund_id: str = PathParam(max_length=36)) -> RefundView:
+                      refund_id: str = PathParam(max_length=36)) -> SupplierRefundView:
     return _refund_view(await _call(ops.move_refund, actor(viewer), refund_id, body.status, body.note))
 
 
@@ -424,9 +424,9 @@ class ApplyCreditRequest(BaseModel):
     billable_minor: int | None = Field(None, gt=0, le=100_000_000_000, description="Set the booking's supplier billable amount first (if not set).")
 
 
-@router.post("/supplier-refunds/{refund_id}/apply", response_model=RefundView, responses={404: {}, 409: {}, 422: {}})
+@router.post("/supplier-refunds/{refund_id}/apply", response_model=SupplierRefundView, responses={404: {}, 409: {}, 422: {}})
 async def apply_credit(viewer: Annotated[BackOfficeUser, Depends(require_supplier_viewer)], body: ApplyCreditRequest,
-                       refund_id: str = PathParam(max_length=36)) -> RefundView:
+                       refund_id: str = PathParam(max_length=36)) -> SupplierRefundView:
     """D56: settle a booking's supplier charge with this refund credit instead of fresh cash (the balance pays any rest; D52)."""
     refund = next((r for r in await run_in_threadpool(ops.list_refunds) if r.id == refund_id), None)
     if refund is None:
@@ -518,7 +518,7 @@ async def update_account(viewer: Annotated[BackOfficeUser, Depends(require_finan
 
 
 # ================================================================================================ Overview
-class AttentionItem(BaseModel):
+class SupplierAttention(BaseModel):
     supplier_id: str
     supplier_name: str
     status: Literal["low", "negative"]
@@ -548,7 +548,7 @@ class OverviewView(BaseModel):
     pending_refunds_count: int
     pending_refunds_total: BookingMoney
     pending_sales_count: int
-    attention: list[AttentionItem]
+    attention: list[SupplierAttention]
     activity: list[ActivityView]
     suppliers: list[Option]
 
@@ -573,7 +573,7 @@ async def overview(viewer: Annotated[BackOfficeUser, Depends(require_finance)], 
             total_customer_dues=money(sum(d.due_minor for d in dues)), customer_dues_count=len(dues),  # type: ignore[arg-type]
             pending_refunds_count=len(refunds), pending_refunds_total=money(sum(r.remaining_minor for r in refunds)),  # type: ignore[arg-type]
             pending_sales_count=ops.pending_sales_count(),
-            attention=[AttentionItem(supplier_id=b.supplier.id, supplier_name=b.supplier.name, status=b.status, current_balance=money(b.current_minor),  # type: ignore[arg-type]
+            attention=[SupplierAttention(supplier_id=b.supplier.id, supplier_name=b.supplier.name, status=b.status, current_balance=money(b.current_minor),  # type: ignore[arg-type]
                                      low_threshold=money(b.supplier.low_threshold_minor)) for b in attention] if cost else [],
             activity=[ActivityView(at=a.at, kind=a.kind, title=a.title, amount=money(a.amount_minor), by_role=a.by_role, link=a.link)  # type: ignore[arg-type]
                       for a in ops.activity(start=start, end=end, supplier_id=supplier_id)] if cost else [],

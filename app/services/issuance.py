@@ -380,8 +380,8 @@ def balance_shortfall(supplier_id: str, amount_minor: int) -> str | None:
             supplier_ledger.lock(connection, supplier_id)
             try:
                 supplier_ledger.covers(connection, supplier_id, amount_minor, what="Issuing this ticket")
-            except finance.FinanceRefused as error:
-                return f"Not enough supplier balance to issue this ticket ({error.message.split(' Nothing was saved.')[0]})."
+            except finance.FinanceRefused:  # no balance figures here: whoever issues may not see supplier balances
+                return f"Not enough supplier balance to issue this ticket. Ask Finance to top up {supplier.name} first."
     except HTTPException:  # no application database configured (unit tests): issuing can't run without one anyway
         return None
     except SQLAlchemyError:  # fail closed: a balance that can't be read never lets the confirm (a charge) go out

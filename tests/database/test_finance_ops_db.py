@@ -10,7 +10,7 @@ import pytest
 import sqlalchemy as sa
 
 from app.core.config import settings
-from app.db import booking_payments, finance, finance_ops as ops, issuance as issuance_store, payment_accounts, supplier_ledger as ledger, supplier_wallets
+from app.db import booking_payments, public_bookings, finance, finance_ops as ops, issuance as issuance_store, payment_accounts, supplier_ledger as ledger, supplier_wallets
 from app.services import finance_reports, flight_payments, issuance
 from tests.database.test_booking_people import ACTOR, save
 from tests.database.test_flight_payments_db import (  # noqa: F401 - fixtures
@@ -24,6 +24,15 @@ pytestmark = pytest.mark.real_notifications
 FIN = finance.Actor(ACTOR, "super_admin")
 NOW = datetime.now(timezone.utc)
 RS = 100  # paisa per rupee
+
+
+@pytest.fixture(autouse=True)
+def finance_user(request):
+    """FIN's user row, which the finance audit log and balance snapshots reference."""
+    if "database" in request.fixturenames:
+        connection, metadata, _ = request.getfixturevalue("database")
+        if not connection.execute(sa.text("SELECT 1 FROM users WHERE id=:id"), {"id": ACTOR}).first():
+            connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
 
 
 def sale(**overrides) -> ops.SaleInput:
@@ -67,6 +76,10 @@ def test_one_ledger_shows_ticket_sales_and_real_booking_deductions_and_blocks_ne
     assert refused_code(ops.create_sale, FIN, sale(cost_minor=50_000 * RS, sale_minor=51_000 * RS), finance_role=True) == ledger.NEGATIVE
     pending = ops.create_sale(finance.Actor(ACTOR, "staff"), sale(cost_minor=50_000 * RS, sale_minor=51_000 * RS), finance_role=False)
     assert pending.state == "pending" and balance("airsial") == 40_000 * RS  # nothing deducted until Finance confirms
+    # Staff without Finance aren't shown supplier balance figures, only that Finance can't confirm it yet.
+    staff_view = ops.preview_sale(sale(cost_minor=50_000 * RS, sale_minor=51_000 * RS), confirmed=False)
+    assert not staff_view.problems and not any("40,000" in e or "-10,000" in e for e in staff_view.effects)
+    assert any("Finance can't confirm it until AirSial is topped up" in e for e in staff_view.effects)
     assert refused_code(ops.confirm_sale, FIN, pending.id) == ledger.NEGATIVE
     # An adjustment can't take it negative either (the balance only moves the three ways).
     assert refused_code(ledger.add_top_up, FIN, "airsial", kind="adjustment", amount_minor=-50_000 * RS, reference=None, reason="x",
@@ -108,6 +121,7 @@ def test_b28_card_issuance_against_a_low_balance_is_paid_issuance_pending_then_i
     ticket (Rs 457.70), so nothing is sent for ticketing and the booking is 'Paid, issuance pending' with staff alerted (D48).
     After the top-up the same path issues it, and the charge is on South Air's ledger as issued automatically."""
     connection, reference = website_hold
+    public_bookings.create_attempt(reference, "TRV-F-LOW", 46_700, "PKR")
     with patch.object(settings, "southair_ticketing_enabled", True):
         assert pay(reference, "TRV-F-LOW", signed("TRV-F-LOW", transaction_id="T1", transaction_amount="467.00"), []).status == "paid"
         low = FakeSouthair([pnr_info(), pnr_info()], balance="100.00")

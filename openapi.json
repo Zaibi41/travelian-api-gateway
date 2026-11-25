@@ -840,11 +840,52 @@
         "title": "ApplyCreditRequest",
         "type": "object"
       },
+      "AttentionItem": {
+        "properties": {
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "reference": {
+            "description": "PNR when present, otherwise the booking ID.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "pending_issuance",
+              "payment_pending",
+              "hold_expiring"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking_id",
+          "reference",
+          "type"
+        ],
+        "title": "AttentionItem",
+        "type": "object"
+      },
       "AttentionQueue": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/app__schemas__admin_dashboard__AttentionItem"
+              "$ref": "#/components/schemas/AttentionItem"
             },
             "title": "Items",
             "type": "array"
@@ -1886,7 +1927,7 @@
           },
           "refunds": {
             "items": {
-              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+              "$ref": "#/components/schemas/RefundView"
             },
             "title": "Refunds",
             "type": "array"
@@ -9754,7 +9795,7 @@
           },
           "attention": {
             "items": {
-              "$ref": "#/components/schemas/app__api__routes__finance_ops__AttentionItem"
+              "$ref": "#/components/schemas/SupplierAttention"
             },
             "title": "Attention",
             "type": "array"
@@ -11220,6 +11261,27 @@
         "title": "RefundDue",
         "type": "object"
       },
+      "RefundList": {
+        "properties": {
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/RefundView"
+            },
+            "title": "Refunds",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "refunds",
+          "total"
+        ],
+        "title": "RefundList",
+        "type": "object"
+      },
       "RefundStatusRequest": {
         "properties": {
           "note": {
@@ -11250,12 +11312,181 @@
         "title": "RefundStatusRequest",
         "type": "object"
       },
+      "RefundView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By User Id"
+          },
+          "booking_reference": {
+            "title": "Booking Reference",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "bank_transfer",
+              "jazzcash",
+              "1link",
+              "payfast",
+              "alfalah"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "paid_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid By User Id"
+          },
+          "payout_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payout Reference"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
+          "rejected_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By User Id"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By User Id"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "approved",
+              "paid",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "booking_reference",
+          "amount",
+          "method",
+          "status",
+          "reason",
+          "requested_at"
+        ],
+        "title": "RefundView",
+        "type": "object"
+      },
       "RefundsDueView": {
         "properties": {
           "open": {
             "description": "Refunds requested or approved, not paid yet.",
             "items": {
-              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+              "$ref": "#/components/schemas/RefundView"
             },
             "title": "Open",
             "type": "array"
@@ -14585,6 +14816,47 @@
         "title": "StatementPreviewRequest",
         "type": "object"
       },
+      "SupplierAttention": {
+        "properties": {
+          "current_balance": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "low_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookingMoney"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "low",
+              "negative"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supplier_id": {
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "supplier_name": {
+            "title": "Supplier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier_id",
+          "supplier_name",
+          "status",
+          "current_balance"
+        ],
+        "title": "SupplierAttention",
+        "type": "object"
+      },
       "SupplierBookingView": {
         "description": "The supplier's own booking (supplier-names permission only): its ids and, after a cancel request, what it says.",
         "properties": {
@@ -14926,6 +15198,144 @@
           }
         },
         "title": "SupplierPayment",
+        "type": "object"
+      },
+      "SupplierRefundList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierRefundView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "pending_total": {
+            "$ref": "#/components/schemas/BookingMoney"
+          }
+        },
+        "required": [
+          "items",
+          "pending_count",
+          "pending_total"
+        ],
+        "title": "SupplierRefundList",
+        "type": "object"
+      },
+      "SupplierRefundView": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "applied": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "can_apply_credit": {
+            "title": "Can Apply Credit",
+            "type": "boolean"
+          },
+          "days_outstanding": {
+            "title": "Days Outstanding",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "next_statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Next Statuses",
+            "type": "array"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "opened_on": {
+            "format": "date",
+            "title": "Opened On",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/BookingMoney"
+          },
+          "status": {
+            "enum": [
+              "requested",
+              "chased",
+              "received",
+              "written_off"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Note"
+          },
+          "supplier_id": {
+            "title": "Supplier Id",
+            "type": "string"
+          },
+          "supplier_name": {
+            "title": "Supplier Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "supplier_id",
+          "supplier_name",
+          "amount",
+          "applied",
+          "remaining",
+          "reason",
+          "status",
+          "opened_on",
+          "days_outstanding",
+          "next_statuses",
+          "can_apply_credit"
+        ],
+        "title": "SupplierRefundView",
         "type": "object"
       },
       "SupplierSpendRow": {
@@ -16002,185 +16412,6 @@
         "title": "WalletThresholdRequest",
         "type": "object"
       },
-      "app__api__routes__finance_ops__AttentionItem": {
-        "properties": {
-          "current_balance": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "low_threshold": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/BookingMoney"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "enum": [
-              "low",
-              "negative"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "supplier_id": {
-            "title": "Supplier Id",
-            "type": "string"
-          },
-          "supplier_name": {
-            "title": "Supplier Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "supplier_id",
-          "supplier_name",
-          "status",
-          "current_balance"
-        ],
-        "title": "AttentionItem",
-        "type": "object"
-      },
-      "app__api__routes__finance_ops__RefundList": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "pending_count": {
-            "title": "Pending Count",
-            "type": "integer"
-          },
-          "pending_total": {
-            "$ref": "#/components/schemas/BookingMoney"
-          }
-        },
-        "required": [
-          "items",
-          "pending_count",
-          "pending_total"
-        ],
-        "title": "RefundList",
-        "type": "object"
-      },
-      "app__api__routes__finance_ops__RefundView": {
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "applied": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "booking_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Booking Reference"
-          },
-          "can_apply_credit": {
-            "title": "Can Apply Credit",
-            "type": "boolean"
-          },
-          "days_outstanding": {
-            "title": "Days Outstanding",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "next_statuses": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Next Statuses",
-            "type": "array"
-          },
-          "number": {
-            "title": "Number",
-            "type": "integer"
-          },
-          "opened_on": {
-            "format": "date",
-            "title": "Opened On",
-            "type": "string"
-          },
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          },
-          "reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference"
-          },
-          "remaining": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "status": {
-            "enum": [
-              "requested",
-              "chased",
-              "received",
-              "written_off"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "status_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status Note"
-          },
-          "supplier_id": {
-            "title": "Supplier Id",
-            "type": "string"
-          },
-          "supplier_name": {
-            "title": "Supplier Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "number",
-          "supplier_id",
-          "supplier_name",
-          "amount",
-          "applied",
-          "remaining",
-          "reason",
-          "status",
-          "opened_on",
-          "days_outstanding",
-          "next_statuses",
-          "can_apply_credit"
-        ],
-        "title": "RefundView",
-        "type": "object"
-      },
       "app__api__routes__group_ticketing__BookingPassenger": {
         "additionalProperties": true,
         "properties": {
@@ -16439,237 +16670,6 @@
           "id_type"
         ],
         "title": "BookingPassenger",
-        "type": "object"
-      },
-      "app__schemas__admin_dashboard__AttentionItem": {
-        "properties": {
-          "booking_id": {
-            "title": "Booking Id",
-            "type": "string"
-          },
-          "due_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Due At"
-          },
-          "reference": {
-            "description": "PNR when present, otherwise the booking ID.",
-            "title": "Reference",
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "pending_issuance",
-              "payment_pending",
-              "hold_expiring"
-            ],
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "booking_id",
-          "reference",
-          "type"
-        ],
-        "title": "AttentionItem",
-        "type": "object"
-      },
-      "app__schemas__finance__RefundList": {
-        "properties": {
-          "refunds": {
-            "items": {
-              "$ref": "#/components/schemas/app__schemas__finance__RefundView"
-            },
-            "title": "Refunds",
-            "type": "array"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "refunds",
-          "total"
-        ],
-        "title": "RefundList",
-        "type": "object"
-      },
-      "app__schemas__finance__RefundView": {
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/BookingMoney"
-          },
-          "approved_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Approved At"
-          },
-          "approved_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Approved By User Id"
-          },
-          "booking_reference": {
-            "title": "Booking Reference",
-            "type": "string"
-          },
-          "customer_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Customer Name"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "bank_transfer",
-              "jazzcash",
-              "1link",
-              "payfast",
-              "alfalah"
-            ],
-            "title": "Method",
-            "type": "string"
-          },
-          "paid_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Paid At"
-          },
-          "paid_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Paid By User Id"
-          },
-          "payout_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Payout Reference"
-          },
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          },
-          "rejected_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejected At"
-          },
-          "rejected_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejected By User Id"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "requested_at": {
-            "format": "date-time",
-            "title": "Requested At",
-            "type": "string"
-          },
-          "requested_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Requested By User Id"
-          },
-          "status": {
-            "enum": [
-              "requested",
-              "approved",
-              "paid",
-              "rejected"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "booking_reference",
-          "amount",
-          "method",
-          "status",
-          "reason",
-          "requested_at"
-        ],
-        "title": "RefundView",
         "type": "object"
       }
     },
@@ -20706,7 +20706,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+                  "$ref": "#/components/schemas/RefundView"
                 }
               }
             },
@@ -22176,7 +22176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance__RefundList"
+                  "$ref": "#/components/schemas/RefundList"
                 }
               }
             },
@@ -22262,7 +22262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+                  "$ref": "#/components/schemas/RefundView"
                 }
               }
             },
@@ -22332,7 +22332,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+                  "$ref": "#/components/schemas/RefundView"
                 }
               }
             },
@@ -22401,7 +22401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance__RefundView"
+                  "$ref": "#/components/schemas/RefundView"
                 }
               }
             },
@@ -23434,7 +23434,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundList"
+                  "$ref": "#/components/schemas/SupplierRefundList"
                 }
               }
             },
@@ -23484,7 +23484,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                  "$ref": "#/components/schemas/SupplierRefundView"
                 }
               }
             },
@@ -23542,7 +23542,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                  "$ref": "#/components/schemas/SupplierRefundView"
                 }
               }
             },
@@ -23605,7 +23605,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__finance_ops__RefundView"
+                  "$ref": "#/components/schemas/SupplierRefundView"
                 }
               }
             },
