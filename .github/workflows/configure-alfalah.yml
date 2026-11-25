@@ -1,0 +1,134 @@
+name: Configure Bank Alfalah
+
+# Manual only: Actions → "Configure Bank Alfalah" → Run workflow.
+# Writes the Bank Alfalah (Alfa Payment Gateway) keys from this repository's GitHub secrets into the server's shared .env,
+# restarts the API and checks that checkout now offers Bank Alfalah. Values travel over SSH stdin; they are never printed,
+# never put on a command line and never stored in the repository. The previous .env is kept as .env.bak-<time>.
+#
+# Secrets (Settings → Secrets and variables → Actions, environment "production"), copied from the APG merchant portal:
+#   ALFALAH_MERCHANT_ID, ALFALAH_STORE_ID, ALFALAH_MERCHANT_HASH, ALFALAH_MERCHANT_USERNAME, ALFALAH_MERCHANT_PASSWORD,
+#   ALFALAH_KEY1, ALFALAH_KEY2
+# mode "sandbox": test cards only, on https://sandbox.bankalfalah.com (shown at checkout with ALFALAH_ALLOW_SANDBOX=true).
+# mode "production": real money, on https://payments.bankalfalah.com (needs the production keys).
+# mode "off": removes the Bank Alfalah settings (checkout stops offering it).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "sandbox (test cards), production (real money) or off"
+        required: true
+        type: choice
+        options: [sandbox, production, "off"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travelian-production
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Configure and restart
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.LIGHTSAIL_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Build the settings
+        env:
+          MODE: ${{ inputs.mode }}
+          MERCHANT_ID: ${{ secrets.ALFALAH_MERCHANT_ID }}
+          STORE_ID: ${{ secrets.ALFALAH_STORE_ID }}
+          MERCHANT_HASH: ${{ secrets.ALFALAH_MERCHANT_HASH }}
+          MERCHANT_USERNAME: ${{ secrets.ALFALAH_MERCHANT_USERNAME }}
+          MERCHANT_PASSWORD: ${{ secrets.ALFALAH_MERCHANT_PASSWORD }}
+          KEY1: ${{ secrets.ALFALAH_KEY1 }}
+          KEY2: ${{ secrets.ALFALAH_KEY2 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : > "$RUNNER_TEMP/alfalah.env"
+          if [[ "$MODE" == "off" ]]; then exit 0; fi
+          missing=()
+          for name in MERCHANT_ID STORE_ID MERCHANT_HASH MERCHANT_USERNAME MERCHANT_PASSWORD KEY1 KEY2; do
+            value="${!name}"
+            if [[ -z "$value" ]]; then missing+=("ALFALAH_$name"); continue; fi
+            # One line, no quotes or spaces at the ends: the .env format the API reads.
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then echo "ERROR: ALFALAH_$name has a line break."; exit 1; fi
+            printf 'ALFALAH_%s=%s\n' "$name" "$value" >> "$RUNNER_TEMP/alfalah.env"
+          done
+          if (( ${#missing[@]} )); then echo "ERROR: add these GitHub secrets first: ${missing[*]}"; exit 1; fi
+          if [[ "$MODE" == "sandbox" ]]; then
+            printf 'ALFALAH_BASE_URL=https://sandbox.bankalfalah.com\nALFALAH_ALLOW_SANDBOX=true\n' >> "$RUNNER_TEMP/alfalah.env"
+          else
+            printf 'ALFALAH_BASE_URL=https://payments.bankalfalah.com\nALFALAH_ALLOW_SANDBOX=false\n' >> "$RUNNER_TEMP/alfalah.env"
+          fi
+
+      - name: Write the settings, restart and check
+        env:
+          HOST: ${{ vars.LIGHTSAIL_HOST }}
+        run: |
+          set -euo pipefail
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes)
+          scp "${SSH_OPTS[@]}" "$RUNNER_TEMP/alfalah.env" "deploy@${HOST}:/opt/travelian-api/shared/.alfalah.incoming"
+          rm -f "$RUNNER_TEMP/alfalah.env"
+          ssh "${SSH_OPTS[@]}" "deploy@${HOST}" "bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          APP_DIR="/opt/travelian-api"
+          ENV_FILE="$APP_DIR/shared/.env"
+          INCOMING="$APP_DIR/shared/.alfalah.incoming"
+          trap 'rm -f "$INCOMING" "${NEW:-}"' EXIT
+          umask 077
+          chmod 600 "$INCOMING"
+
+          exec 9>"$APP_DIR/shared/deployment.lock"
+          flock -w 120 9 || { echo "ERROR: a deployment is running; try again in a minute."; exit 1; }
+
+          cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date -u +%Y%m%d%H%M%S)"
+          ls -1t "$ENV_FILE".bak-* | tail -n +6 | xargs -r rm -f
+          NEW="$(mktemp "$APP_DIR/shared/.env.new.XXXXXX")"
+          { grep -v -E '^ALFALAH_' "$ENV_FILE" || true; cat "$INCOMING"; } > "$NEW"
+          chmod --reference="$ENV_FILE" "$NEW"
+          mv -f "$NEW" "$ENV_FILE"
+          echo "Bank Alfalah settings in .env: $(grep -c '^ALFALAH_' "$ENV_FILE" || true) lines."
+
+          sudo -n systemctl restart travelian-api.service
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && { echo "API restarted and healthy."; exit 0; }
+            sleep 2
+          done
+          echo "ERROR: the API didn't come back healthy after the restart. Restore the newest $ENV_FILE.bak-* and restart."
+          exit 1
+          REMOTE
+
+      - name: Checkout offers Bank Alfalah
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            offered="$(curl -fsS https://api.travelian.pk/v1/public/payment-methods | python3 -c 'import json,sys; print(json.load(sys.stdin).get("alfalah"))')" || offered=""
+            echo "Bank Alfalah offered at checkout: $offered"
+            if [[ "$MODE" == "off" && "$offered" == "False" ]] || [[ "$MODE" != "off" && "$offered" == "True" ]]; then exit 0; fi
+            sleep 3
+          done
+          echo "ERROR: checkout doesn't show the expected Bank Alfalah state. Check the keys (all seven) and the service log."
+          exit 1
