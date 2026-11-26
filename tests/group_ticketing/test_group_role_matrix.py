@@ -60,7 +60,7 @@ READ_CALLS = {
     "inventory": ("GET", "/inventory", None),
     "search": ("POST", "/search", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}),
     "ticket": ("GET", f"/tickets/{TICKET_ID}", None),
-    "check-availability": ("POST", "/check-availability", {"pnr": "X", "adult": 1, "child": 0, "price": 1}),
+    "check-availability": ("POST", "/check-availability", {"ticket_id": TICKET_ID, "adult": 1, "child": 0}),
     "flight-quotes": ("POST", "/flight-quotes", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01",
                                                  "passenger_count": 12, "contact_email": "ops@example.invalid"}),
 }
@@ -87,6 +87,7 @@ def call(monkeypatch, label, endpoint, availability=True):
     client = _client(monkeypatch, label)
     with (
         patch.object(routes, "fetch_all_group_inventory", new=AsyncMock(return_value=groups())),
+        patch.object(routes, "find_ticket", new=AsyncMock(return_value=groups()[0].tickets[0])),  # availability by ticket ID (#107)
         patch.object(routes, "_credentials_configured", return_value=True),
         patch.object(routes, "_check_dhillu_sahi_availability", new=AsyncMock(return_value=availability)),
         patch.object(settings, "group_ticketing_markup_percent", Decimal("5")),
