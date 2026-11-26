@@ -3830,6 +3830,170 @@
         "title": "ContactReceived",
         "type": "object"
       },
+      "CorrectionRequest": {
+        "properties": {
+          "agency_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency Id"
+          },
+          "channel": {
+            "enum": [
+              "direct",
+              "b2b",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "cost_minor": {
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Cost Minor",
+            "type": "integer"
+          },
+          "customer_person_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Person Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "passenger_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passenger Name"
+          },
+          "payment_account_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Account Id"
+          },
+          "pnr": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnr"
+          },
+          "reason": {
+            "description": "Why the entry is being corrected (kept in the audit log).",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "received_minor": {
+            "default": 0,
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Received Minor",
+            "type": "integer"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "sale_minor": {
+            "maximum": 100000000000.0,
+            "minimum": 0.0,
+            "title": "Sale Minor",
+            "type": "integer"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "ticket_status": {
+            "default": "issued",
+            "enum": [
+              "issued",
+              "on_hold"
+            ],
+            "title": "Ticket Status",
+            "type": "string"
+          },
+          "travel_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Travel Date"
+          }
+        },
+        "required": [
+          "channel",
+          "cost_minor",
+          "sale_minor",
+          "reason"
+        ],
+        "title": "CorrectionRequest",
+        "type": "object"
+      },
       "CorrectionResult": {
         "properties": {
           "fields": {
@@ -4390,6 +4554,21 @@
           "business"
         ],
         "title": "DashboardSummary",
+        "type": "object"
+      },
+      "DeleteRequest": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "DeleteRequest",
         "type": "object"
       },
       "DeletedAnnouncement": {
@@ -9477,6 +9656,7 @@
               "refund_credit",
               "booking_charge",
               "ticket_sale",
+              "ticket_sale_reversal",
               "balance_check"
             ],
             "title": "Kind",
@@ -12758,6 +12938,12 @@
             "title": "Can Confirm",
             "type": "boolean"
           },
+          "can_edit": {
+            "default": false,
+            "description": "Super Admin: may edit (correct) and delete entries.",
+            "title": "Can Edit",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/SaleView"
@@ -13009,6 +13195,17 @@
       },
       "SaleView": {
         "properties": {
+          "agency_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency Id"
+          },
           "agency_name": {
             "anyOf": [
               {
@@ -13041,8 +13238,55 @@
             ],
             "title": "Confirmed At"
           },
+          "corrected_by_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reversed: the entry number that replaced it.",
+            "title": "Corrected By Number"
+          },
+          "correction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was reversed or deleted.",
+            "title": "Correction Reason"
+          },
+          "corrects_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This entry is the correction of that entry number.",
+            "title": "Corrects Number"
+          },
           "cost": {
             "$ref": "#/components/schemas/BookingMoney"
+          },
+          "customer_person_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Person Id"
           },
           "due": {
             "$ref": "#/components/schemas/BookingMoney"
@@ -13081,6 +13325,17 @@
             ],
             "title": "Payment Account"
           },
+          "payment_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Account Id"
+          },
           "pnr": {
             "anyOf": [
               {
@@ -13109,6 +13364,19 @@
             ],
             "title": "Rejected Reason"
           },
+          "reversed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it was reversed or deleted.",
+            "title": "Reversed At"
+          },
           "route": {
             "anyOf": [
               {
@@ -13127,7 +13395,9 @@
             "enum": [
               "confirmed",
               "pending",
-              "rejected"
+              "rejected",
+              "reversed",
+              "deleted"
             ],
             "title": "State",
             "type": "string"
@@ -25155,7 +25425,7 @@
     },
     "/v1/admin/finance/ticket-sales": {
       "get": {
-        "description": "Finance sees every entry; other staff see only the ones they submitted.",
+        "description": "Finance sees every entry; other staff see only the ones they submitted. Deleted entries are never listed.",
         "operationId": "list_sales_v1_admin_finance_ticket_sales_get",
         "parameters": [
           {
@@ -25168,7 +25438,8 @@
                   "enum": [
                     "confirmed",
                     "pending",
-                    "rejected"
+                    "rejected",
+                    "reversed"
                   ],
                   "type": "string"
                 },
@@ -25406,6 +25677,205 @@
           }
         ],
         "summary": "Confirm Sale",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/{sale_id}/correct": {
+      "post": {
+        "description": "Super Admin. Details only, or a pending entry: changed in place. A confirmed entry's money (cost, sale, received, airline\nID, payment account, status): the original is reversed and the corrected entry returned (a new number). Logged with the reason.",
+        "operationId": "correct_sale_v1_admin_finance_ticket_sales__sale_id__correct_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sale_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Sale Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Correct Sale",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/{sale_id}/correct/preview": {
+      "post": {
+        "description": "What saving the edit will do, worked out against the real balances and rolled back. Saves nothing.",
+        "operationId": "preview_correction_v1_admin_finance_ticket_sales__sale_id__correct_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sale_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Sale Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalePreviewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Correction",
+        "tags": [
+          "admin finance"
+        ]
+      }
+    },
+    "/v1/admin/finance/ticket-sales/{sale_id}/delete": {
+      "post": {
+        "description": "Super Admin. Takes the entry off the list and out of every balance. The record and the audit log keep it.",
+        "operationId": "delete_sale_v1_admin_finance_ticket_sales__sale_id__delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sale_id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "title": "Sale Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Not allowed for this role."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Database not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Sale",
         "tags": [
           "admin finance"
         ]

@@ -4,6 +4,7 @@ Customer Dues, business/personal accounts, and the booking detail's supplier set
 Who may do what (the gateway decides; the page only hides what it is told it can't do):
 - Finance screens: the Finance permission (require_finance). Supplier figures also need the cost and margin permission.
 - Ticket Sale Entry (D55): Finance saves an entry confirmed; any other back-office user submits it for Finance to confirm.
+  Editing (correcting) and deleting a saved entry: Super Admin only (require_super_admin).
 - Accounts: FINANCE_ACCOUNT_ROLES (as Accounts & Ledgers).
 - Booking supplier billable amount and settlement: cost and margin, plus Finance or record payments. Payment difference and
   sold-through: Finance or record payments.
@@ -20,7 +21,8 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app.core.field_visibility import FINANCE, RECORD_PAYMENTS, BackOfficeUser, require_back_office, require_finance, require_finance_accounts
+from app.core.field_visibility import (FINANCE, FULL_ACCESS_ROLES, RECORD_PAYMENTS, BackOfficeUser, require_back_office, require_finance,
+                                       require_finance_accounts, require_super_admin)
 from app.db import agency_wallets as wallets, finance as store, finance_ops as ops, supplier_ledger as ledger
 from app.schemas.booking_common import BookingMoney
 
@@ -189,7 +191,7 @@ async def add_top_up(viewer: Annotated[BackOfficeUser, Depends(require_supplier_
 
 class LedgerItemView(BaseModel):
     at: datetime
-    kind: Literal["opening", "top_up", "adjustment", "refund_credit", "booking_charge", "ticket_sale", "balance_check"]
+    kind: Literal["opening", "top_up", "adjustment", "refund_credit", "booking_charge", "ticket_sale", "ticket_sale_reversal", "balance_check"]
     amount: BookingMoney | None = Field(None, description="+ adds, - deducts. None for a balance read.")
     balance_after: BookingMoney | None = Field(None, description="Running balance (manual suppliers), or the balance read (API).")
     description: str
@@ -263,6 +265,8 @@ class SaleView(BaseModel):
     travel_date: date | None = None
     route: str | None = None
     pnr: str | None = None
+    agency_id: str | None = None
+    customer_person_id: str | None = None
     supplier_id: str | None = None
     supplier_name: str | None = None
     cost: BookingMoney
@@ -270,23 +274,30 @@ class SaleView(BaseModel):
     received: BookingMoney
     due: BookingMoney
     profit: BookingMoney
+    payment_account_id: str | None = None
     payment_account: str | None = None
     ticket_status: Literal["issued", "on_hold"]
-    state: Literal["confirmed", "pending", "rejected"]
+    state: Literal["confirmed", "pending", "rejected", "reversed", "deleted"]
     notes: str | None = None
     submitted_by_role: str | None = None
     submitted_at: datetime
     confirmed_at: datetime | None = None
     rejected_reason: str | None = None
+    corrects_number: int | None = Field(None, description="This entry is the correction of that entry number.")
+    corrected_by_number: int | None = Field(None, description="Reversed: the entry number that replaced it.")
+    reversed_at: datetime | None = Field(None, description="When it was reversed or deleted.")
+    correction_reason: str | None = Field(None, description="Why it was reversed or deleted.")
 
 
 def _sale_view(s: ops.Sale) -> SaleView:
     return SaleView(id=s.id, number=s.number, channel=s.channel, agency_name=s.agency_name, passenger_name=s.passenger_name,  # type: ignore[arg-type]
+                    agency_id=s.agency_id, customer_person_id=s.customer_person_id, payment_account_id=s.payment_account_id,
                     travel_date=s.travel_date, route=s.route, pnr=s.pnr, supplier_id=s.supplier_id, supplier_name=s.supplier_name,
                     cost=money(s.cost_minor), sale=money(s.sale_minor), received=money(s.received_minor), due=money(s.due_minor),  # type: ignore[arg-type]
                     profit=money(s.profit_minor), payment_account=s.payment_account, ticket_status=s.ticket_status, state=s.state,  # type: ignore[arg-type]
                     notes=s.notes, submitted_by_role=s.submitted_by_role, submitted_at=s.submitted_at, confirmed_at=s.confirmed_at,
-                    rejected_reason=s.rejected_reason)
+                    rejected_reason=s.rejected_reason, corrects_number=s.corrects_number, corrected_by_number=s.corrected_by_number,
+                    reversed_at=s.reversed_at, correction_reason=s.correction_reason)
 
 
 @router.post("/ticket-sales", response_model=SaleView, status_code=201, responses={409: {"description": "negative_balance (D52)."}, 422: {}})
@@ -299,16 +310,17 @@ async def create_sale(viewer: Annotated[BackOfficeUser, Depends(require_back_off
 class SaleList(BaseModel):
     items: list[SaleView]
     can_confirm: bool
+    can_edit: bool = Field(False, description="Super Admin: may edit (correct) and delete entries.")
 
 
 @router.get("/ticket-sales", response_model=SaleList)
 async def list_sales(viewer: Annotated[BackOfficeUser, Depends(require_back_office)],
-                     state: Literal["confirmed", "pending", "rejected"] | None = None) -> SaleList:
-    """Finance sees every entry; other staff see only the ones they submitted."""
+                     state: Literal["confirmed", "pending", "rejected", "reversed"] | None = None) -> SaleList:
+    """Finance sees every entry; other staff see only the ones they submitted. Deleted entries are never listed."""
     items = await run_in_threadpool(lambda: ops.list_sales(state=state, limit=200))
     if not _is_finance(viewer):
         items = [s for s in items if s.submitted_by_user_id == viewer.user_id]
-    return SaleList(items=[_sale_view(s) for s in items], can_confirm=_is_finance(viewer))
+    return SaleList(items=[_sale_view(s) for s in items], can_confirm=_is_finance(viewer), can_edit=viewer.role in FULL_ACCESS_ROLES)
 
 
 class RejectRequest(BaseModel):
@@ -324,6 +336,41 @@ async def confirm_sale(viewer: Annotated[BackOfficeUser, Depends(require_finance
 async def reject_sale(viewer: Annotated[BackOfficeUser, Depends(require_finance)], body: RejectRequest,
                       sale_id: str = PathParam(max_length=36)) -> SaleView:
     return _sale_view(await _call(ops.reject_sale, actor(viewer), sale_id, body.reason))
+
+
+class CorrectionRequest(SaleRequest):
+    reason: str = Field(min_length=1, max_length=500, description="Why the entry is being corrected (kept in the audit log).")
+
+    def to_input(self) -> ops.SaleInput:
+        return ops.SaleInput(**self.model_dump(exclude={"reason"}))
+
+
+@router.post("/ticket-sales/{sale_id}/correct/preview", response_model=SalePreviewView, responses={404: {}, 409: {}})
+async def preview_correction(viewer: Annotated[BackOfficeUser, Depends(require_super_admin)], body: SaleRequest,
+                             sale_id: str = PathParam(max_length=36)) -> SalePreviewView:
+    """What saving the edit will do, worked out against the real balances and rolled back. Saves nothing."""
+    p = await _call(ops.preview_correction, sale_id, body.to_input(), actor(viewer))
+    return SalePreviewView(profit=money(p.profit_minor), due=money(p.due_minor), effects=p.effects, problems=p.problems,  # type: ignore[arg-type]
+                           confirmed_on_save=True)
+
+
+@router.post("/ticket-sales/{sale_id}/correct", response_model=SaleView, responses={404: {}, 409: {}, 422: {}})
+async def correct_sale(viewer: Annotated[BackOfficeUser, Depends(require_super_admin)], body: CorrectionRequest,
+                       sale_id: str = PathParam(max_length=36)) -> SaleView:
+    """Super Admin. Details only, or a pending entry: changed in place. A confirmed entry's money (cost, sale, received, airline
+    ID, payment account, status): the original is reversed and the corrected entry returned (a new number). Logged with the reason."""
+    return _sale_view(await _call(ops.correct_sale, actor(viewer), sale_id, body.to_input(), body.reason))
+
+
+class DeleteRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/ticket-sales/{sale_id}/delete", response_model=SaleView, responses={404: {}, 409: {}, 422: {}})
+async def delete_sale(viewer: Annotated[BackOfficeUser, Depends(require_super_admin)], body: DeleteRequest,
+                      sale_id: str = PathParam(max_length=36)) -> SaleView:
+    """Super Admin. Takes the entry off the list and out of every balance. The record and the audit log keep it."""
+    return _sale_view(await _call(ops.delete_sale, actor(viewer), sale_id, body.reason))
 
 
 class Option(BaseModel):
