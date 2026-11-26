@@ -24,7 +24,8 @@ from app.db import agencies
 logger = logging.getLogger(__name__)
 
 KINDS = {"hold_created", "booking_requested", "restricted_request", "bank_transfer_hold", "paid_issuance_pending", "auto_issued",
-         "auto_issue_failed", "paid_not_ticketed", "book_only_hold", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost")}
+         "auto_issue_failed", "paid_not_ticketed", "book_only_hold", *("paid_not_issued", "paid_not_issued_30m", "paid_hold_lost"),
+         "contact_message"}
 
 #: Red alerts: a customer paid by card and has no ticket. Shown as urgent in the admin (Notifications > Booking alerts).
 URGENT_KINDS = frozenset({"paid_not_issued", "paid_not_issued_30m", "paid_hold_lost", "low_supplier_balance"})
@@ -182,3 +183,20 @@ def recent(limit: int = 50) -> list[dict[str, Any]]:
             {"l": max(1, min(limit, 200))},
         ).mappings().all()
     return [dict(row) for row in rows]
+
+
+async def contact_message(*, name: str, email: str | None, phone: str | None, message: str) -> None:
+    """gateway#114: a message from the website's Contact page. Recorded in the admin (Notifications) first, then emailed to
+    the team as plain text when SES is set up. Raises only when it can't be recorded (the sender is told to try again);
+    the text is never logged."""
+    one_line = " ".join(name.split())[:80]
+    title = f"Website message from {one_line}"
+    details = {"name": one_line, "email": email, "phone": phone, "message": message}
+    notification_id = await run_in_threadpool(_record, "contact_message", None, title, details)
+    body = "\n".join([title, "", f"Name: {one_line}", f"Email: {email or '—'}", f"Mobile: {phone or '—'}", "", message, "",
+                      "Reply to the customer directly; this message is also in the admin under Notifications."])
+    if await run_in_threadpool(_send_email, title, body, None):
+        try:
+            await run_in_threadpool(_mark_emailed, notification_id)
+        except Exception:  # noqa: BLE001
+            pass

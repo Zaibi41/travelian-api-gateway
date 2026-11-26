@@ -380,3 +380,51 @@ async def card_fee_quote(body: CardFeeQuery):
     charged is worked out again by the gateway from the booking when payment starts (travelian#74)."""
     view = await run_in_threadpool(service.card_fee_for, body.amount_minor, body.product, "PKR")
     return view if view is not None else Response(status_code=204)
+
+
+# ---------- Contact page (gateway#114) ----------
+
+_PHONE = r"^\+?[0-9][0-9 ()-]{6,19}$"
+
+
+class ContactMessage(BaseModel):
+    """A message from the Contact page. Name and message are required, and an email or a mobile number to reply to.
+    `website` is a hidden field people never fill in: when it has a value the message is treated as spam (accepted, not kept)."""
+
+    name: str = Field(min_length=2, max_length=80)
+    email: str | None = Field(None, max_length=120, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    phone: str | None = Field(None, max_length=20, pattern=_PHONE)
+    message: str = Field(min_length=10, max_length=2000)
+    website: str | None = Field(None, max_length=200, description="Leave empty (spam trap).")
+
+    @field_validator("name", "message", "email", "phone", "website", mode="before")
+    @classmethod
+    def strip(cls, value):
+        return (value.strip() or None) if isinstance(value, str) else value
+
+
+class ContactReceived(BaseModel):
+    message: str
+
+
+@router.post("/contact", response_model=ContactReceived, status_code=202,
+             responses={422: {"description": "Missing or invalid fields."}, 429: {"description": "Too many messages."},
+                        503: {"description": "It couldn't be sent; nothing was saved."}})
+async def contact(body: ContactMessage, request: Request):
+    """gateway#114: send a message to the Travelian team (stored in the admin under Notifications and emailed to the team
+    when email is set up). At most 5 per hour from one address. Never logs the message."""
+    from app.services import notifications
+
+    if not body.email and not body.phone:
+        return JSONResponse({"detail": "Add an email address or a mobile number so we can reply.", "code": "contact_required"}, status_code=422)
+    try:
+        service.check_rate(service.CONTACT_LIMIT, _ip(request))
+    except service.PublicError as error:
+        return _error(error)
+    if not body.website:  # a filled spam trap is answered the same way, and nothing is kept
+        try:
+            await notifications.contact_message(name=body.name, email=body.email, phone=body.phone, message=body.message)
+        except Exception:  # noqa: BLE001 - stored nowhere: the sender is told to try again or use WhatsApp
+            return JSONResponse({"detail": "Your message couldn't be sent right now. Please try again, or message us on WhatsApp.",
+                                 "code": "not_sent"}, status_code=503)
+    return ContactReceived(message="Thanks, your message has been sent. Our team will reply within working hours (Mon–Sat, 9 AM – 6 PM PKT).")

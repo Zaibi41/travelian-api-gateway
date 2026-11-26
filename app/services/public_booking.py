@@ -75,6 +75,7 @@ CALENDAR_LIMIT = RateLimiter(120, 60)  # calendar reads per IP per minute
 BOOK_LIMIT = RateLimiter(5, 3600)  # bookings per IP per hour
 PAY_LIMIT = RateLimiter(20, 3600)  # payment starts and views per IP per hour
 QR_LIMIT = RateLimiter(30, 3600)  # QR downloads per IP per hour
+CONTACT_LIMIT = RateLimiter(5, 3600)  # gateway#114: Contact page messages per IP per hour
 DOCUMENTS_LIMIT = RateLimiter(20, 3600)  # checkout document checks per IP per hour (each new selection asks the supplier once)
 
 
