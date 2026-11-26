@@ -104,3 +104,19 @@ class FilterOption(BaseModel):
 class DashboardFilterOptions(BaseModel):
     products: list[FilterOption]
     providers: list[FilterOption] | None = Field(None, description="Omitted unless the caller can see supplier names.")
+
+
+class ActivityItem(BaseModel):
+    """gateway#87: one recent booking event. No details (amounts, supplier answers, names): open the booking for those."""
+
+    at: datetime
+    action: str = Field(description="The event, e.g. payment_recorded.")
+    label: str = Field(description="The event in words, e.g. Payment recorded.")
+    booking_id: str = Field(description="The booking reference; the row opens the booking.")
+    product: str
+    actor_user_id: str | None = Field(None, description="Omitted for the system (jobs, the website).")
+    actor_role: str | None = None
+
+
+class RecentActivity(BaseModel):
+    items: list[ActivityItem]
