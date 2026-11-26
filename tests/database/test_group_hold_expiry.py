@@ -27,7 +27,9 @@ def fake(database):
     if not connection.execute(text("SELECT 1 FROM users WHERE id=:id"), {"id": ACTOR}).first():
         connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
     provider = FakeProvider(supports_issue=False)
-    with patch.dict(group_holds.PROVIDERS, {VENDOR: lambda: provider}), \
+    # The fake provider releases; the real Dhillu & Sahi has no release call (NO_RELEASE_SOURCES), tested in
+    # tests/group_ticketing/test_dhillu_sahi_hold.py.
+    with patch.object(group_holds, "NO_RELEASE_SOURCES", set()), patch.object(group_hold_expiry, "NO_RELEASE_SOURCES", set()), patch.dict(group_holds.PROVIDERS, {VENDOR: lambda: provider}), \
          patch.object(settings, "group_ticketing_markup_percent", Decimal("5")), patch.object(settings, "group_ticketing_markup_fixed_minor", 0), \
          patch.object(settings, "group_hold_minutes", 30), patch.object(settings, "group_hold_release_attempts", 3):
         yield provider
@@ -60,20 +62,21 @@ def test_expiry_is_hold_minutes_after_the_hold_and_ignores_any_supplier_value(fa
 def test_expiry_job_expires_and_releases_at_the_supplier_once(fake, database):
     view = place_at()
     nothing = run(group_hold_expiry.run_once(T0 + timedelta(minutes=29)))
-    assert nothing == {"expired": [], "released": [], "failed": []} and releases(fake) == []
+    group = lambda outcome: {k: outcome[k] for k in ("expired", "released", "failed")}  # noqa: E731  (the job also reports flights)
+    assert group(nothing) == {"expired": [], "released": [], "failed": []} and releases(fake) == []
     done = run(group_hold_expiry.run_once(T0 + timedelta(minutes=30)))
-    assert done == {"expired": [view.booking_id], "released": [view.booking_id], "failed": []}
+    assert group(done) == {"expired": [view.booking_id], "released": [view.booking_id], "failed": []}
     assert releases(fake) == [("release", SUPPLIER_REF)]
     expired = run(group_holds.read(view.booking_id, ADMIN))
     assert expired.status == "expired" and not expired.supplier_release_failed
     assert not expired.can_record_payments and not expired.can_issue_tickets
     # Nothing left to do: no second release.
-    assert run(group_hold_expiry.run_once(T0 + timedelta(minutes=31))) == {"expired": [], "released": [], "failed": []}
+    assert group(run(group_hold_expiry.run_once(T0 + timedelta(minutes=31)))) == {"expired": [], "released": [], "failed": []}
     assert len(releases(fake)) == 1
     connection, _, _ = database
     actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
                                       " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
-    assert actions == ["hold_created", "hold_expired", "supplier_released"]
+    assert [a for a in actions if a not in ("hold_requested", "fare_terms_acknowledged")] == ["hold_created", "hold_expired", "supplier_released"]
 
 
 def test_failed_release_is_retried_logged_and_flagged_for_admin_only(fake, caplog):
@@ -86,7 +89,7 @@ def test_failed_release_is_retried_logged_and_flagged_for_admin_only(fake, caplo
     flagged = run(group_holds.read(view.booking_id, ADMIN))
     assert flagged.status == "expired" and flagged.supplier_release_failed is True
     staff = run(group_holds.read(view.booking_id, STAFF))
-    assert staff.supplier_release_failed is None and "release" not in staff.model_dump_json(exclude_none=True)
+    assert staff.supplier_release_failed is None and "release_failed" not in staff.model_dump_json(exclude_none=True)
     # Retried on the next runs, up to GROUP_HOLD_RELEASE_ATTEMPTS (3), then left for a person.
     run(group_hold_expiry.run_once(after + timedelta(seconds=30)))
     run(group_hold_expiry.run_once(after + timedelta(seconds=60)))

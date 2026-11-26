@@ -13,7 +13,23 @@ jobs:
   test:
     name: Test FastAPI
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+
+    # A throwaway PostgreSQL for the database tests (tests/database): each test migrates its own schema and rolls back.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: travelian_test
+          POSTGRES_PASSWORD: travelian_test
+          POSTGRES_DB: travelian_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U travelian_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout repository
@@ -40,5 +56,8 @@ jobs:
       - name: Validate Python syntax
         run: python -m compileall -q app tests
 
-      - name: Run tests
+      - name: Run tests (unit and database)
+        env:
+          # CI-only throwaway database (the service above); not a real credential.
+          TRAVELIAN_TEST_DATABASE_URL: postgresql+psycopg://travelian_test:travelian_test@localhost:5432/travelian_test
         run: python -m pytest -q

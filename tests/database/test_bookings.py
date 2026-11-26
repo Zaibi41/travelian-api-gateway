@@ -15,6 +15,8 @@ def insert(connection, **overrides):
         supplier_cost_minor=None, import_source=None,
     )
     values.update(overrides)
+    if values["supplier_cost_minor"] is None:  # required since migration 0021: the cost defaults to the total
+        values["supplier_cost_minor"] = values["total_minor"]
     connection.execute(sa.text(
         "INSERT INTO bookings (id, reference, pnr, product, provider_id, booking_status, payment_status, "
         "issuance_status, hold_expires_at, currency, total_minor, supplier_cost_minor, import_source) VALUES "

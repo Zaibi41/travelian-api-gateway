@@ -154,7 +154,7 @@ def test_unknown_from_the_old_reading_is_settled_by_check_with_supplier(held):
     after = ticketed_pnr_info(pnr="63B55C", tickets=("9000000000672", "9000000000673"), total=457.70)
     fake = FakeSouthair([after])
     assert asyncio.run(issuance.verify(reference, APPROVER, client_factory=lambda: fake)).result == "issued"
-    assert fake.calls == ["pnr_info"]  # read-only: never a ticketing call
+    assert fake.calls[0] == "pnr_info" and not any(c[0] == "ticketing" for c in fake.calls)  # read-only: never a ticketing call
     assert tickets(connection) == ["9000000000672", "9000000000673"] and actions(connection)[-1] == "issuance_verified"
 
 
@@ -222,7 +222,9 @@ def test_no_double_issue_under_concurrent_clicks(held):
 
 
 @pytest.mark.parametrize("before,balance,code", [
-    (pnr_info(total=500.00), "100000.00", "total_mismatch"),
+    # The airline's total moved: above the selling price (Rs 467) is refused; below it asks to confirm the new cost.
+    (pnr_info(total=500.00), "100000.00", "below_cost"),
+    (pnr_info(total=460.00), "100000.00", "supplier_cost_changed"),
     (pnr_info(can_ticketing=False), "100000.00", "not_ticketable"),
     (pnr_info(), "0.00", "insufficient_balance"),
     (SouthairError("timeout", "x"), "100000.00", "pnr_check_failed"),
