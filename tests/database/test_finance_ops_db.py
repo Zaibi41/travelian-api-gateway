@@ -209,3 +209,72 @@ def test_accounts_business_and_personal(database):
     assert rows[business].current_minor == 52_000 * RS and rows[business].ticket_sale_receipts_minor == 2_000 * RS
     dues = [d for d in ops.customer_dues() if d.kind == "ticket_sale"]
     assert dues and dues[0].due_minor == 60_000 * RS and dues[0].payment_account == "UBL Business"
+
+
+def test_super_admin_corrects_details_in_place_and_money_by_reversal(database):
+    """Details only: same entry, no balance moves. Money: the original is reversed (out of every balance) and a corrected,
+    linked entry takes its place; the supplier ledger shows the deduction, its reversal and the new deduction."""
+    ledger.set_opening(FIN, "airsial", 100_000 * RS, NOW - timedelta(days=1))
+    account = payment_accounts.add("bank_transfer", "UBL").id
+    first = ops.create_sale(FIN, sale(pnr=None, route=None, received_minor=62_000 * RS, payment_account_id=account), finance_role=True)
+    assert balance("airsial") == 40_000 * RS
+
+    # Details only (route, PNR): fixed in place, nothing moves.
+    fixed = ops.correct_sale(FIN, first.id, sale(pnr="9y08dc", received_minor=62_000 * RS, payment_account_id=account), "PNR missing")
+    assert (fixed.id, fixed.number, fixed.pnr, fixed.route, fixed.state) == (first.id, first.number, "9Y08DC", "LHE-JED", "confirmed")
+    assert balance("airsial") == 40_000 * RS
+    assert refused_code(ops.correct_sale, FIN, first.id, sale(pnr="9Y08DC", received_minor=62_000 * RS, payment_account_id=account), "x") == "no_change"
+    assert refused_code(ops.correct_sale, FIN, first.id, sale(pnr="ZZZ999"), " ") == "reason_required"
+
+    # Money: cost 60,000 -> 55,000 and received 62,000 -> 50,000. Preview first: real figures, nothing saved.
+    wanted = sale(pnr="9Y08DC", cost_minor=55_000 * RS, received_minor=50_000 * RS, payment_account_id=account)
+    preview = ops.preview_correction(first.id, wanted, FIN)
+    assert not preview.problems and preview.effects[0].startswith(f"Reverse entry #{first.number}")
+    assert any("Rs 100,000 → Rs 45,000" in e for e in preview.effects)
+    assert balance("airsial") == 40_000 * RS and ops.list_sales()[0].state == "confirmed"
+    corrected = ops.correct_sale(FIN, first.id, wanted, "Cost was wrong")
+    assert corrected.id != first.id and corrected.corrects_number == first.number and corrected.state == "confirmed"
+    assert corrected.submitted_at == first.submitted_at
+    original = next(s for s in ops.list_sales() if s.id == first.id)
+    assert original.state == "reversed" and original.corrected_by_number == corrected.number and original.correction_reason == "Cost was wrong"
+    assert balance("airsial") == 45_000 * RS
+    assert next(a for a in ops.account_balances() if a.id == account).ticket_sale_receipts_minor == 50_000 * RS
+    assert [d.due_minor for d in ops.customer_dues() if d.kind == "ticket_sale"] == [12_000 * RS]
+    assert ops.sales_profit(None, None) == (7_000 * RS, 1)
+    _, b, items = ledger.ledger("airsial")
+    assert [(i.kind, i.amount_minor) for i in items] == [("opening", 100_000 * RS), ("ticket_sale", -60_000 * RS),
+                                                         ("ticket_sale_reversal", 60_000 * RS), ("ticket_sale", -55_000 * RS)]
+    assert "reversed" in items[2].description and items[-1].balance_minor == b.current_minor == 45_000 * RS
+    # A reversed entry can't be edited again; the corrected one can.
+    assert refused_code(ops.correct_sale, FIN, first.id, wanted, "again") == "not_editable"
+    # The corrected one is still checked against D52 like a new sale.
+    assert refused_code(ops.correct_sale, FIN, corrected.id, sale(cost_minor=150_000 * RS, sale_minor=150_000 * RS), "x") == ledger.NEGATIVE
+    assert balance("airsial") == 45_000 * RS
+
+
+def test_super_admin_deletes_an_entry_out_of_every_balance(database):
+    ledger.set_opening(FIN, "airsial", 100_000 * RS, NOW - timedelta(days=1))
+    account = payment_accounts.add("bank_transfer", "UBL").id
+    twice = sale(cost_minor=30_000 * RS, sale_minor=32_000 * RS, received_minor=10_000 * RS, payment_account_id=account)
+    keep = ops.create_sale(FIN, twice, finance_role=True)
+    duplicate = ops.create_sale(FIN, twice, finance_role=True)
+    pending = ops.create_sale(finance.Actor(ACTOR, "staff"), sale(cost_minor=1 * RS), finance_role=False)
+    assert balance("airsial") == 40_000 * RS
+    deleted = ops.delete_sale(FIN, duplicate.id, "Entered twice")
+    assert deleted.state == "deleted" and deleted.correction_reason == "Entered twice"
+    assert balance("airsial") == 70_000 * RS
+    assert next(a for a in ops.account_balances() if a.id == account).ticket_sale_receipts_minor == 10_000 * RS
+    assert len([d for d in ops.customer_dues() if d.kind == "ticket_sale"]) == 1
+    assert {s.id for s in ops.list_sales()} == {keep.id, pending.id}  # deleted entries aren't listed
+    assert ops.delete_sale(FIN, pending.id, "Not needed").state == "deleted"
+    assert refused_code(ops.delete_sale, FIN, duplicate.id, "again") == "not_found"
+    assert refused_code(ops.delete_sale, FIN, keep.id, "") == "reason_required"
+    _, b, items = ledger.ledger("airsial")
+    assert [(i.kind, i.amount_minor) for i in items][-1] == ("ticket_sale_reversal", 30_000 * RS)
+    assert "deleted" in items[-1].description and items[-1].balance_minor == b.current_minor == 70_000 * RS
+
+
+def test_pending_entry_is_edited_in_place(database):
+    pending = ops.create_sale(finance.Actor(ACTOR, "staff"), sale(), finance_role=False)
+    edited = ops.correct_sale(FIN, pending.id, sale(cost_minor=59_000 * RS), "Typo")
+    assert (edited.id, edited.state, edited.cost_minor) == (pending.id, "pending", 59_000 * RS)

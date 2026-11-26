@@ -157,6 +157,11 @@ class Sale:
     confirmed_by_user_id: str | None
     confirmed_at: datetime | None
     rejected_reason: str | None
+    corrects_sale_id: str | None = None
+    corrects_number: int | None = None
+    corrected_by_number: int | None = None
+    reversed_at: datetime | None = None
+    correction_reason: str | None = None
 
     @property
     def profit_minor(self) -> int:
@@ -167,10 +172,11 @@ class Sale:
         return max(self.sale_minor - self.received_minor, 0)
 
 
-_SALE_SELECT = """SELECT t.*, a.name AS agency_name, s.name AS supplier_name, p.label AS account_label, r.name AS role_name
+_SALE_SELECT = """SELECT t.*, a.name AS agency_name, s.name AS supplier_name, p.label AS account_label, r.name AS role_name,
+  o.number AS corrects_number, (SELECT c.number FROM ticket_sale_entries c WHERE c.corrects_sale_id = t.id) AS corrected_by_number
   FROM ticket_sale_entries t LEFT JOIN agencies a ON a.id = t.agency_id LEFT JOIN suppliers s ON s.id = t.supplier_id
   LEFT JOIN payment_accounts p ON p.id = t.payment_account_id LEFT JOIN users u ON u.id = t.submitted_by_user_id
-  LEFT JOIN roles r ON r.id = u.role_id"""
+  LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN ticket_sale_entries o ON o.id = t.corrects_sale_id"""
 
 
 def _sale(row) -> Sale:
@@ -178,7 +184,35 @@ def _sale(row) -> Sale:
                 row["travel_date"], row["route"], row["pnr"], row["supplier_id"], row["supplier_name"], row["cost_minor"], row["sale_minor"],
                 row["received_minor"], row["payment_account_id"], row["account_label"], row["ticket_status"], row["state"], row["notes"],
                 row["submitted_by_user_id"], row["role_name"], row["submitted_at"], row["confirmed_by_user_id"], row["confirmed_at"],
-                row["rejected_reason"])
+                row["rejected_reason"], row["corrects_sale_id"], row["corrects_number"], row["corrected_by_number"], row["reversed_at"],
+                row["correction_reason"])
+
+
+def _insert_sale(connection, sale: SaleInput, *, state: str, submitted_by: str | None, submitted_at: datetime, confirmed_by: str | None,
+                 confirmed_at: datetime | None, corrects_sale_id: str | None = None) -> str:
+    customer, *_ = _names(connection, sale)
+    sale_id = str(uuid4())
+    connection.execute(text(
+        "INSERT INTO ticket_sale_entries (id, channel, agency_id, customer_person_id, passenger_name, travel_date, route, pnr, supplier_id,"
+        " cost_minor, sale_minor, received_minor, payment_account_id, ticket_status, state, notes, submitted_by_user_id, submitted_at,"
+        " confirmed_by_user_id, confirmed_at, corrects_sale_id) VALUES (:id, :ch, :ag, :cp, :pn, :td, :rt, :pnr, :sup, :cost, :sale, :rec, :acc,"
+        " :ts, :state, :notes, :u, :sat, :cu, :cat, :corr)"),
+        {"id": sale_id, **_detail_values(sale, customer), "sup": sale.supplier_id, "cost": sale.cost_minor, "sale": sale.sale_minor,
+         "rec": sale.received_minor, "acc": sale.payment_account_id, "ts": sale.ticket_status, "state": state, "u": submitted_by,
+         "sat": submitted_at, "cu": confirmed_by, "cat": confirmed_at, "corr": corrects_sale_id})
+    return sale_id
+
+
+def _detail_values(sale: SaleInput, customer: str | None) -> dict:
+    """The columns a details-only correction may change, cleaned as when the entry is first saved."""
+    return {"ch": sale.channel, "ag": sale.agency_id if sale.channel == "b2b" else None, "cp": sale.customer_person_id,
+            "pn": (customer or (sale.passenger_name or "")).strip()[:160], "td": sale.travel_date, "rt": (sale.route or "").strip()[:80] or None,
+            "pnr": (sale.pnr or "").strip().upper()[:20] or None, "notes": (sale.notes or "").strip() or None}
+
+
+def _problem_code(problems: list[str]) -> tuple[int, str]:
+    negative = any("below zero" in p or "hasn't been read" in p for p in problems)
+    return (409, ledger.NEGATIVE) if negative else (422, "invalid_sale")
 
 
 def create_sale(actor: finance.Actor, sale: SaleInput, *, finance_role: bool) -> Sale:
@@ -189,24 +223,13 @@ def create_sale(actor: finance.Actor, sale: SaleInput, *, finance_role: bool) ->
             ledger.lock(connection, sale.supplier_id)
         preview = _preview(connection, sale, finance_role)
         if preview.problems:
-            code = ledger.NEGATIVE if any("below zero" in p or "hasn't been read" in p for p in preview.problems) else "invalid_sale"
-            raise Refused(409 if code == ledger.NEGATIVE else 422, " ".join(preview.problems), code)
+            status, code = _problem_code(preview.problems)
+            raise Refused(status, " ".join(preview.problems), code)
         if finance_role and sale.supplier_id and sale.ticket_status == "issued":
             ledger.covers(connection, sale.supplier_id, sale.cost_minor, what="This sale")
-        customer, *_ = _names(connection, sale)
-        sale_id = str(uuid4())
         now = _now()
-        connection.execute(text(
-            "INSERT INTO ticket_sale_entries (id, channel, agency_id, customer_person_id, passenger_name, travel_date, route, pnr, supplier_id,"
-            " cost_minor, sale_minor, received_minor, payment_account_id, ticket_status, state, notes, submitted_by_user_id, submitted_at,"
-            " confirmed_by_user_id, confirmed_at) VALUES (:id, :ch, :ag, :cp, :pn, :td, :rt, :pnr, :sup, :cost, :sale, :rec, :acc, :ts, :state, :notes,"
-            " :u, :now, :cu, :cat)"),
-            {"id": sale_id, "ch": sale.channel, "ag": sale.agency_id if sale.channel == "b2b" else None, "cp": sale.customer_person_id,
-             "pn": (customer or (sale.passenger_name or "")).strip()[:160], "td": sale.travel_date, "rt": (sale.route or "").strip()[:80] or None,
-             "pnr": (sale.pnr or "").strip().upper()[:20] or None, "sup": sale.supplier_id, "cost": sale.cost_minor, "sale": sale.sale_minor,
-             "rec": sale.received_minor, "acc": sale.payment_account_id, "ts": sale.ticket_status, "state": "confirmed" if finance_role else "pending",
-             "notes": (sale.notes or "").strip() or None, "u": actor.user_id, "now": now,
-             "cu": actor.user_id if finance_role else None, "cat": now if finance_role else None})
+        sale_id = _insert_sale(connection, sale, state="confirmed" if finance_role else "pending", submitted_by=actor.user_id, submitted_at=now,
+                               confirmed_by=actor.user_id if finance_role else None, confirmed_at=now if finance_role else None)
         finance.audit(connection, actor, "ticket_sale_recorded" if finance_role else "ticket_sale_submitted", "ticket_sale", sale_id,
                       after={"cost_minor": sale.cost_minor, "sale_minor": sale.sale_minor, "received_minor": sale.received_minor,
                              "supplier_id": sale.supplier_id, "ticket_status": sale.ticket_status})
@@ -245,9 +268,149 @@ def reject_sale(actor: finance.Actor, sale_id: str, reason: str) -> Sale:
         return _sale(connection.execute(text(_SALE_SELECT + " WHERE t.id = :id"), {"id": sale_id}).mappings().one())
 
 
+# Corrections (Super Admin only; the route decides who may call these). A confirmed entry is never deleted.
+MONEY_FIELDS = ("cost_minor", "sale_minor", "received_minor", "supplier_id", "payment_account_id", "ticket_status")
+DETAIL_FIELDS = ("channel", "agency_id", "customer_person_id", "passenger_name", "travel_date", "route", "pnr", "notes")
+FIELD_LABELS = {"cost_minor": "cost", "sale_minor": "sale price", "received_minor": "amount received", "supplier_id": "airline ID",
+                "payment_account_id": "payment account", "ticket_status": "status", "channel": "channel", "agency_id": "B2B partner",
+                "customer_person_id": "passenger", "passenger_name": "passenger", "travel_date": "travel date", "route": "route", "pnr": "PNR",
+                "notes": "notes"}
+
+
+def _stored_as_input(row) -> SaleInput:
+    return SaleInput(channel=row["channel"], agency_id=row["agency_id"], customer_person_id=row["customer_person_id"],
+                     passenger_name=row["passenger_name"], travel_date=row["travel_date"], route=row["route"], pnr=row["pnr"],
+                     supplier_id=row["supplier_id"], cost_minor=row["cost_minor"], sale_minor=row["sale_minor"], received_minor=row["received_minor"],
+                     payment_account_id=row["payment_account_id"], ticket_status=row["ticket_status"], notes=row["notes"])
+
+
+def _changes(connection, before: SaleInput, after: SaleInput) -> tuple[list[str], list[str]]:
+    """(money fields changed, detail fields changed), comparing the cleaned values that would be stored."""
+    customer, *_ = _names(connection, after)
+    stored, wanted = _detail_values(before, None), _detail_values(after, customer)
+    detail_keys = {"channel": "ch", "agency_id": "ag", "customer_person_id": "cp", "passenger_name": "pn", "travel_date": "td", "route": "rt",
+                   "pnr": "pnr", "notes": "notes"}
+    details = [f for f in DETAIL_FIELDS if stored[detail_keys[f]] != wanted[detail_keys[f]]]
+    money_changed = [f for f in MONEY_FIELDS if getattr(before, f) != getattr(after, f)]
+    return money_changed, details
+
+
+def _locked(connection, sale_id: str, states: tuple[str, ...], refusal: str):
+    row = connection.execute(text("SELECT * FROM ticket_sale_entries WHERE id = :id FOR UPDATE"), {"id": sale_id}).mappings().one_or_none()
+    if row is None or row["state"] == "deleted":
+        raise Refused(404, "Ticket sale not found.", "not_found")
+    if row["state"] not in states:
+        raise Refused(409, refusal, "not_editable")
+    return row
+
+
+def _reverse(connection, actor: finance.Actor, row, reason: str, now: datetime) -> None:
+    connection.execute(text("UPDATE ticket_sale_entries SET state = 'reversed', reversed_at = :n, reversed_by_user_id = :u, correction_reason = :r"
+                            " WHERE id = :id"), {"n": now, "u": actor.user_id, "r": reason, "id": row["id"]})
+
+
+def _correction(connection, actor: finance.Actor, sale_id: str, sale: SaleInput, reason: str) -> tuple[SalePreview, str | None]:
+    """Works out (and, run in a transaction that commits, applies) a correction. Returns the preview and the resulting entry id."""
+    row = _locked(connection, sale_id, ("confirmed", "pending"), "Only a confirmed or pending sale can be edited.")
+    for supplier_id in sorted({s for s in (row["supplier_id"], sale.supplier_id) if s}):
+        ledger.lock(connection, supplier_id)
+    before = _stored_as_input(row)
+    money_changed, details = _changes(connection, before, sale)
+    if not money_changed and not details:
+        return SalePreview(sale.sale_minor - sale.cost_minor, max(sale.sale_minor - sale.received_minor, 0), [], ["Nothing has been changed."]), None
+    now = _now()
+    pending = row["state"] == "pending"
+    if not money_changed or pending:
+        # In place: details only (nothing moves), or a pending entry (nothing posted until Finance confirms, which checks D52).
+        p = _preview(connection, sale, not pending)
+        problems = [x for x in p.problems if not ("below zero" in x or "hasn't been read" in x)]
+        changed = money_changed + details
+        names = list(dict.fromkeys(FIELD_LABELS[f] for f in changed))
+        effects = [f"Update entry #{row['number']} in place: {', '.join(names)}."]
+        effects += p.effects if pending else ["No balance, account or profit changes."]
+        if problems:
+            return SalePreview(p.profit_minor, p.due_minor, effects, problems), None
+        customer, *_ = _names(connection, sale)
+        values = _detail_values(sale, customer)
+        connection.execute(text("UPDATE ticket_sale_entries SET channel = :ch, agency_id = :ag, customer_person_id = :cp, passenger_name = :pn,"
+                                " travel_date = :td, route = :rt, pnr = :pnr, notes = :notes, supplier_id = :sup, cost_minor = :cost,"
+                                " sale_minor = :sale, received_minor = :rec, payment_account_id = :acc, ticket_status = :ts WHERE id = :id"),
+                           {**values, "sup": sale.supplier_id, "cost": sale.cost_minor, "sale": sale.sale_minor, "rec": sale.received_minor,
+                            "acc": sale.payment_account_id, "ts": sale.ticket_status, "id": sale_id})
+        finance.audit(connection, actor, "ticket_sale_corrected", "ticket_sale", sale_id, reason=reason,
+                      before={f: _jsonable(getattr(before, f)) for f in changed}, after={f: _jsonable(getattr(sale, f)) for f in changed})
+        return SalePreview(p.profit_minor, p.due_minor, effects, []), sale_id
+    # Money changed: reverse the original (it leaves every balance), then the corrected entry is checked and saved like a new one.
+    _reverse(connection, actor, row, reason, now)
+    p = _preview(connection, sale, True)
+    effects = [f"Reverse entry #{row['number']}: its {rupees(row['cost_minor'])} cost, {rupees(row['sale_minor'])} sale and "
+               f"{rupees(row['received_minor'])} received come out of every balance."] + p.effects
+    if p.problems:
+        return SalePreview(p.profit_minor, p.due_minor, effects, p.problems, p.supplier_balance_after_minor), None
+    if sale.supplier_id and sale.ticket_status == "issued":
+        ledger.covers(connection, sale.supplier_id, sale.cost_minor, what="The corrected sale")
+    new_id = _insert_sale(connection, sale, state="confirmed", submitted_by=row["submitted_by_user_id"], submitted_at=row["submitted_at"],
+                          confirmed_by=actor.user_id, confirmed_at=now, corrects_sale_id=sale_id)
+    changed = money_changed + details
+    finance.audit(connection, actor, "ticket_sale_reversed", "ticket_sale", sale_id, reason=reason, before={"state": "confirmed"},
+                  after={"state": "reversed", "corrected_by": new_id})
+    finance.audit(connection, actor, "ticket_sale_correction_recorded", "ticket_sale", new_id, reason=reason,
+                  before={f: _jsonable(getattr(before, f)) for f in changed}, after={f: _jsonable(getattr(sale, f)) for f in changed})
+    return SalePreview(p.profit_minor, p.due_minor, effects, [], p.supplier_balance_after_minor), new_id
+
+
+def _jsonable(value):
+    return value.isoformat() if isinstance(value, date) else value
+
+
+def preview_correction(sale_id: str, sale: SaleInput, actor: finance.Actor) -> SalePreview:
+    """What correcting this entry would do, worked out against the real balances and then rolled back: nothing is saved."""
+    with agencies.application_engine().begin() as connection:
+        savepoint = connection.begin_nested()
+        try:
+            return _correction(connection, actor, sale_id, sale, "preview")[0]
+        finally:
+            savepoint.rollback()
+
+
+def correct_sale(actor: finance.Actor, sale_id: str, sale: SaleInput, reason: str) -> Sale:
+    """Super Admin correction of a confirmed entry. Details only: changed in place. Money: the original is reversed and a
+    corrected confirmed entry saved in its place (same submitter and date), checked against D52 like a new one. Logged."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise Refused(422, "Say why the entry is being corrected.", "reason_required")
+    with agencies.application_engine().begin() as connection:
+        preview, result_id = _correction(connection, actor, sale_id, sale, reason)
+        if result_id is None:
+            status, code = _problem_code(preview.problems)
+            if preview.problems == ["Nothing has been changed."]:
+                status, code = 422, "no_change"
+            raise Refused(status, " ".join(preview.problems), code)
+        return _sale(connection.execute(text(_SALE_SELECT + " WHERE t.id = :id"), {"id": result_id}).mappings().one())
+
+
+def delete_sale(actor: finance.Actor, sale_id: str, reason: str) -> Sale:
+    """Super Admin delete. The row is kept, marked deleted: it leaves the list and every balance (a confirmed, issued entry's
+    supplier deduction is given back, shown on that supplier's ledger). The audit log keeps the whole entry as it was."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise Refused(422, "Say why the entry is being deleted.", "reason_required")
+    with agencies.application_engine().begin() as connection:
+        row = _locked(connection, sale_id, ("confirmed", "pending", "rejected"), "A corrected entry can't be deleted; delete the corrected one.")
+        if row["supplier_id"]:
+            ledger.lock(connection, row["supplier_id"])
+        connection.execute(text("UPDATE ticket_sale_entries SET state = 'deleted', reversed_at = :n, reversed_by_user_id = :u, correction_reason = :r"
+                                " WHERE id = :id"), {"n": _now(), "u": actor.user_id, "r": reason, "id": sale_id})
+        entry = {k: _jsonable(v) for k, v in _stored_as_input(row).__dict__.items()}
+        finance.audit(connection, actor, "ticket_sale_deleted", "ticket_sale", sale_id, reason=reason,
+                      before={**entry, "number": row["number"], "state": row["state"]}, after={"state": "deleted"})
+        return _sale(connection.execute(text(_SALE_SELECT + " WHERE t.id = :id"), {"id": sale_id}).mappings().one())
+
+
 def list_sales(*, state: str | None = None, limit: int = 100) -> list[Sale]:
     with agencies.application_engine().begin() as connection:
-        rows = connection.execute(text(_SALE_SELECT + (" WHERE t.state = :s" if state else "") + " ORDER BY t.submitted_at DESC LIMIT :l"),
+        rows = connection.execute(text(_SALE_SELECT + (" WHERE t.state = :s" if state else " WHERE t.state <> 'deleted'")
+                                       + " ORDER BY t.submitted_at DESC, t.number DESC LIMIT :l"),
                                   {"s": state, "l": limit}).mappings().all()
     return [_sale(r) for r in rows]
 
@@ -667,7 +830,7 @@ def activity(*, start: datetime | None, end: datetime | None, supplier_id: str |
               FROM supplier_wallet_entries e LEFT JOIN suppliers s ON s.id = e.provider_id WHERE e.kind = 'top_up'
               UNION ALL
               SELECT t.submitted_at, 'ticket_sale', t.sale_minor, s.name, t.supplier_id, t.submitted_by_user_id, t.pnr, t.number, t.state
-              FROM ticket_sale_entries t LEFT JOIN suppliers s ON s.id = t.supplier_id WHERE t.state <> 'rejected'
+              FROM ticket_sale_entries t LEFT JOIN suppliers s ON s.id = t.supplier_id WHERE t.state NOT IN ('rejected', 'reversed', 'deleted')
             ) h WHERE (CAST(:start AS timestamptz) IS NULL OR at >= :start) AND (CAST(:end AS timestamptz) IS NULL OR at < :end)
                   AND (CAST(:sup AS text) IS NULL OR supplier_id = :sup)
             ORDER BY at DESC LIMIT :l"""), {"start": start, "end": end, "sup": supplier_id, "l": limit}).mappings().all()

@@ -273,7 +273,7 @@ def add_top_up(actor: finance.Actor, supplier_id: str, *, kind: str, amount_mino
 @dataclass
 class LedgerItem:
     at: datetime
-    kind: str  # opening | top_up | adjustment | refund_credit | booking_charge | ticket_sale | balance_check
+    kind: str  # opening | top_up | adjustment | refund_credit | booking_charge | ticket_sale | ticket_sale_reversal | balance_check
     amount_minor: int | None  # + adds, - deducts; None for a balance check
     balance_minor: int | None  # running balance after this item (manual suppliers, from tracking start); API: the read balance
     description: str
@@ -299,24 +299,31 @@ def ledger(supplier_id: str, limit: int = 500) -> tuple[Supplier, Balance, list[
             SELECT * FROM (
               SELECT e.recorded_at AS at, e.kind AS kind, e.amount_minor AS amount, e.reference AS ref, e.reason AS reason,
                      NULL::text AS booking_ref, NULL::bigint AS tse, e.recorded_by_user_id AS by_user, NULL::text AS source,
-                     a.label AS account, NULL::text AS refund_no
+                     a.label AS account, NULL::text AS refund_no, NULL::timestamptz AS origin_at
               FROM supplier_wallet_entries e LEFT JOIN payment_accounts a ON a.id = e.paid_from_account_id WHERE e.provider_id = :p
               UNION ALL
               SELECT ap.applied_at, 'refund_credit', ap.amount_minor, NULL, r.reason, b.reference, NULL, ap.applied_by_user_id, NULL, NULL,
-                     r.number::text
+                     r.number::text, NULL
               FROM supplier_refund_applications ap JOIN supplier_refunds r ON r.id = ap.refund_id JOIN bookings b ON b.id = ap.booking_id
               WHERE r.supplier_id = :p
               UNION ALL
               SELECT c.recorded_at, 'booking_charge', -c.amount_minor, c.supplier_reference, c.reason, b.reference, NULL, c.recorded_by_user_id,
-                     c.source, NULL, NULL
+                     c.source, NULL, NULL, NULL
               FROM supplier_charges c JOIN bookings b ON b.id = c.booking_id WHERE c.provider_id = :p
               UNION ALL
-              SELECT t.confirmed_at, 'ticket_sale', -t.cost_minor, t.pnr, t.route, NULL, t.number, t.confirmed_by_user_id, NULL, NULL, NULL
-              FROM ticket_sale_entries t WHERE t.supplier_id = :p AND t.state = 'confirmed' AND t.ticket_status = 'issued'
+              SELECT t.confirmed_at, 'ticket_sale', -t.cost_minor, t.pnr, t.route, NULL, t.number, t.confirmed_by_user_id, NULL, NULL, NULL, NULL
+              FROM ticket_sale_entries t WHERE t.supplier_id = :p AND t.state IN ('confirmed', 'reversed', 'deleted') AND t.confirmed_at IS NOT NULL
+                AND t.ticket_status = 'issued'
               UNION ALL
-              SELECT checked_at, 'balance_check', NULL, NULL, NULL, NULL, NULL, requested_by_user_id, NULL, NULL, balance_minor::text
+              SELECT t.reversed_at, 'ticket_sale_reversal', t.cost_minor, t.pnr, t.correction_reason, NULL, t.number, t.reversed_by_user_id, t.state,
+                     NULL, NULL, t.confirmed_at
+              FROM ticket_sale_entries t WHERE t.supplier_id = :p AND t.state IN ('reversed', 'deleted') AND t.confirmed_at IS NOT NULL
+                AND t.ticket_status = 'issued'
+              UNION ALL
+              SELECT checked_at, 'balance_check', NULL, NULL, NULL, NULL, NULL, requested_by_user_id, NULL, NULL, balance_minor::text, NULL
               FROM supplier_balance_snapshots WHERE provider_id = :p
-            ) h ORDER BY at, CASE kind WHEN 'top_up' THEN 0 WHEN 'adjustment' THEN 0 WHEN 'refund_credit' THEN 0 ELSE 1 END, kind LIMIT :limit"""), {"p": supplier_id, "limit": limit}).mappings().all()
+            ) h ORDER BY at, CASE kind WHEN 'top_up' THEN 0 WHEN 'adjustment' THEN 0 WHEN 'refund_credit' THEN 0
+                                     WHEN 'ticket_sale_reversal' THEN 0 ELSE 1 END, kind LIMIT :limit"""), {"p": supplier_id, "limit": limit}).mappings().all()
         roles = _roles(connection, {r["by_user"] for r in rows if r["by_user"]})
     items: list[LedgerItem] = []
     running = b.opening_minor if s.balance_mode == "manual" and b.tracking_since is not None else None
@@ -324,7 +331,8 @@ def ledger(supplier_id: str, limit: int = 500) -> tuple[Supplier, Balance, list[
         items.append(LedgerItem(s.opening_set_at, "opening", s.opening_balance_minor, running, "Opening balance"))
     for r in rows:
         kind, amount = r["kind"], r["amount"]
-        counted = b.tracking_since is None or r["at"] >= b.tracking_since
+        # A reversal counts only if the deduction it undoes counted (so the running balance matches the balance).
+        counted = b.tracking_since is None or (r["origin_at"] or r["at"]) >= b.tracking_since
         description, details = _describe(r)
         if kind == "balance_check":
             items.append(LedgerItem(r["at"], kind, None, int(r["refund_no"]), "Balance read from the supplier's system", by_user_id=r["by_user"],
@@ -347,6 +355,9 @@ def _describe(r) -> tuple[str, dict[str, Any]]:
         return (f"Adjustment: {r['reason']}" if r["reason"] else "Adjustment", {})
     if kind == "refund_credit":
         return (f"Refund credit #{r['refund_no']} applied to booking {r['booking_ref']}", {"refund_number": r["refund_no"]})
+    if kind == "ticket_sale_reversal":
+        how = "deleted" if r["source"] == "deleted" else "reversed (corrected)"
+        return (f"Ticket Sale Entry #{r['tse']} {how}" + (f": {r['reason']}" if r["reason"] else ""), {})
     if kind == "ticket_sale":
         return (f"Ticket Sale Entry #{r['tse']}" + (f" ({r['reason']})" if r["reason"] else ""), {})
     if kind == "booking_charge":
