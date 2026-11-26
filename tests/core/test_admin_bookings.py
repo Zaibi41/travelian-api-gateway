@@ -140,7 +140,9 @@ def test_flights_cards_match_the_dashboard_needs_action_cards(monkeypatch):
         assert cards["payment_pending"] == needs["payment_pending"]
         assert cards["expiring_soon"] == needs["expiring_holds"]
         assert cards["expiring_window_hours"] == needs["expiring_window_hours"]
-        for card, count in (("awaiting_issuance", "pending_issuance"), ("payment_pending", "payment_pending"), ("expiring_soon", "expiring_holds")):
+        assert cards["unknown_issuance"] == needs["unknown_issuance"]
+        for card, count in (("awaiting_issuance", "pending_issuance"), ("payment_pending", "payment_pending"), ("expiring_soon", "expiring_holds"),
+                            ("unknown_issuance", "unknown_issuance")):
             picked = api.get("/v1/admin/bookings", params={"product": "flight", "card": card, **extra}).json()
             assert picked["total"] == needs[count]
     assert "payment_pending" not in api.get("/v1/admin/bookings").json()["cards"]
@@ -556,3 +558,15 @@ def test_change_customer_contact_route(monkeypatch):
     assert client(monkeypatch).put(url, json={"phone_code": "+92", "phone": "3001234567", "email": "bad"}).status_code == 422
     assert client(monkeypatch).put("/v1/admin/bookings/TRV-NOPE/customer-contact", json={"phone_code": "+92", "phone": "3001234567"}).status_code == 404
     assert client(monkeypatch, viewer=None).put(url, json={"phone_code": "+92", "phone": "3001234567"}).status_code == 403
+
+
+def test_unknown_issuance_card_lists_flights_with_an_unknown_issuing_outcome(monkeypatch):
+    """gateway#85: the Unknown issuance card and its list on Bookings > Flights; the dashboard opens it with the same count."""
+    rows = [*ROWS, booking(10, status="confirmed", ticket_status="unknown"), booking(11, status="held", ticket_status="unknown",
+                                                                                     hold_expires_at=NOW - timedelta(days=1))]
+    api = client(monkeypatch, rows)
+    flights = api.get("/v1/admin/bookings", params={"product": "flight"}).json()["cards"]
+    assert flights["unknown_issuance"] == 2
+    picked = api.get("/v1/admin/bookings", params={"product": "flight", "card": "unknown_issuance"}).json()
+    assert sorted(i["booking_id"] for i in picked["items"]) == ["TRV-10", "TRV-11"]
+    assert api.get("/v1/admin/dashboard/summary").json()["needs_action"]["unknown_issuance"] == 2

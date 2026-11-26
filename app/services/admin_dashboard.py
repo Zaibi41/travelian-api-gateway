@@ -126,6 +126,12 @@ def is_expiring_hold(booking: BookingRow, now: datetime, window: timedelta) -> b
 ATTENTION_KINDS = ("hold_expiring", "payment_pending", "pending_issuance")
 
 
+def is_unknown_issuance(booking: BookingRow) -> bool:
+    """gateway#85: issuing timed out or was unclear (Booking detail's Unknown issuance, with its read-only check). Flights only,
+    like the other issuance cards, so the card and its Bookings > Flights list agree."""
+    return booking.product == "flight" and booking.ticket_status == "unknown"
+
+
 def attention_kind(booking: BookingRow, now: datetime, window: timedelta) -> str | None:
     """The one Attention Queue kind of a booking (None: not listed). The needs-action cards count exactly these, so a
     card's number equals its rows in the queue."""
@@ -209,6 +215,7 @@ def build_summary(
             payment_pending=sum(attention_kind(booking, now, window) == "payment_pending" for booking in selected),
             expiring_holds=sum(attention_kind(booking, now, window) == "hold_expiring" for booking in selected),
             expiring_window_hours=window_hours,
+            unknown_issuance=sum(is_unknown_issuance(booking) for booking in selected),
         ),
         business=BusinessResults(
             total_bookings=len(period_rows),

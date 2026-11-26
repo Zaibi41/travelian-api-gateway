@@ -20,6 +20,8 @@ class NeedsAction(BaseModel):
     payment_pending: int
     expiring_holds: int
     expiring_window_hours: int
+    unknown_issuance: int = Field(0, description="gateway#85: flight bookings whose issuing outcome is unknown (a ticket may or may not "
+                                                 "exist). Not affected by the date filter.")
 
 
 class CurrencyAmount(BaseModel):
