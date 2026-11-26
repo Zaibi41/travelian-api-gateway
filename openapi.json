@@ -15143,6 +15143,45 @@
         "title": "SoldThroughView",
         "type": "object"
       },
+      "SooperfareOperationInfo": {
+        "properties": {
+          "gateway_path": {
+            "title": "Gateway Path",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "supplier_path": {
+            "title": "Supplier Path",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "writes": {
+            "description": "Changes a booking at SooperFare; needs SOOPERFARE_RAW_WRITE_ENABLED.",
+            "title": "Writes",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "method",
+          "supplier_path",
+          "gateway_path",
+          "writes"
+        ],
+        "title": "SooperfareOperationInfo",
+        "type": "object"
+      },
       "StatementColumns": {
         "properties": {
           "amount": {
@@ -29389,6 +29428,1425 @@
         "summary": "Download voucher",
         "tags": [
           "ratehawk supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/operations": {
+      "get": {
+        "description": "All SooperFare calls the raw console can send.",
+        "operationId": "list_operations_v1_admin_suppliers_sooperfare_raw_operations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SooperfareOperationInfo"
+                  },
+                  "title": "Response List Operations V1 Admin Suppliers Sooperfare Raw Operations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Operations",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/airports": {
+      "get": {
+        "description": "SooperFare GET /v1/airline/airports, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_airports",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Airports",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/ancillary": {
+      "patch": {
+        "description": "SooperFare PATCH /v1/airline/ancillary, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_ancillary_select",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Ancillary (select)",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      },
+      "post": {
+        "description": "SooperFare POST /v1/airline/ancillary, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_ancillary",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Ancillary (get)",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/availability": {
+      "get": {
+        "description": "SooperFare GET /v1/airline/availability, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_availability",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Availability",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/fares": {
+      "post": {
+        "description": "SooperFare POST /v1/airline/fares, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_fares",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Fares On Request",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/quote": {
+      "post": {
+        "description": "SooperFare POST /v1/airline/quote, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_quote",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Quote",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/reservation": {
+      "post": {
+        "description": "SooperFare POST /v1/airline/reservation, sent and answered unchanged. Changes a booking at SooperFare: needs SOOPERFARE_RAW_WRITE_ENABLED, never retried.",
+        "operationId": "sooperfare_raw_reservation",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Reservation",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/airline/search": {
+      "post": {
+        "description": "SooperFare POST /v1/airline/search, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_search",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Search",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/booking/cancel": {
+      "post": {
+        "description": "SooperFare POST /v1/booking/cancel, sent and answered unchanged. Changes a booking at SooperFare: needs SOOPERFARE_RAW_WRITE_ENABLED, never retried.",
+        "operationId": "sooperfare_raw_booking_cancel",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Cancel",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/booking/confirm": {
+      "post": {
+        "description": "SooperFare POST /v1/booking/confirm, sent and answered unchanged. Changes a booking at SooperFare: needs SOOPERFARE_RAW_WRITE_ENABLED, never retried.",
+        "operationId": "sooperfare_raw_booking_confirm",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Confirm",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/booking/extras": {
+      "patch": {
+        "description": "SooperFare PATCH /v1/booking/extras, sent and answered unchanged. Changes a booking at SooperFare: needs SOOPERFARE_RAW_WRITE_ENABLED, never retried.",
+        "operationId": "sooperfare_raw_booking_extras_submit",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Submit Extras",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      },
+      "post": {
+        "description": "SooperFare POST /v1/booking/extras, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_booking_extras",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Get Extras",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/booking/list": {
+      "post": {
+        "description": "SooperFare POST /v1/booking/list, sent and answered unchanged.",
+        "operationId": "sooperfare_raw_booking_list",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: List",
+        "tags": [
+          "sooperfare supplier"
+        ]
+      }
+    },
+    "/v1/admin/suppliers/sooperfare/raw/v1/booking/void": {
+      "post": {
+        "description": "SooperFare POST /v1/booking/void, sent and answered unchanged. Changes a booking at SooperFare: needs SOOPERFARE_RAW_WRITE_ENABLED, never retried.",
+        "operationId": "sooperfare_raw_booking_void",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-sf-client-currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-sf-client-locale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sf-Client-Locale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "SooperFare's documented request body, sent unchanged.",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "SooperFare's answer, unchanged."
+          },
+          "401": {
+            "description": "Not signed in."
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Calls that change bookings are turned off."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "SooperFare error or unreachable."
+          },
+          "503": {
+            "description": "SooperFare isn't configured."
+          },
+          "504": {
+            "description": "Timeout."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "SooperFare raw: Void",
+        "tags": [
+          "sooperfare supplier"
         ]
       }
     },

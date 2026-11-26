@@ -22,6 +22,7 @@ from app.api.routes.integration_group_ticketing import (
 )
 from app.api.routes.live_ticketing import router as live_ticketing_router
 from app.api.routes.ratehawk_supplier import router as ratehawk_supplier_router
+from app.api.routes.sooperfare_supplier import router as sooperfare_supplier_router
 from app.api.routes.logos import router as logos_router
 from app.api.routes.operations import router as operations_router
 from app.api.routes.payment_accounts import finance_router as finance_payment_accounts_router
@@ -41,6 +42,7 @@ router.include_router(group_holds_router)
 router.include_router(group_ticketing_router)
 router.include_router(hotels_router)
 router.include_router(ratehawk_supplier_router)
+router.include_router(sooperfare_supplier_router)
 
 router.include_router(agency_applications_router)
 
