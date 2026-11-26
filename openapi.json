@@ -1639,6 +1639,12 @@
             "title": "Can Accept Shortfall",
             "type": "boolean"
           },
+          "can_correct": {
+            "default": false,
+            "description": "Super Admin: may correct travelers and the customer name (travelian#225; the endpoints still check).",
+            "title": "Can Correct",
+            "type": "boolean"
+          },
           "can_edit_group_tickets": {
             "default": false,
             "description": "Group bookings: this viewer may record the final PNR and ticket numbers on the Tickets tab (issue tickets permission, paid in full; the endpoint still checks).",

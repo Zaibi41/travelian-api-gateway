@@ -474,6 +474,7 @@ class BookingDetail(BaseModel):
     can_accept_shortfall: bool = Field(False, description="Part paid, nothing accepted yet, and this viewer may record payments.")
     sold_through: str | None = Field(None, description="The reseller or channel the booking was sold through (not the customer).")
     can_edit_sold_through: bool = False
+    can_correct: bool = Field(False, description="Super Admin: may correct travelers and the customer name (travelian#225; the endpoints still check).")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
     can_set_selling_price: bool = Field(False, description="Whether this viewer may change the selling price now: on hold, not issued, nothing paid, "

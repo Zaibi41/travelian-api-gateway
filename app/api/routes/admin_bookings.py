@@ -101,6 +101,7 @@ async def booking_detail(viewer: Viewer, booking_id: Annotated[str, Path(max_len
         people = None  # the tabs stay "not available" rather than failing the whole page
     detail = service.build_detail(booking, viewer.visibility, people, today=_now().date(), can_record_payments=viewer.can(RECORD_PAYMENTS),
                                   can_issue_tickets=viewer.can(ISSUE_TICKETS))
+    detail.can_correct = viewer.role == "super_admin"
     try:
         supplier = await run_in_threadpool(sooperfare_bookings.view, booking.booking_id, viewer.visibility.supplier_names)
     except Exception:  # noqa: BLE001 - the SooperFare block is information only; the booking still shows
