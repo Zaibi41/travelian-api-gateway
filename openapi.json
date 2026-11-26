@@ -281,6 +281,22 @@
         "title": "ActivityView",
         "type": "object"
       },
+      "AddBookingNote": {
+        "properties": {
+          "body": {
+            "description": "The note, up to 1,000 characters.",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "AddBookingNote",
+        "type": "object"
+      },
       "AddPaymentFeeRequest": {
         "properties": {
           "amount_minor": {
@@ -2717,6 +2733,70 @@
         "title": "BookingMoney",
         "type": "object"
       },
+      "BookingNote": {
+        "description": "gateway#89: a staff note on a booking.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Role"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "created_at"
+        ],
+        "title": "BookingNote",
+        "type": "object"
+      },
+      "BookingNotes": {
+        "properties": {
+          "notes": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/BookingNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "notes"
+        ],
+        "title": "BookingNotes",
+        "type": "object"
+      },
       "BookingPayment": {
         "description": "A customer payment (Payments tab).",
         "properties": {
@@ -3673,6 +3753,81 @@
           "received_at"
         ],
         "title": "ConfirmSlipRequest",
+        "type": "object"
+      },
+      "ContactMessage": {
+        "description": "A message from the Contact page. Name and message are required, and an email or a mobile number to reply to.\n`website` is a hidden field people never fill in: when it has a value the message is treated as spam (accepted, not kept).",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "message": {
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "pattern": "^\\+?[0-9][0-9 ()-]{6,19}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leave empty (spam trap).",
+            "title": "Website"
+          }
+        },
+        "required": [
+          "name",
+          "message"
+        ],
+        "title": "ContactMessage",
+        "type": "object"
+      },
+      "ContactReceived": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ContactReceived",
         "type": "object"
       },
       "CorrectionResult": {
@@ -19381,6 +19536,116 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/notes": {
+      "get": {
+        "description": "Staff notes on this booking, newest first. Back office only.",
+        "operationId": "list_booking_notes_v1_admin_bookings__booking_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingNotes"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Back office only."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "description": "Empty or too long."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Booking Notes",
+        "tags": [
+          "admin bookings"
+        ]
+      },
+      "post": {
+        "description": "Add a note (up to 1,000 characters). Back office only; also logged on the Audit tab as \"Note added\" (without the text).",
+        "operationId": "add_booking_note_v1_admin_bookings__booking_id__notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBookingNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingNote"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Back office only."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "description": "Empty or too long."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Booking Note",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/payments": {
       "post": {
         "description": "Record a customer payment (bank transfer, JazzCash or 1Link). Updates paid / part-paid / unpaid; logged.",
@@ -31596,6 +31861,47 @@
           }
         },
         "summary": "Card Fee Quote",
+        "tags": [
+          "public website"
+        ]
+      }
+    },
+    "/v1/public/contact": {
+      "post": {
+        "description": "gateway#114: send a message to the Travelian team (stored in the admin under Notifications and emailed to the team\nwhen email is set up). At most 5 per hour from one address. Never logs the message.",
+        "operationId": "contact_v1_public_contact_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactReceived"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Missing or invalid fields."
+          },
+          "429": {
+            "description": "Too many messages."
+          },
+          "503": {
+            "description": "It couldn't be sent; nothing was saved."
+          }
+        },
+        "summary": "Contact",
         "tags": [
           "public website"
         ]

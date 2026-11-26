@@ -23,14 +23,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core.config import settings
 from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS, BackOfficeUser, require_super_admin
-from app.db import booking_corrections, booking_payments, booking_people, booking_pricing
+from app.db import booking_corrections, booking_notes, booking_payments, booking_people, booking_pricing
 from app.db import issuance as issuance_store
 from app.services.group_ticketing_status import ITINERARY_NOT_YET, ticketing_status
 from app.services import group_terms
 from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
-from app.schemas.admin_bookings import CorrectionResult, CustomerNameCorrection, TravelerCorrection
+from app.schemas.admin_bookings import AddBookingNote, BookingNote, BookingNotes, CorrectionResult, CustomerNameCorrection, TravelerCorrection
 from app.schemas.admin_bookings import (
     BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, CustomerContactChange, CustomerContactChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
@@ -530,3 +530,43 @@ async def correct_customer_name(viewer: SuperAdmin, body: CustomerNameCorrection
     except booking_corrections.CorrectionRefused as error:
         raise HTTPException(error.status, error.message) from None
     return _corrected(result)
+
+
+# ---------- notes (gateway#89) ----------
+
+NOTE_RESPONSES = {403: {"description": "Back office only."}, 404: {"description": "No such booking."}, 422: {"description": "Empty or too long."}}
+
+
+def _note_view(note: booking_notes.Note) -> BookingNote:
+    return BookingNote(id=note.id, body=note.body, created_at=note.created_at, created_by_user_id=note.created_by_user_id,
+                       created_by_role=note.created_by_role)
+
+
+async def _visible_booking(viewer, booking_id: str):
+    bookings = await run_in_threadpool(_read_bookings)
+    booking = service.find_booking(bookings, booking_id)
+    if booking is None or not service.visible_to(booking, viewer.visibility):
+        raise HTTPException(404, "Booking not found.")
+    return booking
+
+
+@router.get("/{booking_id}/notes", response_model=BookingNotes, response_model_exclude_none=True, responses=NOTE_RESPONSES)
+async def list_booking_notes(viewer: Viewer, booking_id: Annotated[str, Path(max_length=64)]):
+    """Staff notes on this booking, newest first. Back office only."""
+    booking = await _visible_booking(viewer, booking_id)
+    try:
+        notes = await run_in_threadpool(booking_notes.list_notes, booking.booking_id)
+    except booking_notes.NoteRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return BookingNotes(notes=[_note_view(n) for n in notes])
+
+
+@router.post("/{booking_id}/notes", response_model=BookingNote, response_model_exclude_none=True, status_code=201, responses=NOTE_RESPONSES)
+async def add_booking_note(viewer: Viewer, body: AddBookingNote, booking_id: Annotated[str, Path(max_length=64)]):
+    """Add a note (up to 1,000 characters). Back office only; also logged on the Audit tab as "Note added" (without the text)."""
+    booking = await _visible_booking(viewer, booking_id)
+    try:
+        note = await run_in_threadpool(booking_notes.add_note, booking.booking_id, body.body, viewer.user_id)
+    except booking_notes.NoteRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return _note_view(note)
