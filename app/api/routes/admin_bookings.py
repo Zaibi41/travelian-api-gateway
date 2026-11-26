@@ -16,20 +16,21 @@ import logging
 import re
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.admin_dashboard import Viewer, _now, _read_bookings
 from app.core.config import settings
-from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS
-from app.db import booking_payments, booking_people, booking_pricing
+from app.core.field_visibility import ISSUE_TICKETS, RECORD_PAYMENTS, BackOfficeUser, require_super_admin
+from app.db import booking_corrections, booking_payments, booking_people, booking_pricing
 from app.db import issuance as issuance_store
 from app.services.group_ticketing_status import ITINERARY_NOT_YET, ticketing_status
 from app.services import group_terms
 from app.services import issuance as issuance_service
 from app.vendors.flights.southair import normalize as southair_normalize
 from app.vendors.flights.southair.client import SouthairError, configured_client
+from app.schemas.admin_bookings import CorrectionResult, CustomerNameCorrection, TravelerCorrection
 from app.schemas.admin_bookings import (
     BookingDetail, BookingList, BookingMoney, ResendEmailResult, CustomerEmailChange, CustomerEmailChanged, CustomerContactChange, CustomerContactChanged, BookingPayment, BookingStatus, Card, DateType, IssuanceAttempt, IssuanceChecklist, IssuanceRequest, ReholdBody, ReholdResult, SupplierBookingView,
     IssuanceResolveRequest, IssuanceResult, IssuanceStatus, PaymentStatus, Product, RecordPaymentRequest, RecordPaymentResponse,
@@ -490,3 +491,41 @@ def _billable_minor(booking_id: str) -> int | None:
     except (HTTPException, SQLAlchemyError):
         return None
     return found.billable_minor if found else None
+
+
+# ---------- Super Admin corrections (travelian#225) ----------
+
+SuperAdmin = Annotated[BackOfficeUser, Depends(require_super_admin)]
+CORRECTION_RESPONSES = {403: {"description": "Super Admin only."}, 404: {"description": "No such booking or traveler."},
+                        409: {"description": "Nothing changed, or no customer record."}, 422: {"description": "Invalid value or no reason."}}
+
+
+def _corrected(result: booking_corrections.Corrected) -> CorrectionResult:
+    message = "Corrected and logged."
+    if result.sent_to_airline:
+        message += " This booking was already sent to the airline: correct it with the airline too."
+    return CorrectionResult(fields=result.fields, sent_to_airline=result.sent_to_airline, message=message)
+
+
+@router.put("/{booking_id}/travelers/{position}", response_model=CorrectionResult, responses=CORRECTION_RESPONSES)
+async def correct_traveler(viewer: SuperAdmin, body: TravelerCorrection, booking_id: Annotated[str, Path(max_length=64)],
+                           position: Annotated[int, Path(ge=0, le=20)]):
+    """Correct a traveler's title, name, date of birth or document on this booking. Super Admin only; needs a reason;
+    logged on the booking (fields and reason, never values). Prices, payments and tickets are not changed."""
+    changes = body.model_dump(exclude={"reason"}, exclude_none=True)
+    try:
+        result = await run_in_threadpool(booking_corrections.correct_traveler, booking_id, position, changes, body.reason, viewer.user_id)
+    except booking_corrections.CorrectionRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return _corrected(result)
+
+
+@router.put("/{booking_id}/customer-name", response_model=CorrectionResult, responses=CORRECTION_RESPONSES)
+async def correct_customer_name(viewer: SuperAdmin, body: CustomerNameCorrection, booking_id: Annotated[str, Path(max_length=64)]):
+    """Correct the customer's name on this booking. Super Admin only; needs a reason; logged."""
+    changes = body.model_dump(exclude={"reason"}, exclude_none=True)
+    try:
+        result = await run_in_threadpool(booking_corrections.correct_customer, booking_id, changes, body.reason, viewer.user_id)
+    except booking_corrections.CorrectionRefused as error:
+        raise HTTPException(error.status, error.message) from None
+    return _corrected(result)

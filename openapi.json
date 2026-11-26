@@ -3596,6 +3596,34 @@
         "title": "ConfirmSlipRequest",
         "type": "object"
       },
+      "CorrectionResult": {
+        "properties": {
+          "fields": {
+            "description": "The fields that changed.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "sent_to_airline": {
+            "description": "The booking already has a PNR or ticket: correct it with the airline too.",
+            "title": "Sent To Airline",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "fields",
+          "sent_to_airline",
+          "message"
+        ],
+        "title": "CorrectionResult",
+        "type": "object"
+      },
       "CreateAnnouncementRequest": {
         "properties": {
           "ends_at": {
@@ -4023,6 +4051,46 @@
           "at"
         ],
         "title": "CustomerEmailProblem",
+        "type": "object"
+      },
+      "CustomerNameCorrection": {
+        "description": "Super Admin: correct the customer's name on a booking (travelian#225). Contact details: customer-contact.",
+        "properties": {
+          "first_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "CustomerNameCorrection",
         "type": "object"
       },
       "DashboardFilterOptions": {
@@ -16052,6 +16120,124 @@
         "title": "TopUpRequest",
         "type": "object"
       },
+      "TravelerCorrection": {
+        "description": "Super Admin: correct one traveler on a booking (travelian#225). Leave a field out to keep it. Logged with the reason\n(which fields, never the values).",
+        "properties": {
+          "date_of_birth": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Of Birth"
+          },
+          "document_country": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Country"
+          },
+          "document_expiry": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Expiry"
+          },
+          "document_number": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]{1,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Number"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z][A-Za-z '\\-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "nationality": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nationality"
+          },
+          "reason": {
+            "description": "Why this is corrected; shown in the booking's audit trail.",
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MR",
+                  "MRS",
+                  "MISS",
+                  "MASTER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "TravelerCorrection",
+        "type": "object"
+      },
       "UpdatePaymentSettings": {
         "properties": {
           "card_fee_bps": {
@@ -18542,6 +18728,70 @@
         ]
       }
     },
+    "/v1/admin/bookings/{booking_id}/customer-name": {
+      "put": {
+        "description": "Correct the customer's name on this booking. Super Admin only; needs a reason; logged.",
+        "operationId": "correct_customer_name_v1_admin_bookings__booking_id__customer_name_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerNameCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "404": {
+            "description": "No such booking or traveler."
+          },
+          "409": {
+            "description": "Nothing changed, or no customer record."
+          },
+          "422": {
+            "description": "Invalid value or no reason."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Correct Customer Name",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
     "/v1/admin/bookings/{booking_id}/emails/{email}/resend": {
       "post": {
         "description": "Send a customer email for this booking again (gateway#53), e.g. after SES refused it. Back office only; logged\non the booking with who resent it. Sending can still fail; the answer says why in plain words.",
@@ -19506,6 +19756,81 @@
           }
         ],
         "summary": "Rehold At Supplier",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/travelers/{position}": {
+      "put": {
+        "description": "Correct a traveler's title, name, date of birth or document on this booking. Super Admin only; needs a reason;\nlogged on the booking (fields and reason, never values). Prices, payments and tickets are not changed.",
+        "operationId": "correct_traveler_v1_admin_bookings__booking_id__travelers__position__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "maximum": 20,
+              "minimum": 0,
+              "title": "Position",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TravelerCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "404": {
+            "description": "No such booking or traveler."
+          },
+          "409": {
+            "description": "Nothing changed, or no customer record."
+          },
+          "422": {
+            "description": "Invalid value or no reason."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Correct Traveler",
         "tags": [
           "admin bookings"
         ]
