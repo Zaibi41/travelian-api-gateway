@@ -281,6 +281,22 @@
         "title": "ActivityView",
         "type": "object"
       },
+      "AddBookingNote": {
+        "properties": {
+          "body": {
+            "description": "The note, up to 1,000 characters.",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "AddBookingNote",
+        "type": "object"
+      },
       "AddPaymentFeeRequest": {
         "properties": {
           "amount_minor": {
@@ -2715,6 +2731,70 @@
           "currency"
         ],
         "title": "BookingMoney",
+        "type": "object"
+      },
+      "BookingNote": {
+        "description": "gateway#89: a staff note on a booking.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Role"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "created_at"
+        ],
+        "title": "BookingNote",
+        "type": "object"
+      },
+      "BookingNotes": {
+        "properties": {
+          "notes": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/BookingNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "notes"
+        ],
+        "title": "BookingNotes",
         "type": "object"
       },
       "BookingPayment": {
@@ -19376,6 +19456,116 @@
           }
         ],
         "summary": "Itinerary Pdf",
+        "tags": [
+          "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/bookings/{booking_id}/notes": {
+      "get": {
+        "description": "Staff notes on this booking, newest first. Back office only.",
+        "operationId": "list_booking_notes_v1_admin_bookings__booking_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingNotes"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Back office only."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "description": "Empty or too long."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Booking Notes",
+        "tags": [
+          "admin bookings"
+        ]
+      },
+      "post": {
+        "description": "Add a note (up to 1,000 characters). Back office only; also logged on the Audit tab as \"Note added\" (without the text).",
+        "operationId": "add_booking_note_v1_admin_bookings__booking_id__notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Booking Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBookingNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingNote"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Back office only."
+          },
+          "404": {
+            "description": "No such booking."
+          },
+          "422": {
+            "description": "Empty or too long."
+          },
+          "503": {
+            "description": "Booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Booking Note",
         "tags": [
           "admin bookings"
         ]

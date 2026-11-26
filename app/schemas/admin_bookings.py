@@ -528,6 +528,24 @@ class CorrectionResult(BaseModel):
     message: str
 
 
+class BookingNote(BaseModel):
+    """gateway#89: a staff note on a booking."""
+
+    id: str
+    body: str
+    created_at: datetime
+    created_by_user_id: str | None = None
+    created_by_role: str | None = None
+
+
+class BookingNotes(BaseModel):
+    notes: list[BookingNote] = Field(description="Newest first.")
+
+
+class AddBookingNote(BaseModel):
+    body: str = Field(min_length=1, max_length=1000, description="The note, up to 1,000 characters.")
+
+
 from app.schemas.finance import ProfitView  # noqa: E402  (forward reference in BookingFare)
 
 BookingFare.model_rebuild()
