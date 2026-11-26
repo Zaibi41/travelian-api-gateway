@@ -230,7 +230,7 @@ def test_past_due_is_hidden_whatever_the_status_and_compared_in_utc():
             booking(23, status="held", payment_status="unpaid", ticket_status="not_issued", hold_expires_at=past)]
     assert figures.build_attention_queue(rows, figures.DashboardQuery(), utc_now, 2, 10).total == 0
     assert figures.build_summary(rows, figures.DashboardQuery(), utc_now, 2, True).needs_action.model_dump(exclude={"expiring_window_hours"}) == {
-        "pending_issuance": 0, "payment_pending": 0, "expiring_holds": 0}
+        "pending_issuance": 0, "payment_pending": 0, "expiring_holds": 0, "unknown_issuance": 0}
 
 
 def test_each_card_count_equals_its_rows_in_the_queue_soonest_first():
@@ -286,3 +286,21 @@ def test_per_product_profit_is_omitted_without_margin_access(monkeypatch):
     assert [p["product"] for p in body["business"]["by_product"]] == ["flight", "group"]
     assert all("gross_profit" not in p for p in body["business"]["by_product"]) and "gross_profit" not in body["business"]
     assert client(monkeypatch, PER_PRODUCT).get("/v1/admin/dashboard/summary", params={"product": "hotel"}).status_code == 422
+
+
+def test_unknown_issuance_card_counts_flights_with_an_unknown_outcome_whatever_the_date_and_matches_its_list():
+    """gateway#85: a flight whose issuing timed out (ticket_status unknown) is counted, old or new, overdue or not; other
+    products and other issuance states are not. The Bookings > Flights card with the same rule lists the same rows."""
+    from app.services import admin_bookings
+
+    rows = [booking(40, status="confirmed", ticket_status="unknown", created_at=datetime(2025, 1, 1, tzinfo=PKT)),
+            booking(41, status="held", ticket_status="unknown", payment_status="paid", hold_expires_at=NOW - timedelta(days=2)),
+            booking(42, product="group", status="held", ticket_status="unknown"),
+            booking(43, status="confirmed", ticket_status="issued"), booking(44, status="held", ticket_status="processing")]
+    for period in ("all", "today"):
+        summary = figures.build_summary(rows, figures.DashboardQuery(period=period), NOW, 2, True)
+        assert summary.needs_action.unknown_issuance == 2
+    cards = admin_bookings.build_cards([r for r in rows if r.product == "flight"], "flight", NOW, 2)
+    assert cards.unknown_issuance == 2
+    assert admin_bookings.build_cards(rows, "group", NOW, 2).unknown_issuance is None  # flights tab only
+    assert figures.build_summary([], figures.DashboardQuery(), NOW, 2, True).needs_action.unknown_issuance == 0  # a real zero

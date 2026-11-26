@@ -2429,6 +2429,18 @@
             "description": "Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
             "title": "Payment Pending"
           },
+          "unknown_issuance": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Flights tab only (gateway#85): issuing timed out or was unclear, so a ticket may or may not exist; check with the supplier (the dashboard's Unknown issuance).",
+            "title": "Unknown Issuance"
+          },
           "unpaid": {
             "title": "Unpaid",
             "type": "integer"
@@ -9800,6 +9812,12 @@
           },
           "pending_issuance": {
             "title": "Pending Issuance",
+            "type": "integer"
+          },
+          "unknown_issuance": {
+            "default": 0,
+            "description": "gateway#85: flight bookings whose issuing outcome is unknown (a ticket may or may not exist). Not affected by the date filter.",
+            "title": "Unknown Issuance",
             "type": "integer"
           }
         },
@@ -18464,7 +18482,8 @@
                     "awaiting_issuance",
                     "hold_deadlines",
                     "payment_pending",
-                    "paid_not_issued"
+                    "paid_not_issued",
+                    "unknown_issuance"
                   ],
                   "type": "string"
                 },

@@ -23,7 +23,7 @@ PaymentMethod = Literal["bank_transfer", "jazzcash", "1link"]
 #: A payment as shown: also PayFast (online, recorded only by the gateway from a verified PayFast result).
 RecordedPaymentMethod = Literal["bank_transfer", "jazzcash", "1link", "payfast", "alfalah"]
 Card = Literal["confirmed", "on_hold", "cancelled", "unpaid", "expiring_soon", "awaiting_issuance", "hold_deadlines", "payment_pending",
-               "paid_not_issued"]
+               "paid_not_issued", "unknown_issuance"]
 DateType = Literal["created"]  # travel date is not stored yet
 DetailSection = Literal["itinerary", "passengers", "payments", "tickets", "servicing", "audit"]
 
@@ -49,6 +49,10 @@ class BookingListCards(BaseModel):
     hold_deadlines: int | None = Field(None, description="Flights and Group Ticketing tabs: open holds not yet expired.")
     payment_pending: int | None = Field(
         None, description="Flights tab only: open holds not fully paid and not past their deadline (the dashboard's Payment pending).",
+    )
+    unknown_issuance: int | None = Field(
+        None, description="Flights tab only (gateway#85): issuing timed out or was unclear, so a ticket may or may not exist; check with the "
+                          "supplier (the dashboard's Unknown issuance).",
     )
 
 

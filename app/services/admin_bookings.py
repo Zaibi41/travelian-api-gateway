@@ -17,7 +17,7 @@ from app.core.field_visibility import FieldVisibility
 from app.db.booking_people import People
 from app.db.bookings import BookingRow
 from app.services.admin_dashboard import (
-    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_payment_pending, is_pending_issuance, period_range,
+    CLOSED, DASHBOARD_PRODUCTS, OPEN_HOLD, attention_kind, is_expiring_hold, is_unknown_issuance, is_payment_pending, is_pending_issuance, period_range,
 )
 from app.services import baggage, group_terms
 from app.services.group_ticketing_status import ticketing_status
@@ -206,10 +206,12 @@ def card_rules(now: datetime, window_hours: int):
         "hold_deadlines": lambda b: _open_hold(b, now),
         "payment_pending": lambda b: attention_kind(b, now, window) == "payment_pending",
         "paid_not_issued": lambda b: booking_status(b) in PAID_NEEDS_STAFF,
+        # gateway#85: the dashboard's Unknown issuance card opens this (the same rule: flights with an unknown issuing outcome).
+        "unknown_issuance": lambda b: is_unknown_issuance(b),
     }
 
 
-FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines", "payment_pending", "paid_not_issued"}
+FLIGHT_ONLY_CARDS = {"awaiting_issuance", "hold_deadlines", "payment_pending", "paid_not_issued", "unknown_issuance"}
 
 
 def build_cards(rows: list[BookingRow], product: str | None, now: datetime, window_hours: int) -> BookingListCards:
@@ -227,6 +229,7 @@ def build_cards(rows: list[BookingRow], product: str | None, now: datetime, wind
         cards.awaiting_issuance = count("awaiting_issuance")
         cards.payment_pending = count("payment_pending")
         cards.paid_not_issued = count("paid_not_issued")
+        cards.unknown_issuance = count("unknown_issuance")
     return cards
 
 
