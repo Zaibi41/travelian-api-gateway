@@ -1,0 +1,698 @@
+{
+  "info": {
+    "name": "SooperFare Raw (via Travelian gateway)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Every SooperFare partner call, sent unchanged through the Travelian gateway (SooperFare only accepts the gateway's IP). Answers are SooperFare's own body; header X-Supplier-Status carries SooperFare's HTTP status.\n\nSet TRAVELIAN_TOKEN to a Super Admin Cognito ACCESS token (Bearer). The gateway logs in to SooperFare itself; there is no Login request.\n\nRequests marked [changes booking] need SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Confirm issues tickets and charges the SooperFare balance.\n\nBuilt from SooperFare's 'SooperFare Shareable' collection, with SooperFare auth headers and the login request removed."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{TRAVELIAN_TOKEN}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "GATEWAY",
+      "value": "https://api.travelian.pk"
+    },
+    {
+      "key": "END_POINT",
+      "value": "{{GATEWAY}}/v1/admin/suppliers/sooperfare/raw"
+    },
+    {
+      "key": "TRAVELIAN_TOKEN",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "List raw operations (Travelian)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{END_POINT}}/operations",
+          "host": [
+            "{{END_POINT}}"
+          ],
+          "path": [
+            "operations"
+          ]
+        },
+        "description": "Every SooperFare call the gateway can send, with its gateway path and whether it changes a booking."
+      },
+      "response": []
+    },
+    {
+      "name": "Airline",
+      "item": [
+        {
+          "name": "Airports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-SF-Client-Locale",
+                "value": "AR",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/airports?query=fra",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "airports"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "fra"
+                }
+              ]
+            },
+            "description": "SooperFare GET /v1/airline/airports, sent and answered unchanged through the Travelian gateway."
+          },
+          "response": []
+        },
+        {
+          "name": "Availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"flexible_dates\": false,\n    \"trip_type\": \"one_way\",\n    \"cabin_class\": \"economy\",\n    \"legs\": [\n        {\n            \"from\": \"KHI\",\n            \"to\": \"LHE\",\n            \"date\": \"2026-12-20\",\n            \"return\": null\n        }\n    ],\n    \"travelers\": [\n        {\n            \"type\": \"adult\",\n            \"qty\": 1\n        },\n        {\n            \"type\": \"child\",\n            \"qty\": 0\n        },\n        {\n            \"type\": \"infant\",\n            \"qty\": 0\n        }\n    ],\n    \"redirect\": true,\n    \"provider\": \"PA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/availability",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "availability"
+              ]
+            },
+            "description": "SooperFare GET /v1/airline/availability, sent and answered unchanged through the Travelian gateway."
+          },
+          "response": []
+        },
+        {
+          "name": "Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-SF-Client-Currency",
+                "value": "SAR",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"flexible_dates\": false,\n    \"trip_type\": \"one_way\",\n    \"cabin_class\": \"economy\",\n    \"legs\": [\n        {\n            \"from\": \"KHI\",\n            \"to\": \"LHE\",\n            \"date\": \"2026-12-20\",\n            \"return\": null\n        }\n    ],\n    \"travelers\": [\n        {\n            \"type\": \"adult\",\n            \"qty\": 1\n        },\n        {\n            \"type\": \"child\",\n            \"qty\": 0\n        },\n        {\n            \"type\": \"infant\",\n            \"qty\": 0\n        }\n    ],\n    \"redirect\": true,\n    \"provider\": \"PA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/search",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "search"
+              ]
+            },
+            "description": "SooperFare POST /v1/airline/search, sent and answered unchanged through the Travelian gateway.\n\nprovider: PA (Airblue), PF (AirSial), PK (PIA), ONEAPI, Z8 ... (from Availability)."
+          },
+          "response": []
+        },
+        {
+          "name": "Quote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-SF-Client-Currency",
+                "value": "SAR",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ref_id\": \"0454587a-ae4d-40ad-a63a-99b7ecc4f8ca\",\r\n    \"legs\": [\r\n        {\r\n            \"ref_id\": \"a37392f4-000a-4cbd-9b51-beb553e3c002\",\r\n            \"flight\": {\r\n                \"ref_id\": \"4d60a6b7-d3a9-4192-995e-1a890b7a04a8\",\r\n                \"fare\": {\r\n                    \"ref_id\": \"0f56f70b-dc8d-4eb7-8290-21e1e0a453a2\"\r\n                }\r\n            }\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/quote",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "quote"
+              ]
+            },
+            "description": "SooperFare POST /v1/airline/quote, sent and answered unchanged through the Travelian gateway."
+          },
+          "response": []
+        },
+        {
+          "name": "Ancillary (get)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ref_id\": \"a4395fd1-dcb5-48f7-a4ad-7ca735f7e429\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/ancillary",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "ancillary"
+              ]
+            },
+            "description": "SooperFare POST /v1/airline/ancillary, sent and answered unchanged through the Travelian gateway.\n\nExtras SooperFare offers on a quote (baggage, meals, seats, SSRs) with their prices. ref_id: the quote's ref_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Ancillary (select)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ref_id\": \"7ddb9870-ded2-448c-aa8e-b8ff8ed2d1d4\",\r\n    \"ancillaries\": {\r\n        \"segments\": [\r\n            {\r\n                \"ref_id\": \"0a3fcccb-c2eb-4f7a-a849-0ceddbe1a729\",\r\n                \"passengers\": [\r\n                    {\r\n                        \"ref_id\": \"15cac09a-fdcf-418b-96e8-b31562325870\",\r\n                        \"baggages\": [\r\n                            {\r\n                                \"ref_id\": \"96602ef6-fbb6-4b95-b7f4-46540ed60d39\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"seats\": [\r\n                            {\r\n                                \"ref_id\": \"791d6299-f4c2-4417-989d-70b693e938e7\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"meals\": [\r\n                            {\r\n                                \"ref_id\": \"a036ae4e-95a6-4bfc-8626-9a304518cfff\",\r\n                                \"qty\": 1\r\n                            }\r\n                        ],\r\n                        \"ssrs\": []\r\n                    },\r\n                    {\r\n                        \"ref_id\": \"0252e9a0-741a-4c37-812b-cba3c9c29a75\",\r\n                        \"baggages\": [\r\n                            {\r\n                                \"ref_id\": \"96602ef6-fbb6-4b95-b7f4-46540ed60d39\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"seats\": [\r\n                            {\r\n                                \"ref_id\": \"5c92dce3-8059-4a9c-86ee-ce56988dcc10\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"meals\": [\r\n                            {\r\n                                \"ref_id\": \"a036ae4e-95a6-4bfc-8626-9a304518cfff\",\r\n                                \"qty\": 1\r\n                            }\r\n                        ],\r\n                        \"ssrs\": []\r\n                    }\r\n                ]\r\n            }\r\n        ]\r\n    }\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/ancillary",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "ancillary"
+              ]
+            },
+            "description": "SooperFare PATCH /v1/airline/ancillary, sent and answered unchanged through the Travelian gateway.\n\nExtras SooperFare offers on a quote (baggage, meals, seats, SSRs) with their prices. ref_id: the quote's ref_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Reservation [changes booking]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ref_id\": \"0454587a-ae4d-40ad-a63a-99b7ecc4f8ca\",\r\n    \"is_ancillary\": true,\r\n    \"contact_info\": {\r\n        \"first_name\": \"test\",\r\n        \"last_name\": \"test\",\r\n        \"email_address\": \"test@sooperfare.com\",\r\n        \"phone_number\": \"+0000000000000\",\r\n        \"phone_number_country\": \"pk\"\r\n    },\r\n    \"passengers\": [\r\n        {\r\n            \"ref_id\": \"cea1dd22-d42a-4949-b213-21c87560b300\",\r\n            \"title\": \"mr\",\r\n            \"first_name\": \"test\",\r\n            \"last_name\": \"test\",\r\n            \"gender\": \"male\",\r\n            \"dob\": \"2000-05-16\",\r\n            \"nationality\": \"PK\",\r\n            \"nic\": null,\r\n            \"passport_number\": \"576665656565hg\",\r\n            \"passport_country\": \"PK\",\r\n            \"passport_expiry\": \"2026-03-16\",\r\n            \"type\": \"adult\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/reservation",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "reservation"
+              ]
+            },
+            "description": "SooperFare POST /v1/airline/reservation, sent and answered unchanged through the Travelian gateway.\n\nCHANGES A REAL BOOKING at SooperFare. Answers 409 writes_disabled unless SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Never retried."
+          },
+          "response": []
+        },
+        {
+          "name": "Fares On Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ref_id\": \"636d564f-256b-468a-a9a9-e620ebac599d\",\r\n    \"legs\": [\r\n        {\r\n            \"ref_id\": \"5066fc12-d004-4a6c-8c41-196f7efaf300\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{END_POINT}}/v1/airline/fares",
+              "host": [
+                "{{END_POINT}}"
+              ],
+              "path": [
+                "v1",
+                "airline",
+                "fares"
+              ]
+            },
+            "description": "SooperFare POST /v1/airline/fares, sent and answered unchanged through the Travelian gateway."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Partner",
+      "item": [
+        {
+          "name": "Bookings",
+          "item": [
+            {
+              "name": "Extras",
+              "item": [
+                {
+                  "name": "Airline",
+                  "item": [
+                    {
+                      "name": "Get Extras",
+                      "request": {
+                        "method": "POST",
+                        "header": [
+                          {
+                            "key": "Content-Type",
+                            "value": "application/json",
+                            "type": "text"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json",
+                            "type": "text"
+                          },
+                          {
+                            "key": "X-SF-Client-Currency",
+                            "value": "SAR",
+                            "type": "text",
+                            "disabled": true
+                          }
+                        ],
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\"booking_ref_id\":\"5a31ae27-fe8a-43ac-b148-b3c333ef8d49\"}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        },
+                        "url": {
+                          "raw": "{{END_POINT}}/v1/booking/extras",
+                          "host": [
+                            "{{END_POINT}}"
+                          ],
+                          "path": [
+                            "v1",
+                            "booking",
+                            "extras"
+                          ]
+                        },
+                        "description": "SooperFare POST /v1/booking/extras, sent and answered unchanged through the Travelian gateway."
+                      },
+                      "response": []
+                    },
+                    {
+                      "name": "Submit Extras [changes booking]",
+                      "request": {
+                        "method": "PATCH",
+                        "header": [
+                          {
+                            "key": "Content-Type",
+                            "value": "application/json",
+                            "type": "text"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json",
+                            "type": "text"
+                          },
+                          {
+                            "key": "X-SF-Client-Currency",
+                            "value": "SAR",
+                            "type": "text",
+                            "disabled": true
+                          }
+                        ],
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\r\n    \"booking_ref_id\": \"62acca0d-2af0-4b39-8ffa-dd9e86ac12fa\",\r\n    \"ancillaries\": {\r\n        \"segments\": [\r\n            {\r\n                \"ref_id\": \"38901\",\r\n                \"passengers\": [\r\n                    {\r\n                        \"ref_id\": \"19656\",\r\n                        \"baggages\": [],\r\n                        \"seats\": [\r\n                            {\r\n                                \"ref_id\": \"83578461-c5c7-4731-b16a-16d1c5836fde\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"meals\": [],\r\n                        \"ssrs\": []\r\n                    }\r\n                ]\r\n            },\r\n            {\r\n                \"ref_id\": \"38902\",\r\n                \"passengers\": [\r\n                    {\r\n                        \"ref_id\": \"19656\",\r\n                        \"baggages\": [],\r\n                        \"seats\": [\r\n                            {\r\n                                \"ref_id\": \"c9b4692c-fc83-40f9-afcf-77e33e0f2643\",\r\n                                \"qty\": null\r\n                            }\r\n                        ],\r\n                        \"meals\": [],\r\n                        \"ssrs\": []\r\n                    }\r\n                ]\r\n            }\r\n        ]\r\n    }\r\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        },
+                        "url": {
+                          "raw": "{{END_POINT}}/v1/booking/extras",
+                          "host": [
+                            "{{END_POINT}}"
+                          ],
+                          "path": [
+                            "v1",
+                            "booking",
+                            "extras"
+                          ]
+                        },
+                        "description": "SooperFare PATCH /v1/booking/extras, sent and answered unchanged through the Travelian gateway.\n\nCHANGES A REAL BOOKING at SooperFare. Answers 409 writes_disabled unless SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Never retried."
+                      },
+                      "response": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "List",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-SF-Client-Currency",
+                    "value": "SAR",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{END_POINT}}/v1/booking/list",
+                  "host": [
+                    "{{END_POINT}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "booking",
+                    "list"
+                  ]
+                },
+                "description": "SooperFare POST /v1/booking/list, sent and answered unchanged through the Travelian gateway."
+              },
+              "response": []
+            },
+            {
+              "name": "Confirm [changes booking]",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-SF-Client-Currency",
+                    "value": "SAR",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"booking_ref_id\": \"fcc3fc1c-ecb3-4386-8222-ee04492e37e1\",\r\n    \"txn_ref_id\": \"TEST\",\r\n    \"amount\": 69.99,\r\n    \"currency\": \"PKR\",\r\n    \"remarks\": \"Test booking\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{END_POINT}}/v1/booking/confirm",
+                  "host": [
+                    "{{END_POINT}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "booking",
+                    "confirm"
+                  ]
+                },
+                "description": "SooperFare POST /v1/booking/confirm, sent and answered unchanged through the Travelian gateway.\n\nCHANGES A REAL BOOKING at SooperFare and CHARGES Travelian's SooperFare balance. Answers 409 writes_disabled unless SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Never retried."
+              },
+              "response": []
+            },
+            {
+              "name": "Cancel [changes booking]",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-SF-Client-Currency",
+                    "value": "SAR",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"booking_ref_id\": \"fcc3fc1c-ecb3-4386-8222-ee04492e37e1\",\r\n    \"txn_ref_id\": \"TEST\",\r\n    \"amount\": 69.99,\r\n    \"currency\": \"PKR\",\r\n    \"remarks\": \"Test booking\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{END_POINT}}/v1/booking/cancel",
+                  "host": [
+                    "{{END_POINT}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "booking",
+                    "cancel"
+                  ]
+                },
+                "description": "SooperFare POST /v1/booking/cancel, sent and answered unchanged through the Travelian gateway.\n\nCHANGES A REAL BOOKING at SooperFare. Answers 409 writes_disabled unless SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Never retried."
+              },
+              "response": []
+            },
+            {
+              "name": "Void [changes booking]",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-SF-Client-Currency",
+                    "value": "SAR",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"booking_ref_id\": \"fcc3fc1c-ecb3-4386-8222-ee04492e37e1\",\r\n    \"txn_ref_id\": \"TEST\",\r\n    \"amount\": 69.99,\r\n    \"currency\": \"PKR\",\r\n    \"remarks\": \"Test booking\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{END_POINT}}/v1/booking/void",
+                  "host": [
+                    "{{END_POINT}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "booking",
+                    "void"
+                  ]
+                },
+                "description": "SooperFare POST /v1/booking/void, sent and answered unchanged through the Travelian gateway.\n\nCHANGES A REAL BOOKING at SooperFare. Answers 409 writes_disabled unless SOOPERFARE_RAW_WRITE_ENABLED=true on the gateway. Never retried."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

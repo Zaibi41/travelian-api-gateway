@@ -40,6 +40,7 @@ All product APIs are versioned under `/v1` and grouped by domain:
 | Group Ticketing | `POST /v1/group-ticketing/booking-details` | Fetch booking, passenger, payment, and group details | Dhillu & Sahi authenticated lookup |
 | Hotels | `POST /v1/hotels/destinations`, `POST /v1/hotels/search` | Destination suggestions; hotels with rates by destination, dates and rooms | RateHawk (docs/api/hotels-ratehawk.md) |
 | RateHawk console | `GET /v1/admin/suppliers/ratehawk/operations`, `POST /v1/admin/suppliers/ratehawk/operations/{key}` | All 48 RateHawk operations, Super Admin only | Writes behind `RATEHAWK_WRITE_ENABLED` |
+| SooperFare raw console | `GET /v1/admin/suppliers/sooperfare/raw/operations`, `{GET,POST,PATCH} /v1/admin/suppliers/sooperfare/raw/v1/...` | All 14 SooperFare calls, body and answer unchanged, Super Admin only (docs/api/sooperfare-raw.md) | Writes behind `SOOPERFARE_RAW_WRITE_ENABLED` |
 
 Each area has its own route module and vendor package. Keep one supplier per module/package so credentials, mapping, logs, and debugging stay isolated. Supplier outcomes are recorded internally. Group inventory and search return a single Travelian response containing combined group records, without gateway-added per-vendor status fields.
 

@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     # Off until the owner approves the first real confirm: POST /v1/booking/confirm issues the ticket and charges
     # Travelian's SooperFare balance. Off: only the exact request is shown (supplier-confirm with preview).
     sooperfare_confirm_enabled: bool = False
+    # Raw supplier console (Super Admin): calls that change a booking at SooperFare (reservation, submit extras,
+    # confirm = issue and charge, cancel, void). Off by default; reads always work.
+    sooperfare_raw_write_enabled: bool = False
     # Issuing stops this many seconds before the hold's time limit.
     ticketing_deadline_margin_seconds: int = Field(120, ge=0, le=3600)
     # Flight selling price = supplier fare + percent + fixed amount per passenger (D23).

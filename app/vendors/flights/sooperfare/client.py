@@ -12,6 +12,7 @@ for the request formats, and responses read live from the gateway's static IP on
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -141,6 +142,36 @@ class SooperfareClient:
             logger.warning("SooperFare refused", extra={"path": path, "status": response.status_code, "supplier_message": message[:200]})
             raise SooperfareError("refused", message or "The flight supplier refused the request.", status=response.status_code)
         return data
+
+    async def raw(self, method: str, path: str, body: Any, *, query: dict[str, str] | None = None,
+                  headers: dict[str, str] | None = None, retry_login: bool = True) -> tuple[int, Any]:
+        """Raw supplier console: send one call as given and return SooperFare's status and body unchanged.
+
+        Unlike _send, a refusal ("status": false or 4xx) is returned, not raised. Only transport failures raise.
+        A 401 renews the login and retries once, unless retry_login is False (calls that change bookings).
+        """
+        sent = {"Accept": "application/json", "Content-Type": "application/json", **(headers or {}),
+                "X-SF-Authorization": await self._token()}
+        client, own = await self._client()
+        try:
+            response = await client.request(method, self._base + path, params=query or None,
+                                            content=None if body is None else json.dumps(body), headers=sent)
+        except httpx.TimeoutException:
+            raise SooperfareError("timeout", "The flight supplier took too long to answer.") from None
+        except httpx.HTTPError as error:
+            logger.warning("SooperFare request failed", extra={"path": path, "error_type": type(error).__name__})
+            raise SooperfareError("unreachable") from None
+        finally:
+            if own:
+                await client.aclose()
+        if response.status_code == 401 and retry_login:
+            global _session
+            _session = None
+            return await self.raw(method, path, body, query=query, headers=headers, retry_login=False)
+        try:
+            return response.status_code, response.json()
+        except ValueError:
+            return response.status_code, {"non_json_body": response.text[:20000]}
 
     # ---------- read-only ----------
 
