@@ -11,6 +11,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from app.schemas.group_ticketing import GroupTicket
+
 from app.api.routes.group_ticketing import router
 from app.api.routes.logos import router as logos_router
 from app.core import field_visibility
@@ -147,7 +149,7 @@ def test_signed_out_callers_get_401(monkeypatch):
     assert client.get("/v1/group-ticketing/inventory").status_code == 401
     body = {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}
     assert client.post("/v1/group-ticketing/search", json=body).status_code == 401
-    assert client.post("/v1/group-ticketing/check-availability", json={"pnr": "X", "adult": 1, "child": 0, "price": 1}).status_code == 401
+    assert client.post("/v1/group-ticketing/check-availability", json={"ticket_id": "11111111-1111-4111-8111-111111111111", "adult": 1, "child": 0}).status_code == 401
 
 
 @pytest.mark.parametrize("role,allowed", [("super_admin", True), ("staff", True), ("agency_owner", True), ("customer", False)])
@@ -255,9 +257,11 @@ def test_availability_omits_supplier_metadata(role, outcome):
     with (
         patch("app.api.routes.group_ticketing._credentials_configured", return_value=outcome != "unconfigured"),
         patch("app.api.routes.group_ticketing._check_dhillu_sahi_availability", supplier),
+        # gateway#107: the caller sends only the ticket ID; PNR and supplier price stay inside the gateway.
+        patch("app.api.routes.group_ticketing.find_ticket", new=AsyncMock(return_value=GroupTicket(vendor="dhillu_sahi", pnr="SUPPNR1", price=95000))),
     ):
         response = TestClient(app).post("/v1/group-ticketing/check-availability", json={
-            "pnr": "SUPPNR1", "adult": 1, "child": 0, "price": 95000,
+            "ticket_id": "11111111-1111-4111-8111-111111111111", "adult": 1, "child": 0,
         })
     assert response.status_code == 200
     assert set(response.json()) <= {"request_id", "status", "available"}
@@ -270,7 +274,7 @@ def test_availability_omits_supplier_metadata(role, outcome):
     ("/inventory", None),
     ("/search", {"origin": "LHE", "destination": "RUH", "departure_date": "2026-12-01"}),
     ("/tickets/11111111-1111-4111-8111-111111111111", None),
-    ("/check-availability", {"pnr": "X", "adult": 1, "child": 0, "price": 1}),
+    ("/check-availability", {"ticket_id": "11111111-1111-4111-8111-111111111111", "adult": 1, "child": 0}),
     ("/flight-quotes", {}),
 ])
 def test_customer_http_responses_never_include_supplier_data(monkeypatch, path, body):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
@@ -10,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.booking_security import require_booking_authorization
 from app.core.field_visibility import BackOfficeUser, FieldVisibility, require_search_viewer
-from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, ticket_view
+from app.services.group_ticketing_view import GroupInventoryView, GroupTicketView, inventory_view, supplier_cost, ticket_view
 from app.core.config import settings
 from app.services.group_ticketing import (
     GroupInventoryUnavailable,
@@ -93,13 +92,17 @@ GroupPNR = Annotated[
 
 
 class GroupAvailabilityRequest(BaseModel):
-    pnr: GroupPNR
+    """gateway#107: the group fare's ticket ID (GroupTicketView.id), as for a hold. The gateway looks up the fare's PNR and
+    supplier price itself, so callers without the cost permission can check, and the supplier price never leaves it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_id: UUID
     adult: int | None = Field(default=None, ge=0, le=100)
     child: int | None = Field(default=None, ge=0, le=100)
     passenger_types: list[Literal["adult", "child", "infant"]] | None = Field(
         default=None, min_length=1, max_length=100
     )
-    price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
     @model_validator(mode="after")
     def resolve_passenger_counts(self):
@@ -299,8 +302,17 @@ async def check_group_availability(request: GroupAvailabilityRequest, viewer: Vi
             request_id=str(uuid4()), status="unavailable", available=None,
             **_availability_metadata(viewer, [], issues, results),
         )
+    try:
+        ticket = await find_ticket(str(request.ticket_id))
+    except TicketNotFound as error:
+        message = {503: "Group fares can't be checked right now. Try again in a moment.",
+                   409: "This group fare changed. Search again."}.get(error.status, "This group fare is no longer available. Search again.")
+        raise HTTPException(error.status, message) from None
+    cost = supplier_cost(ticket)
+    if ticket.vendor != VENDOR_NAME or not ticket.pnr or cost is None:
+        raise HTTPException(409, "Seat availability can't be checked for this group fare. Hold it to check the seats.")
     values, issues, results = await gather_vendor_calls(
-        [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(request))],
+        [(VENDOR_NAME, lambda: _check_dhillu_sahi_availability(ticket.pnr, request, cost))],
         empty_response_code="invalid_response",
     )
     succeeded = [result.vendor for result in results if result.status == "success"]
@@ -402,11 +414,12 @@ async def _authenticated_dhillu_sahi_client() -> tuple[DhilluSahiAuthClient, str
     return client, login["token"]
 
 
-async def _check_dhillu_sahi_availability(request: GroupAvailabilityRequest) -> bool:
+async def _check_dhillu_sahi_availability(pnr: str, request: GroupAvailabilityRequest, cost) -> bool:
+    """Supplier PNR and price from the ticket (server side), the counts from the caller."""
+    from app.vendors.group_ticketing.dhillu_sahi.holds import listing_price
+
     client, token = await _authenticated_dhillu_sahi_client()
-    return await client.check_availability(
-        token, pnr=request.pnr, adult=request.adult, child=request.child, price=float(request.price)
-    )
+    return await client.check_availability(token, pnr=pnr, adult=request.adult, child=request.child, price=listing_price(cost))
 
 
 async def _create_dhillu_sahi_booking(request: GroupBookingRequest) -> int:

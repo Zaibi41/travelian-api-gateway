@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from app.api.routes.group_ticketing import router
+from app.schemas.group_ticketing import GroupTicket
 from app.core.field_visibility import ALL, BackOfficeUser, require_search_viewer
 from app.core.config import settings
 
@@ -83,10 +84,9 @@ def test_read_only_routes_remain_available_and_get_details_is_absent():
             availability = await client.post(
                 "/v1/group-ticketing/check-availability",
                 json={
-                    "pnr": "MOCK-001",
+                    "ticket_id": "11111111-1111-4111-8111-111111111111",
                     "adult": 1,
                     "child": 0,
-                    "price": 100,
                 },
             )
             missing = await client.get("/v1/group-ticketing/bookings/123")
@@ -99,6 +99,10 @@ def test_read_only_routes_remain_available_and_get_details_is_absent():
         ),
         patch(
             "app.api.routes.group_ticketing._credentials_configured", return_value=True
+        ),
+        patch(  # availability by ticket ID (#107): the fare's PNR and price come from the gateway's own lookup
+            "app.api.routes.group_ticketing.find_ticket",
+            new=AsyncMock(return_value=GroupTicket(vendor="dhillu_sahi", pnr="MOCK-001", price=100)),
         ),
         patch(
             "app.api.routes.group_ticketing._authenticated_dhillu_sahi_client",
