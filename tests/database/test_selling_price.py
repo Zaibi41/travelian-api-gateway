@@ -4,6 +4,7 @@ Migration 0021: existing bookings keep any recorded supplier cost; a missing one
 Travelers get their booking's totals split evenly. Columns are added nullable, backfilled, then made required.
 No total, payment, received or due amount changes."""
 
+import uuid
 from datetime import datetime, timezone
 from io import StringIO
 
@@ -36,10 +37,15 @@ def _booking(connection, reference, total, cost, travelers=2, status="held"):
     connection.execute(sa.text("INSERT INTO bookings (id, reference, product, booking_status, payment_status, issuance_status, currency, total_minor,"
                                " supplier_cost_minor) VALUES (:id, :r, 'group', :s, 'unpaid', 'not_issued', 'PKR', :t, :c)"),
                        {"id": booking_id, "r": reference, "s": status, "t": total, "c": cost})
+    # After migration 0021 each traveler needs its selling price and cost (an even split here; tests set their own).
+    priced = "selling_minor" in {c["name"] for c in sa.inspect(connection).get_columns("booking_travelers")}
     for position in range(travelers):
-        connection.execute(sa.text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name, date_of_birth, id_type)"
-                                   " VALUES (:id, :b, :p, 'ADT', 'MR', 'Sample', 'Traveler', '1990-01-01', 'PSPT')"),
-                           {"id": f"{booking_id[:-2]}{position:02d}", "b": booking_id, "p": position})
+        values = {"id": str(uuid.uuid4()), "b": booking_id, "p": position}
+        if priced:
+            values |= {"selling": total // travelers, "cost": (cost if cost is not None else total) // travelers}
+        connection.execute(sa.text("INSERT INTO booking_travelers (id, booking_id, position, passenger_type, title, first_name, last_name, date_of_birth, id_type"
+                                   + (", selling_minor, cost_minor" if priced else "") + ") VALUES (:id, :b, :p, 'ADT', 'MR', 'Sample', 'Traveler', '1990-01-01', 'PSPT'"
+                                   + (", :selling, :cost" if priced else "") + ")"), values)
     return booking_id
 
 

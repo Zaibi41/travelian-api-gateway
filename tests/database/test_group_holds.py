@@ -31,7 +31,7 @@ SUPPLIER_REF = "SUPPLIER-HOLD-SECRET-77"
 
 def inventory(remaining=12):
     return normalize_groups([{"sector": "ISB - JED", "airline": {"name": "Fly Jinnah", "logo": None}, "tickets": [{
-        "pnr": "SUPPNR1", "date": "2026-11-22", "price": "100000", "remaining": remaining, "baggage": "20+7",
+        "pnr": "SUPPNR1", "sector": "ISB - JED", "date": "2026-11-22", "price": "100000", "remaining": remaining, "baggage": "20+7",
         "subpart": [{"departure_time": "06:40"}]}]}])
 
 
@@ -94,7 +94,9 @@ def provider(database):
     if not connection.execute(text("SELECT 1 FROM users WHERE id=:id"), {"id": ACTOR}).first():
         connection.execute(metadata.tables["users"].insert().values(id=ACTOR, cognito_issuer="https://t.invalid", cognito_sub="s"))
     fake = FakeProvider()
-    with patch.dict(group_holds.PROVIDERS, {VENDOR: lambda: fake}), \
+    # The fake provider releases; the real Dhillu & Sahi has no release call (NO_RELEASE_SOURCES), tested in
+    # tests/group_ticketing/test_dhillu_sahi_hold.py.
+    with patch.object(group_holds, "NO_RELEASE_SOURCES", set()), patch.dict(group_holds.PROVIDERS, {VENDOR: lambda: fake}), \
          patch.object(settings, "group_ticketing_markup_percent", Decimal("5")), patch.object(settings, "group_ticketing_markup_fixed_minor", 0):
         yield fake
 
@@ -125,9 +127,10 @@ def test_hold_returns_the_price_only_after_the_hold_and_keeps_supplier_ref_insid
     body = view.model_dump_json()
     assert SUPPLIER_REF not in body                  # the supplier's own reference stays inside; documents show in full
     connection, _, _ = database
-    event = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"),
-                               {"r": view.booking_id}).scalars().all()
-    assert event == ["hold_created"]
+    event = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
+                                    " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
+    # The hold is requested first (nothing pending if it fails), then created; the fare terms tick is stored with it.
+    assert sorted(event) == ["fare_terms_acknowledged", "hold_created", "hold_requested"] and event[0] == "hold_requested"
     assert connection.scalar(text("SELECT product FROM bookings WHERE reference = :r"), {"r": view.booking_id}) == "group"
 
 
@@ -329,7 +332,7 @@ def test_price_changed_and_customer_declines_releases_the_hold(provider, databas
     connection, _, _ = database
     actions = connection.execute(text("SELECT action FROM booking_events e JOIN bookings b ON b.id = e.booking_id WHERE b.reference = :r"
                                       " ORDER BY e.created_at"), {"r": view.booking_id}).scalars().all()
-    assert actions == ["hold_created", "hold_released"]
+    assert [a for a in actions if a not in ("hold_requested", "fare_terms_acknowledged")] == ["hold_created", "hold_released"]
     with pytest.raises(GroupHoldError) as error:
         run(group_holds.release(view.booking_id, ADMIN))
     assert error.value.code == "not_held"
