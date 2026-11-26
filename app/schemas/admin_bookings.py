@@ -474,6 +474,7 @@ class BookingDetail(BaseModel):
     can_accept_shortfall: bool = Field(False, description="Part paid, nothing accepted yet, and this viewer may record payments.")
     sold_through: str | None = Field(None, description="The reseller or channel the booking was sold through (not the customer).")
     can_edit_sold_through: bool = False
+    can_correct: bool = Field(False, description="Super Admin: may correct travelers and the customer name (travelian#225; the endpoints still check).")
     can_record_payments: bool = Field(False, description="Whether this viewer may record a payment (the endpoint still checks).")
     can_issue_tickets: bool = Field(False, description="Whether this viewer may issue, verify and resolve (the endpoints still check).")
     can_set_selling_price: bool = Field(False, description="Whether this viewer may change the selling price now: on hold, not issued, nothing paid, "
@@ -489,6 +490,38 @@ class BookingDetail(BaseModel):
     customer_email_problems: list[CustomerEmailProblem] | None = Field(None, description="Customer emails not sent: staff contact the customer.")
     supplier_booking: SupplierBookingView | None = Field(None, description="SooperFare bookings, supplier-names permission only.")
     itinerary_available: bool = Field(True, description="The itinerary PDF / PNG can be downloaded. Group bookings: only once Ticketed.")
+
+
+_NAME = r"^[A-Za-z][A-Za-z '\-]{0,63}$"
+
+
+class TravelerCorrection(BaseModel):
+    """Super Admin: correct one traveler on a booking (travelian#225). Leave a field out to keep it. Logged with the reason
+    (which fields, never the values)."""
+
+    title: Literal["MR", "MRS", "MISS", "MASTER"] | None = None
+    first_name: str | None = Field(None, pattern=_NAME)
+    last_name: str | None = Field(None, pattern=_NAME)
+    date_of_birth: date | None = None
+    document_number: str | None = Field(None, pattern=r"^[A-Za-z0-9]{1,15}$")
+    document_country: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+    nationality: str | None = Field(None, pattern=r"^[A-Z]{3}$")
+    document_expiry: date | None = None
+    reason: str = Field(min_length=5, max_length=500, description="Why this is corrected; shown in the booking's audit trail.")
+
+
+class CustomerNameCorrection(BaseModel):
+    """Super Admin: correct the customer's name on a booking (travelian#225). Contact details: customer-contact."""
+
+    first_name: str | None = Field(None, pattern=_NAME)
+    last_name: str | None = Field(None, pattern=_NAME)
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class CorrectionResult(BaseModel):
+    fields: list[str] = Field(description="The fields that changed.")
+    sent_to_airline: bool = Field(description="The booking already has a PNR or ticket: correct it with the airline too.")
+    message: str
 
 
 from app.schemas.finance import ProfitView  # noqa: E402  (forward reference in BookingFare)
