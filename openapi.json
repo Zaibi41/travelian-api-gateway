@@ -166,6 +166,67 @@
         "title": "AccountView",
         "type": "object"
       },
+      "ActivityItem": {
+        "description": "gateway#87: one recent booking event. No details (amounts, supplier answers, names): open the booking for those.",
+        "properties": {
+          "action": {
+            "description": "The event, e.g. payment_recorded.",
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted for the system (jobs, the website).",
+            "title": "Actor User Id"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "booking_id": {
+            "description": "The booking reference; the row opens the booking.",
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "The event in words, e.g. Payment recorded.",
+            "title": "Label",
+            "type": "string"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "action",
+          "label",
+          "booking_id",
+          "product"
+        ],
+        "title": "ActivityItem",
+        "type": "object"
+      },
       "ActivityView": {
         "properties": {
           "amount": {
@@ -11417,6 +11478,22 @@
           "accounts"
         ],
         "title": "ReceivingAccountList",
+        "type": "object"
+      },
+      "RecentActivity": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RecentActivity",
         "type": "object"
       },
       "RecordPaymentRequest": {
@@ -25279,6 +25356,63 @@
         "summary": "List Payment Accounts",
         "tags": [
           "admin bookings"
+        ]
+      }
+    },
+    "/v1/admin/recent-activity": {
+      "get": {
+        "description": "gateway#87: the latest booking events across bookings (who, what, which booking, when), newest first. Back office only.\nEvent details are never sent; a booking Travelian couldn't record shows only with the supplier names permission.",
+        "operationId": "recent_activity_v1_admin_recent_activity_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentActivity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Caller is not back office, or asked for a field it may not see."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Dashboard booking data is not available."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recent Activity",
+        "tags": [
+          "admin dashboard"
         ]
       }
     },

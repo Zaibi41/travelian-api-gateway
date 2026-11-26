@@ -93,3 +93,33 @@ def list_dashboard_bookings() -> list[BookingRow]:
 
 class BookingsUnavailable(Exception):
     """The bookings database could not be read."""
+
+
+@dataclass(frozen=True)
+class ActivityRow:
+    """One booking event for the dashboard's Recent activity (gateway#87): what, when, who, which booking. Never its details."""
+
+    action: str
+    at: datetime
+    booking_id: str
+    product: str
+    actor_user_id: str | None
+    actor_role: str | None
+
+
+def recent_activity(limit: int, include_unrecorded: bool) -> list[ActivityRow]:
+    """The latest booking events across bookings, newest first. A supplier hold Travelian couldn't record
+    ('hold_unrecorded') only reaches viewers with supplier access, as on Bookings."""
+    try:
+        with agencies.application_engine().begin() as connection:
+            rows = connection.execute(text(
+                "SELECT e.action, e.created_at, b.reference, b.product, e.actor_user_id, r.name AS actor_role FROM booking_events e"
+                " JOIN bookings b ON b.id = e.booking_id LEFT JOIN users u ON u.id = e.actor_user_id LEFT JOIN roles r ON r.id = u.role_id"
+                " WHERE b.product IN ('flight', 'group', 'hotel', 'umrah') AND (:all OR b.booking_status <> 'hold_unrecorded')"
+                " ORDER BY e.created_at DESC, e.id DESC LIMIT :limit"), {"limit": limit, "all": include_unrecorded}).mappings().all()
+    except HTTPException:
+        raise BookingsUnavailable() from None
+    except SQLAlchemyError as error:
+        logger.warning("Recent activity read failed: %s", _error_type(error))
+        raise BookingsUnavailable() from None
+    return [ActivityRow(r["action"], r["created_at"], r["reference"], r["product"], r["actor_user_id"], r["actor_role"]) for r in rows]

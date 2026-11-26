@@ -19,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.core.field_visibility import BackOfficeUser, require_back_office
 from app.schemas.admin_dashboard import (
-    AttentionQueue, BookingReport, DashboardFilterOptions, DashboardSummary, Period, Product,
+    ActivityItem, AttentionQueue, BookingReport, DashboardFilterOptions, DashboardSummary, Period, Product, RecentActivity,
 )
 from app.services import admin_dashboard as figures
 from app.db import bookings as booking_store
@@ -107,3 +107,33 @@ async def dashboard_filter_options(viewer: Viewer):
     if not viewer.visibility.supplier_names:
         options.providers = None  # supplier names: omitted from the response
     return options
+
+
+#: Event names that read better than the plain words (the rest: "payment_recorded" -> "Payment recorded").
+ACTIVITY_LABELS = {
+    "hold_created": "Hold placed", "hold_requested": "Hold requested", "hold_failed": "Hold failed", "hold_not_recorded": "Hold not recorded",
+    "issuance_requested": "Issuance requested", "issuance_started": "Issuing started", "issuance_issued": "Tickets issued",
+    "issuance_unknown": "Issuance unknown", "issuance_verified": "Tickets verified", "issuance_aborted": "Issuing stopped, nothing sent",
+    "issuance_failed": "Issuing failed", "issuance_found_issued": "Tickets found issued", "issuance_resolved": "Issuance resolved",
+    "issuance_checked": "Issuance checked with supplier", "group_ticketed": "Ticketed",
+    "final_pnr_recorded": "Final PNR recorded", "ticket_numbers_recorded": "Ticket numbers recorded", "paid_not_ticketed": "Paid, not ticketed",
+    "customer_email_not_sent": "Email not sent", "customer_email_bounced": "Email bounced", "selling_price_set": "Selling price set",
+    "online_payment_started": "Online payment started", "online_payment_failed": "Online payment failed",
+    "online_payment_needs_review": "Online payment to review", "payment_slip_uploaded": "Payment slip uploaded",
+}
+
+
+def activity_label(action: str) -> str:
+    return ACTIVITY_LABELS.get(action) or action.replace("_", " ").capitalize()
+
+
+@router.get("/recent-activity", response_model=RecentActivity, response_model_exclude_none=True)
+async def recent_activity(viewer: Viewer, limit: Annotated[int, Query(ge=1, le=50)] = 8) -> RecentActivity:
+    """gateway#87: the latest booking events across bookings (who, what, which booking, when), newest first. Back office only.
+    Event details are never sent; a booking Travelian couldn't record shows only with the supplier names permission."""
+    try:
+        rows = await run_in_threadpool(booking_store.recent_activity, limit, viewer.visibility.supplier_names)
+    except BookingsUnavailable:
+        raise HTTPException(503, "Recent activity is not available.") from None
+    return RecentActivity(items=[ActivityItem(at=r.at, action=r.action, label=activity_label(r.action), booking_id=r.booking_id, product=r.product,
+                                              actor_user_id=r.actor_user_id, actor_role=r.actor_role) for r in rows])
