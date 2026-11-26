@@ -1,6 +1,7 @@
 """Reconciliation with a database (migration 0031): PayFast, bank suggestions, supplier checks, mismatch list."""
 
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 import sqlalchemy as sa
@@ -13,7 +14,9 @@ from tests.database.test_booking_payments import account_for
 from tests.database.test_finance_foundations import WHO, fresh, pay
 
 NOW = datetime.now(timezone.utc)
-TODAY = NOW.astimezone().date()
+# Settlement and statement dates are Pakistan dates (the code compares received_at in Asia/Karachi), not the
+# runner's local date: on a UTC runner from 19:00 they differ.
+TODAY = NOW.astimezone(ZoneInfo("Asia/Karachi")).date()
 
 
 def line(no, ref, amount, fee=None, net=None, desc=None, on=None):
