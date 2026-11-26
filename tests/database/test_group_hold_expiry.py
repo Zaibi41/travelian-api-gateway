@@ -39,9 +39,9 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def place_at(moment=T0):
+def place_at(moment=T0, passengers=None):
     with patch.object(group_holds, "_now", return_value=moment):
-        return run(group_holds.hold(request(), ADMIN, fetch=AsyncMock(return_value=inventory())))
+        return run(group_holds.hold(request(passengers), ADMIN, fetch=AsyncMock(return_value=inventory())))
 
 
 def releases(provider):

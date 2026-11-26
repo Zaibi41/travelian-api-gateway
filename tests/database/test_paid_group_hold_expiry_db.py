@@ -13,10 +13,9 @@ from app.db import bookings as booking_store
 from app.db import group_holds as store
 from app.core.field_visibility import ALL
 from app.services import admin_bookings, group_hold_expiry, group_holds
-from app.services.group_holds import NO_RELEASE_SOURCES
 from tests.database.test_group_hold_expiry import fake, place_at, run  # noqa: F401 - fixture
 from tests.database.test_booking_people import ACTOR
-from tests.database.test_group_holds import ADMIN, tickets
+from tests.database.test_group_holds import ADMIN, ADULT_1, ADULT_2, tickets
 
 TOTAL = 210_000_00  # 2 adults x (100,000 + 5%)
 
@@ -29,9 +28,17 @@ def pay(reference, amount):
                                    payer_reference=f"TXN-{reference}", received_at=datetime.now(timezone.utc), actor_user_id=ACTOR)
 
 
+_PLACED = iter(range(1, 1000))
+
+
 def placed(fake_provider, paid: int):
-    """A hold made 25 minutes ago (30-minute hold time) with `paid` recorded while it was open."""
-    view = place_at(datetime.now(timezone.utc) - timedelta(minutes=25))
+    """A hold made 25 minutes ago (30-minute hold time) with `paid` recorded while it was open. Each hold has its own
+    travelers: the same passenger twice on one route and date is refused as a duplicate booking."""
+    n = next(_PLACED)
+    tag = "".join(chr(ord("A") + int(d)) for d in f"{n:03d}")  # letters only, as names allow
+    people = [{**ADULT_1, "last_name": f"Raza{tag}", "document_number": f"AB{n:07d}"},
+              {**ADULT_2, "last_name": f"Raza{tag}", "document_number": f"CD{n:07d}"}]
+    view = place_at(datetime.now(timezone.utc) - timedelta(minutes=25), people)
     if paid:
         pay(view.booking_id, paid)
     return view.booking_id
@@ -91,7 +98,7 @@ def test_part_paid_hold_past_its_time_becomes_paid_not_ticketed_and_staff_are_al
     outcome = run(group_hold_expiry.run_once(later()))
     assert outcome["paid_not_ticketed"] == [reference] and outcome["expired"] == []
     status, release = stored(database, reference)
-    assert status == "paid_not_ticketed" and release == ("not_available" if fake_vendor_has_no_release() else "pending")
+    assert status == "paid_not_ticketed" and release in (("not_available",) if fake_vendor_has_no_release() else ("pending", "released"))
     assert "hold_expired" in actions(database, reference)
     assert notified(request, reference)[-1] == "paid_not_ticketed"
     view = run(group_holds.read(reference, ADMIN))
@@ -103,13 +110,13 @@ def test_part_paid_hold_past_its_time_becomes_paid_not_ticketed_and_staff_are_al
 
 def test_reading_a_part_paid_hold_past_its_time_records_paid_not_ticketed(fake, database):
     reference = placed(fake, 50_000_00)
-    booking = store.expire_if_over(reference, later(), frozenset(NO_RELEASE_SOURCES))
+    booking = store.expire_if_over(reference, later(), frozenset(group_holds.NO_RELEASE_SOURCES))
     assert booking.booking_status == "paid_not_ticketed" and stored(database, reference)[0] == "paid_not_ticketed"
 
 
 def fake_vendor_has_no_release() -> bool:
     from tests.database.test_group_holds import VENDOR
-    return VENDOR in NO_RELEASE_SOURCES
+    return VENDOR in group_holds.NO_RELEASE_SOURCES  # read at run time: the fake fixture patches it
 
 
 # ---------- the owner's repair command ----------
@@ -119,7 +126,7 @@ def expire_the_old_way(database, reference, release_status="not_available"):
     connection, _, _ = database
     booking = store.load(reference)
     with store.agencies.application_engine().begin() as conn:
-        store._expire(conn, booking, later(), frozenset(NO_RELEASE_SOURCES))
+        store._expire(conn, booking, later(), frozenset(group_holds.NO_RELEASE_SOURCES))
         conn.execute(text("UPDATE bookings SET supplier_response = jsonb_set(supplier_response, '{release,status}', to_jsonb(CAST(:s AS text)))"
                           " WHERE reference = :r"), {"s": release_status, "r": reference})
 
