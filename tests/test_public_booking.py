@@ -335,3 +335,24 @@ def test_calendar_reads_have_their_own_limit_and_take_a_start_date():
     assert set(answers) == {200}  # 40 reads in a minute: over the 30-search limit, within the calendar's own
     assert not public_booking.SEARCH_LIMIT._hits.get("testclient")  # no live-search allowance used
     assert seen[0] == date.fromisoformat(start)
+
+
+def test_same_group_flight_from_several_suppliers_shows_once_at_the_lowest_fare():
+    """travelian#228: identical flights (legs, dates, times) from two suppliers -> one ticket, the cheaper one."""
+    from app.services.public_booking import lowest_fare_per_flight
+
+    def ticket(tid, price, number="PA470", day="2026-12-28"):
+        return {"id": tid, "selling_price": {"amount_minor": price, "currency": "PKR"},
+                "legs": [{"direction": "outbound", "flight_number": number, "origin": "LHE", "destination": "JED",
+                          "departure_date": day, "departure_time": "23:00"}]}
+
+    view = {"data": [
+        {"id": "dhillu", "tickets": [ticket("a", 17_500_000), ticket("c", 9_000_000, number="SV739")]},
+        {"id": "alhaider", "tickets": [ticket("b", 16_900_000)]},
+        {"id": "skypass", "tickets": [ticket("d", 18_000_000), ticket("e", 15_000_000, day="2026-12-29")]},
+        {"id": "unknown", "tickets": [{"id": "x", "selling_price": {"amount_minor": 1, "currency": "PKR"}}]},  # too little to match: kept
+    ]}
+    out = lowest_fare_per_flight(view)
+    ids = sorted(t["id"] for g in out["data"] for t in g["tickets"])
+    assert ids == ["b", "c", "e", "x"]               # PA470 on 28 Dec once (16,900), the others untouched
+    assert [g["id"] for g in out["data"]] == ["dhillu", "alhaider", "skypass", "unknown"]

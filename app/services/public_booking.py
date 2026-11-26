@@ -118,6 +118,38 @@ async def search(origin: str | None, destination: str | None, departure_date, ad
         for ticket in group.get("tickets", []):
             for field in STAFF_ONLY_TICKET_FIELDS:
                 ticket.pop(field, None)
+    return lowest_fare_per_flight(view)
+
+
+def _flight_identity(ticket: dict) -> tuple | None:
+    """The same flights (travelian#228): every leg's direction, flight number, airports, date and time. Without legs, the
+    ticket's flight number, date and sector. None when there's too little to tell two tickets apart (never merged)."""
+    legs = ticket.get("legs") or []
+    if legs:
+        key = tuple((leg.get("direction"), str(leg.get("flight_number") or "").replace(" ", "").upper(), leg.get("origin"),
+                     leg.get("destination"), leg.get("departure_date"), leg.get("departure_time")) for leg in legs)
+        return key if all(part[1] and part[2] and part[3] and part[4] for part in key) else None
+    number = str(ticket.get("flight_number") or "").replace(" ", "").upper()
+    if number and ticket.get("departure_date") and ticket.get("sector"):
+        return ("ticket", number, ticket.get("departure_date"), ticket.get("departure_time"), str(ticket["sector"]).upper())
+    return None
+
+
+def lowest_fare_per_flight(view: dict) -> dict:
+    """travelian#228: a group flight offered by more than one supplier is shown once, with its lowest selling price."""
+    best: dict[tuple, tuple[int, int]] = {}  # identity -> (price, id of the ticket kept)
+    for group in view.get("data", []):
+        for ticket in group.get("tickets", []):
+            identity, price = _flight_identity(ticket), (ticket.get("selling_price") or {}).get("amount_minor")
+            if identity is None or not isinstance(price, int):
+                continue
+            if identity not in best or price < best[identity][0]:
+                best[identity] = (price, id(ticket))
+    kept = {ticket_id for _, ticket_id in best.values()}
+    for group in view.get("data", []):
+        group["tickets"] = [t for t in group.get("tickets", []) if _flight_identity(t) is None
+                            or not isinstance((t.get("selling_price") or {}).get("amount_minor"), int) or id(t) in kept]
+    view["data"] = [group for group in view.get("data", []) if group.get("tickets")]
     return view
 
 
