@@ -14419,6 +14419,29 @@
       "SegmentView": {
         "description": "One flight of a connection, in order. Airports are IATA codes; times are each airport's local time.",
         "properties": {
+          "airline_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IATA code of the airline this flight is sold under (its flight number). Can differ from the connection's airline_code.",
+            "title": "Airline Code"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
           "arrival_local": {
             "anyOf": [
               {
@@ -14481,6 +14504,29 @@
             ],
             "description": "Time on the ground at `origin` before this flight (the stop). Omitted for the first flight.",
             "title": "Layover Minutes"
+          },
+          "operating_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IATA code of the airline that actually flies it (a codeshare). Only sent when it differs from airline_code.",
+            "title": "Operating Code"
+          },
+          "operating_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Name"
           },
           "origin": {
             "title": "Origin",

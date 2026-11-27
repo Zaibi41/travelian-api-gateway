@@ -88,7 +88,7 @@ def _segment(raw: dict) -> dict:
     duration = raw.get("duration")
     return {
         "flight_number": flight_number or None, "airline_code": code, "airline_name": carrier.get("name"),
-        "operating": str(operating.get("code") or "").upper() or None,
+        "operating": str(operating.get("code") or "").upper() or None, "operating_name": operating.get("name"),
         "origin": _airport(raw.get("departure")), "destination": _airport(raw.get("arrival")),
         "departure_local": _local(raw.get("departure")), "arrival_local": _local(raw.get("arrival")),
         "duration_minutes": duration if isinstance(duration, int) and not isinstance(duration, bool) and duration > 0 else None,

@@ -44,6 +44,12 @@ class FareView(BaseModel):
 class SegmentView(BaseModel):
     """One flight of a connection, in order. Airports are IATA codes; times are each airport's local time."""
     flight_number: str | None = None
+    airline_code: str | None = Field(None, description="IATA code of the airline this flight is sold under (its flight "
+                                                       "number). Can differ from the connection's airline_code.")
+    airline_name: str | None = None
+    operating_code: str | None = Field(None, description="IATA code of the airline that actually flies it (a codeshare). "
+                                                         "Only sent when it differs from airline_code.")
+    operating_name: str | None = None
     origin: str
     destination: str
     departure_local: str | None = Field(None, description="Local time at origin, YYYY-MM-DDTHH:MM.")

@@ -126,6 +126,8 @@ def parse_flight(raw: dict) -> Flight | None:
         duration_minutes=raw.get("travel_time") if isinstance(raw.get("travel_time"), int) else None,
         stops=max(len(segments) - 1, 0), stop_cities=stops,
         segments=[{"flight_number": s.get("flight_number"), "operating": (s.get("operating_carrier") or {}).get("iata"),
+                   "operating_name": (s.get("operating_carrier") or {}).get("name"),
+                   "airline_code": (s.get("marketing_carrier") or {}).get("iata"), "airline_name": (s.get("marketing_carrier") or {}).get("name"),
                    "origin": (s.get("from") or {}).get("iata"),
                    "destination": (s.get("to") or {}).get("iata"), "departure_local": _local(s.get("departure_at")),
                    "arrival_local": _local(s.get("arrival_at")),

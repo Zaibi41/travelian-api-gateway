@@ -243,3 +243,13 @@ def test_website_searches_skip_kyte_unless_switched_on():
          patch.object(settings, "kyte_public_enabled", True):
         asyncio.run(live_flights.search(ONE_WAY, website, client_factory=southair_off))
         assert fake.shop.await_count == 2
+
+
+def test_codeshare_flight_keeps_its_own_airline_and_the_operating_airline():
+    from app.services.live_flights import segment_views
+    from app.vendors.flights.kyte.normalize import _segment
+    sold = segment("S2", "TK", "Turkish Airlines", "8050", "IST", "AUH", "2026-12-05", "13:55", "19:25", 270)
+    sold["operatingCarrier"] = {"code": "EY", "name": "Etihad Airways"}
+    [view] = segment_views([_segment(sold)])
+    assert (view.flight_number, view.airline_code, view.airline_name, view.operating_code, view.operating_name) == (
+        "TK8050", "TK", "Turkish Airlines", "EY", "Etihad Airways")

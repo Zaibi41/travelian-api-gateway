@@ -202,7 +202,8 @@ def _flight(raw: Any) -> Flight | None:
     fares = [fare for code, value in (source or {}).items() if (fare := _fare(code, value, uat_shape))] if isinstance(source, dict) else []
     if not fares:
         return None
-    infos = [s["INFO"] for s in segments if isinstance(s.get("INFO"), dict)]
+    with_info = [s for s in segments if isinstance(s.get("INFO"), dict)]
+    infos = [s["INFO"] for s in with_info]
     if not main and infos:
         # Live UAT: no FLT_MAIN. One segment carries everything; for several, take the
         # ends and count the connections (duration only from the UTC times).
@@ -221,10 +222,15 @@ def _flight(raw: Any) -> Flight | None:
     except (TypeError, ValueError):
         stops = None
     stop_text = _text(main.get("STOP_CITY"))
-    legs = tuple({"flight_number": _text(info.get("callsign"), 16), "origin": _text(info.get("dep_city"), 3),
+    # Each flight's own airline (OPRT): a connection can change airline at the stop.
+    legs = tuple({"flight_number": _text(info.get("callsign"), 16),
+                  "airline_code": _text((s.get("OPRT") or {}).get("iata_code"), 3) if isinstance(s.get("OPRT"), dict) else None,
+                  "airline_name": _text((s.get("OPRT") or {}).get("name"), 80) if isinstance(s.get("OPRT"), dict) else None,
+                  "origin": _text(info.get("dep_city"), 3),
                   "destination": _text(info.get("arr_city"), 3), "departure_local": _local(info.get("dep_date_time")),
                   "arrival_local": _local(info.get("arr_date_time")),
-                  "duration_minutes": _utc_minutes(info.get("dep_dt_utc"), info.get("arr_dt_utc"))} for info in infos)
+                  "duration_minutes": _utc_minutes(info.get("dep_dt_utc"), info.get("arr_dt_utc"))}
+                 for s in with_info for info in (s["INFO"],))
     if not all(leg["origin"] and leg["destination"] and leg["departure_local"] and leg["arrival_local"] for leg in legs):
         legs = ()
     code = _text(operator.get("iata_code"), 3) or (callsign[:2] if callsign and callsign[:2].isalnum() else None)

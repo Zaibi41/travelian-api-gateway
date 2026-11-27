@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import secrets
 import time
 from collections import OrderedDict
@@ -230,6 +231,22 @@ def _gap_minutes(arrived: str | None, departs: str | None) -> int | None:
     return minutes if minutes >= 0 else None
 
 
+#: A flight number's airline: two letters/digits, at least one a letter, then the digits ("TK8050", "9P 842").
+_FLIGHT_PREFIX = re.compile(r"^\s*([A-Z0-9]{2})[\s-]*\d", re.IGNORECASE)
+
+
+def _airline_code(value) -> str | None:
+    if isinstance(value, re.Match):
+        value = value.group(1)
+    text = str(value or "").strip().upper()
+    return text if re.fullmatch(r"[A-Z0-9]{2,3}", text) and re.search(r"[A-Z]", text) else None
+
+
+def _name(value) -> str | None:
+    text = " ".join(str(value or "").split())
+    return text[:80] or None
+
+
 def segment_views(segments) -> list[SegmentView]:
     """A flight's connection, flight by flight, with the time on the ground at each stop (#37, #83, #84, #119, #122).
     Every segment must name both airports, else none are returned (the stop list alone is then all there is)."""
@@ -240,8 +257,13 @@ def segment_views(segments) -> list[SegmentView]:
     for index, row in enumerate(rows):
         layover = _gap_minutes(rows[index - 1].get("arrival_local"), row.get("departure_local")) if index else None
         minutes = row.get("duration_minutes")
+        code = _airline_code(row.get("airline_code")) or _airline_code(_FLIGHT_PREFIX.match(str(row.get("flight_number") or "")))
+        operating = _airline_code(row.get("operating"))
+        codeshare = bool(operating and operating != code)
         views.append(SegmentView(
-            flight_number=row.get("flight_number") or None, origin=str(row["origin"]).upper(), destination=str(row["destination"]).upper(),
+            flight_number=row.get("flight_number") or None, airline_code=code, airline_name=_name(row.get("airline_name")),
+            operating_code=operating if codeshare else None, operating_name=_name(row.get("operating_name")) if codeshare else None,
+            origin=str(row["origin"]).upper(), destination=str(row["destination"]).upper(),
             departure_local=row.get("departure_local"), arrival_local=row.get("arrival_local"),
             duration_minutes=minutes if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0 else None,
             layover_minutes=layover,
