@@ -392,7 +392,8 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
     # cost moved, the hold goes ahead while every selling price still covers the new cost (the profit changes);
     # a selling price below the new cost is refused: revalidate and confirm a new total.
     confirmed_selling = {kind: selling for kind, _, _, selling in quote.passengers}
-    selling_each = [(kind, number, cost, confirmed_selling.get(kind) or sell(cost)) for kind, number, cost in priced]
+    adjust = live_flights.pricing_rules.for_fares(quote.refs, currency)
+    selling_each = [(kind, number, cost, confirmed_selling.get(kind) or sell(cost, adjust)) for kind, number, cost in priced]
     confirmed_selling = {kind: selling for kind, _, _, selling in selling_each}
     if any(selling is None for *_, selling in selling_each):
         raise HoldError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
@@ -400,7 +401,7 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
     below_cost = any(selling < cost for _, _, cost, selling in selling_each)  # type: ignore[operator]
     if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor or below_cost:
-        fresh_selling = sum(number * (sell(cost) or cost) for _, number, cost, _ in selling_each)
+        fresh_selling = sum(number * (sell(cost, adjust) or cost) for _, number, cost, _ in selling_each)
         raise HoldError(409, f"The price changed to {live_flights.money_text(fresh_selling, currency)}. Revalidate and confirm the new total. Nothing was booked.", code="price_changed")
     costs_each = {kind: cost for kind, _, cost, _ in selling_each}
 

@@ -13,6 +13,7 @@ from app.api.routes.auth_sessions import router as auth_sessions_router
 from app.api.routes.finance import router as finance_router
 from app.api.routes.finance_ops import booking_router as finance_ops_booking_router, router as finance_ops_router
 from app.api.routes.flight_operations import router as flight_operations_router
+from app.api.routes.flight_pricing import router as flight_pricing_router
 from app.api.routes.group_holds import router as group_holds_router
 from app.api.routes.group_ticketing import router as group_ticketing_router
 from app.api.routes.hotels import router as hotels_router
@@ -58,6 +59,7 @@ router.include_router(admin_dashboard_router)
 
 router.include_router(admin_bookings_router)
 router.include_router(flight_operations_router)
+router.include_router(flight_pricing_router)
 router.include_router(saved_people_router)
 router.include_router(saved_travelers_router)
 router.include_router(payment_accounts_router)
