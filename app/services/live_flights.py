@@ -123,12 +123,22 @@ def _whole_rupees_up(minor: Decimal | int) -> int:
 def sell(cost_minor: int, adjust_minor: int = 0) -> int | None:
     """Per passenger: the supplier cost + FLIGHT_MARKUP_PERCENT + FLIGHT_MARKUP_FIXED_MINOR + the flight pricing rule's
     amount (adjust_minor, Rs per passenger, may be negative: app.services.flight_pricing_rules), rounded up to a whole
-    rupee and never below the supplier cost. No markup or rule: the supplier cost itself (0% markup, the same rule as
-    group fares). Never a multiplier in code."""
+    rupee. A negative rule takes its full amount off, even below the supplier cost (the owner's choice: Rs 28,000 with
+    a -100 rule sells at Rs 27,900); the price is never below Rs 1. No markup or rule: the supplier cost itself (0%
+    markup, the same rule as group fares). Never a multiplier in code."""
     percent = max(settings.flight_markup_percent, Decimal(0))
     fixed = max(settings.flight_markup_fixed_minor, 0)
     raw = Decimal(cost_minor) * (1 + percent / 100) + fixed + adjust_minor
-    return max(_whole_rupees_up(raw), _whole_rupees_up(cost_minor))
+    return max(_whole_rupees_up(raw), RUPEE_MINOR)
+
+
+RUPEE_MINOR = 100
+
+
+def lowest_selling(cost_minor: int, adjust_minor: int) -> int:
+    """The lowest selling price per passenger a booking may have: the supplier cost, less a negative rule's amount.
+    Anything lower (e.g. the cost went up after the price was confirmed) is refused: revalidate."""
+    return cost_minor + min(adjust_minor, 0)
 
 
 def fee_share(fee_minor: int, adults: int) -> int:
@@ -917,7 +927,8 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         passengers.append((kind, number, cost_each, selling_each))
     supplier_total = sum(number * cost for _, number, cost, _ in passengers) + fee  # SooperFare: + its platform fee per booking
     selling_total = sum(number * selling for _, number, _, selling in passengers)
-    if selling_total < supplier_total:
+    discount = sum(number * min(adjust, 0) for _, number, _, _ in passengers)  # a negative rule may sell below cost
+    if selling_total < supplier_total + discount:
         raise RepriceError(409, "The selling price doesn't cover the supplier's total for this fare. Nothing was booked.", code="no_selling_price")
     old_adult = sum(to_minor(r.adult_total.value) for r in wanted if r.adult_total)
     new_adult = sum(to_minor(r.adult_total.value) for r in fresh if r.adult_total)

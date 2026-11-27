@@ -33,7 +33,7 @@ class FlightPricingRuleInput(BaseModel):
     source: str | None = Field(None, max_length=20, description="SooperFare only; empty = any source.")
     airline_code: str | None = Field(None, max_length=3, description="IATA code; empty = any airline.")
     amount_minor: int = Field(description="Rs per passenger, in paisa (whole rupees): negative takes it off the selling "
-                                          "price, positive adds it. Never below the supplier's cost.")
+                                          "price (even below the supplier's cost), positive adds it.")
     active: bool = True
 
 

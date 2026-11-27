@@ -63,11 +63,13 @@ def test_rules_are_in_rupees_only(rules):
     assert pricing_rules.adjustment("kyte", None, "EK", "EUR") == 0
 
 
-def test_a_selling_price_never_goes_below_the_cost():
+def test_a_negative_rule_takes_its_full_amount_off_even_below_the_cost():
     assert live_flights.sell(45_770) == 95_800                 # 457.70 + Rs 500 -> 958
     assert live_flights.sell(45_770, -10_000) == 85_800        # Rs 100 off
-    assert live_flights.sell(45_770, -60_000) == 45_800        # Rs 600 off would go below the cost: the cost, in whole rupees
+    assert live_flights.sell(45_770, -60_000) == 35_800        # Rs 600 off: below the cost (457.70), as the owner chose
     assert live_flights.sell(45_770, 50_000) == 145_800        # Rs 500 on
+    assert live_flights.sell(45_770, -10_000_000) == 100       # never below Rs 1
+    assert live_flights.lowest_selling(2_800_000, -10_000) == 2_790_000 and live_flights.lowest_selling(2_800_000, 50_000) == 2_800_000
 
 
 def test_unreadable_rules_mean_no_rule(monkeypatch):
@@ -153,3 +155,21 @@ def test_invalid_rules_are_refused(args, message):
 def test_rule_fields_are_normalised():
     assert clean(" SooperFare ", "pk", "pk", -10_000) == ("sooperfare", "PK", "PK", -10_000)
     assert clean("kyte", "", "", 50_000) == ("kyte", None, None, 50_000)
+
+
+def test_no_markup_and_a_minus_100_rule_sells_rs_100_under_the_supplier_price(rules):
+    """The owner's case: supplier price Rs 28,000, no markup, -100 rule -> Rs 27,900 at search, and the booking price is
+    accepted (not refused for being under the cost)."""
+    rules.append(rule("southair", -100, airline="MM"))
+    with patch.object(settings, "flight_markup_fixed_minor", 0):
+        client = fake_client(search_data(total="28000.00"), search_data(total="28000.00"), fare_info={"FINAL_TOTAL": "56000.00"})
+        test, patcher, result = searched(STAFF, client)
+        fare = next(f for f in result["journeys"][0]["flights"] if f["flight_number"] == "MM112")["fares"][0]
+        body = test.post("/v1/live-ticketing/flights/reprice", json={"search_id": result["search_id"], "fare_ids": [fare["id"]]})
+        patcher.stop()
+    assert fare["selling_price"]["amount_minor"] == 2_790_000
+    assert body.status_code == 200, body.text
+    assert body.json()["selling_total"]["amount_minor"] == 2 * 2_790_000 and body.json()["price_changed"] is False
+    quote = live_flights.get_quote(body.json()["quote_id"], "u2")
+    assert quote.supplier_total_minor == 5_600_000 and quote.selling_total_minor == 5_580_000  # Rs 100 x 2 under cost
+
