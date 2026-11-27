@@ -128,9 +128,11 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
                         code="not_confirmed") from None
     fee = int(new_context.get("platform_fee_minor") or 0)
 
+    adjust = live_flights.pricing_rules.for_fares(quote.refs, currency)
+
     def fresh_each(kind: str, number: int, cost: int) -> int | None:
-        """Today's selling price per passenger: markup, plus the platform fee shared across the adults."""
-        selling = live_flights.sell(cost, live_flights.pricing_rules.for_fares(quote.refs, currency))
+        """Today's selling price per passenger: markup and pricing rule, plus the platform fee shared across the adults."""
+        selling = live_flights.sell(cost, adjust)
         return selling + live_flights.fee_share(fee, number) if selling is not None and kind == "ADT" else selling
 
     confirmed_selling = {kind: selling for kind, _, _, selling in quote.passengers}
@@ -140,7 +142,8 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each) + fee
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
     if (currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor
-            or selling_total < supplier_total or any(selling < cost for _, _, cost, selling in selling_each)):  # type: ignore[operator]
+            or selling_total < supplier_total + sum(number * min(adjust, 0) for _, number, _, _ in selling_each)
+            or any(selling < live_flights.lowest_selling(cost, adjust) for _, _, cost, selling in selling_each)):  # type: ignore[operator]
         fresh_selling = sum(number * (fresh_each(kind, number, cost) or cost) for kind, number, cost, _ in selling_each)
         raise HoldError(409, f"The price changed to {live_flights.money_text(fresh_selling, currency)}. Revalidate and confirm the new total. "
                              "Nothing was booked.", code="price_changed")

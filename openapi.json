@@ -5716,7 +5716,7 @@
             "title": "Airline Code"
           },
           "amount_minor": {
-            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price, positive adds it. Never below the supplier's cost.",
+            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price (even below the supplier's cost), positive adds it.",
             "title": "Amount Minor",
             "type": "integer"
           },
@@ -5782,7 +5782,7 @@
             "title": "Airline Code"
           },
           "amount_minor": {
-            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price, positive adds it. Never below the supplier's cost.",
+            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price (even below the supplier's cost), positive adds it.",
             "title": "Amount Minor",
             "type": "integer"
           },

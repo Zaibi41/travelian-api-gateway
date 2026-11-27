@@ -399,7 +399,7 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
         raise HoldError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
     supplier_total = sum(number * cost for _, number, cost, _ in selling_each)
     selling_total = sum(number * selling for _, number, _, selling in selling_each)  # type: ignore[operator]
-    below_cost = any(selling < cost for _, _, cost, selling in selling_each)  # type: ignore[operator]
+    below_cost = any(selling < live_flights.lowest_selling(cost, adjust) for _, _, cost, selling in selling_each)  # type: ignore[operator]
     if currency != request.confirmed_total.currency or selling_total != request.confirmed_total.amount_minor or below_cost:
         fresh_selling = sum(number * (sell(cost, adjust) or cost) for _, number, cost, _ in selling_each)
         raise HoldError(409, f"The price changed to {live_flights.money_text(fresh_selling, currency)}. Revalidate and confirm the new total. Nothing was booked.", code="price_changed")
