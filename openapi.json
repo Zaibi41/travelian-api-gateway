@@ -4590,6 +4590,24 @@
         "title": "DeletedAnnouncement",
         "type": "object"
       },
+      "DeletedFlightPricingRule": {
+        "properties": {
+          "deleted": {
+            "default": true,
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DeletedFlightPricingRule",
+        "type": "object"
+      },
       "DestinationSuggestRequest": {
         "properties": {
           "query": {
@@ -5677,6 +5695,143 @@
         "title": "FlightPaymentQuery",
         "type": "object"
       },
+      "FlightPricingRule": {
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "airline_code": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IATA code; empty = any airline.",
+            "title": "Airline Code"
+          },
+          "amount_minor": {
+            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price, positive adds it. Never below the supplier's cost.",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SooperFare only; empty = any source.",
+            "title": "Source"
+          },
+          "supplier": {
+            "enum": [
+              "southair",
+              "sooperfare",
+              "kyte"
+            ],
+            "title": "Supplier",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier",
+          "amount_minor",
+          "id",
+          "updated_at"
+        ],
+        "title": "FlightPricingRule",
+        "type": "object"
+      },
+      "FlightPricingRuleInput": {
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "airline_code": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IATA code; empty = any airline.",
+            "title": "Airline Code"
+          },
+          "amount_minor": {
+            "description": "Rs per passenger, in paisa (whole rupees): negative takes it off the selling price, positive adds it. Never below the supplier's cost.",
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SooperFare only; empty = any source.",
+            "title": "Source"
+          },
+          "supplier": {
+            "enum": [
+              "southair",
+              "sooperfare",
+              "kyte"
+            ],
+            "title": "Supplier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplier",
+          "amount_minor"
+        ],
+        "title": "FlightPricingRuleInput",
+        "type": "object"
+      },
+      "FlightPricingRuleList": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/FlightPricingRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "title": "FlightPricingRuleList",
+        "type": "object"
+      },
       "FlightSearchRequest": {
         "properties": {
           "adults": {
@@ -5824,6 +5979,65 @@
           "journeys"
         ],
         "title": "FlightSearchView",
+        "type": "object"
+      },
+      "FlightSupplier": {
+        "properties": {
+          "code": {
+            "enum": [
+              "southair",
+              "sooperfare",
+              "kyte"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sources": {
+            "default": [],
+            "description": "SooperFare only: the sources a rule can be limited to.",
+            "items": {
+              "$ref": "#/components/schemas/SupplierSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "description": "live: its fares are searched for customers; not_public: searched for staff only (Kyte until KYTE_PUBLIC_ENABLED); not_configured: no credentials on this server, so its rules apply to nothing yet.",
+            "enum": [
+              "live",
+              "not_public",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "status"
+        ],
+        "title": "FlightSupplier",
+        "type": "object"
+      },
+      "FlightSupplierList": {
+        "properties": {
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/FlightSupplier"
+            },
+            "title": "Suppliers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "suppliers"
+        ],
+        "title": "FlightSupplierList",
         "type": "object"
       },
       "FlightView": {
@@ -16251,6 +16465,25 @@
         "title": "SupplierRefundView",
         "type": "object"
       },
+      "SupplierSource": {
+        "properties": {
+          "code": {
+            "description": "SooperFare's own source identifier, e.g. PK, PA, ONEAPI.",
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "SupplierSource",
+        "type": "object"
+      },
       "SupplierSpendRow": {
         "properties": {
           "day": {
@@ -26053,6 +26286,251 @@
         "summary": "Group Departures",
         "tags": [
           "flight operations"
+        ]
+      }
+    },
+    "/v1/admin/flight-pricing/rules": {
+      "get": {
+        "operationId": "list_rules_v1_admin_flight_pricing_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightPricingRuleList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "503": {
+            "description": "Pricing rules unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Rules",
+        "tags": [
+          "admin flight pricing"
+        ]
+      },
+      "post": {
+        "description": "One rule per supplier, source and airline (409 if it exists). Applies to new searches within seconds.",
+        "operationId": "create_rule_v1_admin_flight_pricing_rules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightPricingRuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightPricingRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Pricing rules unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Rule",
+        "tags": [
+          "admin flight pricing"
+        ]
+      }
+    },
+    "/v1/admin/flight-pricing/rules/{rule_id}": {
+      "delete": {
+        "operationId": "delete_rule_v1_admin_flight_pricing_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedFlightPricingRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Pricing rules unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Rule",
+        "tags": [
+          "admin flight pricing"
+        ]
+      },
+      "put": {
+        "operationId": "update_rule_v1_admin_flight_pricing_rules__rule_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightPricingRuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightPricingRule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "description": "Pricing rules unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Rule",
+        "tags": [
+          "admin flight pricing"
+        ]
+      }
+    },
+    "/v1/admin/flight-pricing/suppliers": {
+      "get": {
+        "description": "The flight suppliers a rule can be set on, whether each is searched for customers, and SooperFare's sources.",
+        "operationId": "list_suppliers_v1_admin_flight_pricing_suppliers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightSupplierList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Super Admin only."
+          },
+          "503": {
+            "description": "Pricing rules unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Suppliers",
+        "tags": [
+          "admin flight pricing"
         ]
       }
     },

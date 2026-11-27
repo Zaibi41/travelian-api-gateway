@@ -24,6 +24,7 @@ from app.schemas.live_flights import FareView, FlightMoney, PassengerPrice, Flig
 from app.vendors.flights.southair import normalize
 from app.vendors.flights.southair.client import NAME, SouthairClient, SouthairError, SouthairNotConfigured, configured_client
 from app.services import baggage, restricted_airlines
+from app.services import flight_pricing_rules as pricing_rules
 from app.vendors.flights.sooperfare import client as sooperfare
 from app.vendors.flights.sooperfare import normalize as sf_normalize
 from app.vendors.flights.kyte import client as kyte
@@ -115,14 +116,19 @@ def to_minor(amount: Decimal) -> int:
     return int((amount * 100).quantize(Decimal("1"), ROUND_HALF_UP))
 
 
-def sell(cost_minor: int) -> int | None:
-    """Per passenger: the supplier cost + FLIGHT_MARKUP_PERCENT + FLIGHT_MARKUP_FIXED_MINOR, rounded up to a whole rupee.
-    No markup configured: the supplier cost itself (0% markup, the same rule as group fares). Never a multiplier in code;
-    Pricing & Revenue's rules are not wired in yet (docs/investigations/2026-11-19-admin-flows.md, A3)."""
+def _whole_rupees_up(minor: Decimal | int) -> int:
+    return int((Decimal(minor) / 100).quantize(Decimal("1"), ROUND_CEILING) * 100)
+
+
+def sell(cost_minor: int, adjust_minor: int = 0) -> int | None:
+    """Per passenger: the supplier cost + FLIGHT_MARKUP_PERCENT + FLIGHT_MARKUP_FIXED_MINOR + the flight pricing rule's
+    amount (adjust_minor, Rs per passenger, may be negative: app.services.flight_pricing_rules), rounded up to a whole
+    rupee and never below the supplier cost. No markup or rule: the supplier cost itself (0% markup, the same rule as
+    group fares). Never a multiplier in code."""
     percent = max(settings.flight_markup_percent, Decimal(0))
     fixed = max(settings.flight_markup_fixed_minor, 0)
-    raw = Decimal(cost_minor) * (1 + percent / 100) + fixed
-    return int((raw / 100).quantize(Decimal("1"), ROUND_CEILING) * 100)
+    raw = Decimal(cost_minor) * (1 + percent / 100) + fixed + adjust_minor
+    return max(_whole_rupees_up(raw), _whole_rupees_up(cost_minor))
 
 
 def fee_share(fee_minor: int, adults: int) -> int:
@@ -160,14 +166,15 @@ def passenger_counts(request: FlightSearchRequest) -> list[tuple[str, int]]:
     return [(kind, number) for kind, number in (("ADT", request.adults), ("CHD", request.children), ("INF", request.infants)) if number]
 
 
-def selling_by_type(counts: list[tuple[str, int]], cost_each: dict[str, int], adult_extra: int = 0) -> list[tuple[str, int, int]] | None:
+def selling_by_type(counts: list[tuple[str, int]], cost_each: dict[str, int], adult_extra: int = 0,
+                    adjust_minor: int = 0) -> list[tuple[str, int, int]] | None:
     """[(type, count, selling each)] for the searched travelers: each type's own supplier price per passenger with the
     markup (the same rule as reprice); adult_extra is SooperFare's platform fee share per adult. None when any searched
     type has no supplier price or no selling price (never guessed from the adult's price)."""
     rows = []
     for kind, number in counts:
         cost = cost_each.get(kind)
-        selling = sell(cost) if cost is not None else None
+        selling = sell(cost, adjust_minor) if cost is not None else None
         if selling is None:
             return None
         rows.append((kind, number, selling + (adult_extra if kind == "ADT" else 0)))
@@ -205,16 +212,17 @@ def sooperfare_cost_each(fare: sf_normalize.Fare, counts: list[tuple[str, int]])
 
 
 def _fare_view(fare_id: str, fare: normalize.Fare, viewer: BackOfficeUser, fallback_currency: str | None,
-               counts: list[tuple[str, int]] | None = None) -> FareView:
+               counts: list[tuple[str, int]] | None = None, ref: "FareRef | None" = None) -> FareView:
     view = FareView(id=fare_id, name=fare.code, meal=fare.meal, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(),
                     refund=fare.refund, time_limit=fare.time_limit)
     currency = fare_currency(fare.adult_total, fallback_currency)
     if fare.adult_total and currency:
         cost = to_minor(fare.adult_total.value)
-        selling = sell(cost)
+        adjust = pricing_rules.for_fare(ref, currency) if ref else 0
+        selling = sell(cost, adjust)
         if selling is not None:
             view.selling_price = FlightMoney(amount_minor=selling, currency=currency)
-            _set_total(view, selling_by_type(counts or [("ADT", 1)], southair_cost_each(fare, currency)), currency)
+            _set_total(view, selling_by_type(counts or [("ADT", 1)], southair_cost_each(fare, currency), adjust_minor=adjust), currency)
         if viewer.visibility.cost_and_margin:
             view.supplier_cost = FlightMoney(amount_minor=cost, currency=currency)
     if viewer.visibility.supplier_names:
@@ -354,15 +362,16 @@ def _sf_segment(direction: str, flight: sf_normalize.Flight, fare: sf_normalize.
 
 
 def _sf_fare_view(fare_id: str, fare: sf_normalize.Fare, viewer: BackOfficeUser, adults: int = 1,
-                  counts: list[tuple[str, int]] | None = None) -> FareView:
+                  counts: list[tuple[str, int]] | None = None, ref: "FareRef | None" = None) -> FareView:
     view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(), refund=fare.refund)
     each = fare.adult_each_minor
     if each is not None:
-        selling = sell(each)
+        adjust = pricing_rules.for_fare(ref, fare.currency) if ref else 0
+        selling = sell(each, adjust)
         if selling is not None:
             view.selling_price = FlightMoney(amount_minor=selling + sf_search_share(adults), currency=fare.currency)
             counts = counts or [("ADT", adults)]
-            _set_total(view, selling_by_type(counts, sooperfare_cost_each(fare, counts), sf_search_share(adults)), fare.currency)
+            _set_total(view, selling_by_type(counts, sooperfare_cost_each(fare, counts), sf_search_share(adults), adjust), fare.currency)
         if viewer.visibility.cost_and_margin:
             view.supplier_cost = FlightMoney(amount_minor=each, currency=fare.currency)
     if viewer.visibility.supplier_names:
@@ -393,7 +402,8 @@ def _add_sooperfare(session: SearchSession, results: list[sf_normalize.Result], 
                         _sf_segment(direction, flight, fare), provider=SOOPERFARE,
                         sf=SfRef(result.provider, flight.signature, fare.signature),
                     )
-                    fare_views.append(_sf_fare_view(fare_id, fare, viewer, session.request.adults, passenger_counts(session.request)))
+                    fare_views.append(_sf_fare_view(fare_id, fare, viewer, session.request.adults, passenger_counts(session.request),
+                                                    session.fares[fare_id]))
                 flights_by_direction[direction].append((flight.departure_local or "", FlightView(
                     id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
                     flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
@@ -444,16 +454,18 @@ def _ky_segment(flight: ky_normalize.Flight, fare: ky_normalize.Fare) -> dict:
     }
 
 
-def _ky_fare_view(fare_id: str, fare: ky_normalize.Fare, viewer: BackOfficeUser, counts: list[tuple[str, int]]) -> FareView:
+def _ky_fare_view(fare_id: str, fare: ky_normalize.Fare, viewer: BackOfficeUser, counts: list[tuple[str, int]],
+                  ref: "FareRef | None" = None) -> FareView:
     # Kyte fares are requests until Kyte booking is wired in: no supplier hold, staff confirm and book.
     view = FareView(id=fare_id, name=fare.name, baggage=fare.baggage.short(), baggage_detail=fare.baggage.detail(), booking_mode="request")
     each = fare.adult_each_minor
     if each is not None:
-        selling = sell(each)
+        adjust = pricing_rules.for_fare(ref, fare.currency) if ref else 0
+        selling = sell(each, adjust)
         if selling is not None:
             view.selling_price = FlightMoney(amount_minor=selling, currency=fare.currency)
             if all(kind in fare.each for kind, number in counts if number):
-                _set_total(view, selling_by_type(counts, dict(fare.each)), fare.currency)
+                _set_total(view, selling_by_type(counts, dict(fare.each), adjust_minor=adjust), fare.currency)
         if viewer.visibility.cost_and_margin:
             view.supplier_cost = FlightMoney(amount_minor=each, currency=fare.currency)
     if viewer.visibility.supplier_names:
@@ -475,7 +487,7 @@ def _add_kyte(session: SearchSession, flights: list[ky_normalize.Flight], transa
                 _ky_segment(flight, fare), provider=KYTE,
                 ky=KyRef(fare.offer_id, transaction_id, fare.currency, tuple(sorted(fare.each.items())), fare.total_minor),
             )
-            fare_views.append(_ky_fare_view(fare_id, fare, viewer, counts))
+            fare_views.append(_ky_fare_view(fare_id, fare, viewer, counts, session.fares[fare_id]))
         flights_by_direction[flight.direction].append((flight.departure_local or "", FlightView(
             id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
             flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
@@ -519,7 +531,7 @@ async def search(request: FlightSearchRequest, viewer: BackOfficeUser, client_fa
                     fare_id = secrets.token_urlsafe(12)
                     session.fares[fare_id] = FareRef(direction, leg.route_key, flight.key, fare.code, fare.fare_hash, fare.adult_total,
                                                      segment(direction, leg, flight, fare))
-                    fare_views.append(_fare_view(fare_id, fare, viewer, currency, passenger_counts(request)))
+                    fare_views.append(_fare_view(fare_id, fare, viewer, currency, passenger_counts(request), session.fares[fare_id]))
                 flights_by_direction[direction].append((flight.departure_local or "", FlightView(
                     id=secrets.token_urlsafe(9), airline_code=flight.airline_code, airline_name=flight.airline_name,
                     flight_number=flight.flight_number, departure_local=flight.departure_local, arrival_local=flight.arrival_local,
@@ -794,7 +806,8 @@ def search_selling_total(request: FlightSearchRequest, wanted: list[FareRef]) ->
     """
     if request.children or request.infants or not all(ref.adult_total for ref in wanted):
         return None
-    each = sell(sum(to_minor(ref.adult_total.value) for ref in wanted))  # type: ignore[union-attr]
+    each = sell(sum(to_minor(ref.adult_total.value) for ref in wanted),  # type: ignore[union-attr]
+                pricing_rules.for_fares(wanted, wanted[0].adult_total.currency))  # type: ignore[union-attr]
     if each is not None and wanted[0].provider == SOOPERFARE:
         each += sf_search_share(request.adults)
     return each * request.adults if each is not None else None
@@ -894,8 +907,9 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         logger.warning("Reprice failed", extra={"error_code": error.error_code, "provider": provider})
         raise RepriceError(502, "The flight supplier couldn't reprice this fare. Try again.") from None
     passengers = []
+    adjust = pricing_rules.for_fares(wanted, currency)  # the rules as shown on the search, one per fare (direction)
     for kind, number, cost_each in priced:
-        selling_each = sell(cost_each)
+        selling_each = sell(cost_each, adjust)
         if selling_each is None:
             raise RepriceError(409, "No selling price is configured for flights. Nothing was booked.", code="no_selling_price")
         if kind == "ADT":  # SooperFare's platform fee, passed on across the adults (0 for Southair)
@@ -931,7 +945,8 @@ async def reprice(search_id: str, fare_ids: list[str], viewer: BackOfficeUser, c
         price_changed=price_changed, booking_enabled=can_book(viewer, provider) and not restricted,
         booking_mode="request" if restricted or provider == KYTE else "hold",
     )
-    old_each = sell(sum(to_minor(r.adult_total.value) for r in wanted)) if all(r.adult_total for r in wanted) else None  # type: ignore[union-attr]
+    old_each = (sell(sum(to_minor(r.adult_total.value) for r in wanted), adjust)  # type: ignore[union-attr]
+                if all(r.adult_total for r in wanted) else None)
     if old_each is not None and provider == SOOPERFARE:
         old_each += sf_search_share(session.request.adults)
     new_each = next((selling for kind, _, _, selling in passengers if kind == "ADT"), None)

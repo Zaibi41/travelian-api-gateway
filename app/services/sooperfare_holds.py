@@ -130,7 +130,7 @@ async def hold(request: HoldRequest, viewer: BackOfficeUser, quote: live_flights
 
     def fresh_each(kind: str, number: int, cost: int) -> int | None:
         """Today's selling price per passenger: markup, plus the platform fee shared across the adults."""
-        selling = live_flights.sell(cost)
+        selling = live_flights.sell(cost, live_flights.pricing_rules.for_fares(quote.refs, currency))
         return selling + live_flights.fee_share(fee, number) if selling is not None and kind == "ADT" else selling
 
     confirmed_selling = {kind: selling for kind, _, _, selling in quote.passengers}

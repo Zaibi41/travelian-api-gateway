@@ -189,6 +189,13 @@ async def search_flights(request) -> object:
         return view
 
 
+def forget_flight_prices() -> None:
+    """Flight pricing rules changed: drop the cached website searches and the remembered calendar fares, so the next
+    search and calendar show the new prices at once (app.api.routes.flight_pricing)."""
+    _flight_cache.clear()
+    _fares_by_date.clear()
+
+
 # ---------- flight fare calendar (real lowest fares per date, never guessed) ----------
 
 #: (origin, destination, cabin, adults, date) -> (checked_at epoch, lowest selling price per adult in minor units, currency).
