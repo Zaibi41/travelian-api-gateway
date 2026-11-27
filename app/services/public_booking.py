@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.core.field_visibility import NONE, BackOfficeUser
 from app.db import booking_people, group_holds as store, public_bookings
+from app.schemas.flights import MAX_LEGS
 from app.schemas.group_holds import GroupHoldContact, GroupHoldPassenger, GroupHoldRequest
 from app.schemas.group_ticketing import GroupInventory
 from app.schemas.live_flights import HoldContact, HoldPassenger, HoldRequest
@@ -168,7 +169,8 @@ async def search_flights(request) -> object:
     from app.services import live_flights
 
     key = (request.origin, request.destination, request.departure_date, request.return_date, request.adults,
-           request.children, request.infants, request.cabin)
+           request.children, request.infants, request.cabin,
+           tuple((leg.origin, leg.destination, leg.departure_date) for leg in request.legs or ()))
     now = time.monotonic()
     cached = _flight_cache.get(key)
     if cached and cached[0] > now:
@@ -208,7 +210,7 @@ def _slots() -> asyncio.Semaphore:
 
 def _remember_lowest(request, view) -> None:
     """Keep the lowest selling price per adult of a completed one-way, adults-only search for its date."""
-    if request.return_date or request.children or request.infants or getattr(view, "status", None) != "complete":
+    if request.return_date or request.legs or request.children or request.infants or getattr(view, "status", None) != "complete":
         return
     prices = [fare.selling_price for journey in view.journeys if journey.direction == "outbound"
               for flight in journey.flights for fare in flight.fares if fare.selling_price]
@@ -487,7 +489,8 @@ class PublicFlightRequest(BaseModel):
     held until staff verify the money and issue by hand, D49)."""
 
     search_id: str = Field(min_length=8, max_length=64, description="From POST /v1/public/flights/search.")
-    fare_ids: list[str] = Field(min_length=1, max_length=2, description="The chosen fare, and its return fare for a round trip.")
+    fare_ids: list[str] = Field(min_length=1, max_length=MAX_LEGS, description="The chosen fare, and its return fare for a round trip; "
+                                                                             "multi-city: one fare per leg, in leg order.")
     contact: HoldContact = Field(description="Name, phone (code and number) and email: all required.")
     passengers: list[HoldPassenger] = Field(min_length=1, max_length=9)
     payment_method: Literal["card", "bank_transfer", "jazzcash", "book_only"] = Field(
@@ -510,8 +513,8 @@ def _flight_hold_allowed(quote) -> bool:
     """The website may hold this fare at the supplier: switched on, booking on for its provider, not a restricted airline."""
     from app.services import live_flights, restricted_airlines
 
-    return (settings.public_flight_booking_enabled and quote is not None and live_flights.booking_enabled(quote.provider)
-            and not any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs))
+    return (settings.public_flight_booking_enabled and quote is not None and not quote.request.multi_city
+            and live_flights.booking_enabled(quote.provider) and not any(restricted_airlines.segment_restricted(ref.segment) for ref in quote.refs))
 
 
 def card_allowed(provider: str | None) -> bool:
@@ -541,7 +544,7 @@ async def flight_payment_options(search_id: str, fare_ids: list[str]) -> FlightP
     except live_flights.RepriceError as error:
         raise PublicError(error.status, error.message, error.code) from None
     provider = refs[0].provider
-    held = (settings.public_flight_booking_enabled and live_flights.booking_enabled(provider)
+    held = (settings.public_flight_booking_enabled and not session.request.multi_city and live_flights.booking_enabled(provider)
             and not any(restricted_airlines.segment_restricted(ref.segment) for ref in refs))
     if not held:
         return FlightPaymentOptions(held=False, card=False, bank_transfer=False, jazzcash=False)

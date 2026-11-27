@@ -5479,7 +5479,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 2,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Fare Ids",
             "type": "array"
@@ -5552,6 +5552,23 @@
             "minimum": 0.0,
             "title": "Infants",
             "type": "integer"
+          },
+          "legs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SearchLeg"
+                },
+                "maxItems": 5,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Multi-city: every flight in order (2 to 5), each searched as a one-way. origin, destination and departure_date must be the first flight's; return_date must be empty. Each journey of the answer carries its `leg` number; choose one fare per leg.",
+            "title": "Legs"
           },
           "origin": {
             "examples": [
@@ -9394,6 +9411,19 @@
             "title": "Flights",
             "type": "array"
           },
+          "leg": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Multi-city only: the flight's number in the trip (1, 2, ...); every multi-city journey's direction is outbound.",
+            "title": "Leg"
+          },
           "origin": {
             "title": "Origin",
             "type": "string"
@@ -11186,11 +11216,11 @@
             "description": "Name, phone (code and number) and email: all required."
           },
           "fare_ids": {
-            "description": "The chosen fare, and its return fare for a round trip.",
+            "description": "The chosen fare, and its return fare for a round trip; multi-city: one fare per leg, in leg order.",
             "items": {
               "type": "string"
             },
-            "maxItems": 2,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Fare Ids",
             "type": "array"
@@ -12354,11 +12384,11 @@
       "RepriceRequest": {
         "properties": {
           "fare_ids": {
-            "description": "Outbound fare, then the return fare for a round trip.",
+            "description": "Outbound fare, then the return fare for a round trip; multi-city: one fare per leg, in leg order.",
             "items": {
               "type": "string"
             },
-            "maxItems": 2,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Fare Ids",
             "type": "array"
@@ -14144,6 +14174,41 @@
           }
         },
         "title": "SavedPersonUpdate",
+        "type": "object"
+      },
+      "SearchLeg": {
+        "description": "One flight of a multi-city trip.",
+        "properties": {
+          "departure_date": {
+            "format": "date",
+            "title": "Departure Date",
+            "type": "string"
+          },
+          "destination": {
+            "examples": [
+              "DXB"
+            ],
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Destination",
+            "type": "string"
+          },
+          "origin": {
+            "examples": [
+              "LHE"
+            ],
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Origin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "departure_date"
+        ],
+        "title": "SearchLeg",
         "type": "object"
       },
       "SegmentView": {

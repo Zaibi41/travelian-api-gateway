@@ -92,11 +92,16 @@ def _add_months(day: date, months: int) -> date:
     raise ValueError(day)
 
 
+def _routes(search) -> list[tuple[str, str]]:
+    """Every (origin, destination) flown: the multi-city flights, else the searched route."""
+    return [(leg.origin, leg.destination) for leg in search.legs] if search.legs else [(search.origin, search.destination)]
+
+
 def passport_warnings(request: HoldRequest, search) -> list[str]:
     """Expiry before the last travel date: error (422). Under 6 months' validity on an
     international route: a warning only (the destination's own rules decide)."""
-    last_travel = search.return_date or search.departure_date
-    international = not is_domestic(search.origin, search.destination)
+    last_travel = search.last_travel_date
+    international = any(not is_domestic(origin, destination) for origin, destination in _routes(search))
     warnings = []
     for passenger in request.passengers:
         expiry = passenger.document_expiry
@@ -315,7 +320,10 @@ async def no_double_booking(request: HoldRequest, viewer: BackOfficeUser, search
     (who is refused by what: app.services.duplicate_bookings.decide). Returns the possible double bookings let through
     (flag them with duplicate_bookings.flag once saved). Staff passengers stay claimed (in `stack`) until the
     booking is saved, so an identical staff call meanwhile is refused too."""
-    journeys = duplicate_bookings.search_journeys(search.origin, search.destination, search.departure_date, search.return_date)
+    if search.legs:
+        journeys = set().union(*(duplicate_bookings.search_journeys(leg.origin, leg.destination, leg.departure_date) for leg in search.legs))
+    else:
+        journeys = duplicate_bookings.search_journeys(search.origin, search.destination, search.departure_date, search.return_date)
     try:
         stack.enter_context(duplicate_bookings.booking(request.passengers, journeys, viewer=viewer))
         return await duplicate_bookings.check(request.passengers, journeys, viewer=viewer, exclude_reference=into)
@@ -341,6 +349,10 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
         # D32: never an automated supplier hold for a restricted airline, however it is asked for.
         raise HoldError(409, "This airline is booked by Travelian's team only. Nothing was held: send a request to book, and our team "
                              "will confirm the fare and payment with the customer.", code="restricted_airline")
+    if quote.request.multi_city:
+        # Each multi-city flight is its own supplier booking; until one booking can carry several holds, staff book them.
+        raise HoldError(409, "Multi-city trips are booked by Travelian's team. Nothing was held: send a request to book.",
+                        code="multi_city_request")
     if not live_flights.booking_enabled(quote.provider):
         raise HoldError(409, "Booking is turned off for this fare. Nothing was booked.", code="booking_off")
     if quote.price_changed and not request.accept_price_change:
@@ -368,7 +380,7 @@ async def _hold(request: HoldRequest, viewer: BackOfficeUser, client_factory, so
     if given != counts:
         raise HoldError(422, "The passengers must match the search (adults, children, infants).", code="passengers_mismatch")
     # Ages are taken on the last travel date (the return date of a round trip), as the airlines rule (issue #52).
-    passengers = _supplier_passengers(request, quote.request.return_date or quote.request.departure_date)
+    passengers = _supplier_passengers(request, quote.request.last_travel_date)
     warnings = passport_warnings(request, quote.request)
     flags = await no_double_booking(request, viewer, quote.request, stack, into)
     warnings = warnings + duplicate_bookings.warnings_for(flags, viewer)  # staff only; the website's answer never differs

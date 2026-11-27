@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, Path, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.flights import FlightSearchRequest
+from app.schemas.flights import MAX_LEGS, FlightSearchRequest
 from app.schemas.live_flights import RequiredDocument
 from app.services import public_booking as service
 
@@ -143,7 +143,7 @@ async def request_flight(body: service.PublicFlightRequest, request: Request):
 
 class FlightPaymentQuery(BaseModel):
     search_id: str = Field(min_length=8, max_length=64)
-    fare_ids: list[str] = Field(min_length=1, max_length=2)
+    fare_ids: list[str] = Field(min_length=1, max_length=MAX_LEGS)
 
 
 @router.post("/flights/payment-options", response_model=service.FlightPaymentOptions,

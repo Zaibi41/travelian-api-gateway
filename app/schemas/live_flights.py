@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.flights import MAX_LEGS
 from app.schemas.customer_card import CustomerCard
 from app.schemas.saved_people import SaveOutcomeView
 
@@ -70,6 +71,8 @@ class FlightView(BaseModel):
 
 class JourneyView(BaseModel):
     direction: Literal["outbound", "return"]
+    leg: int | None = Field(None, ge=1, description="Multi-city only: the flight's number in the trip (1, 2, ...); every "
+                                                    "multi-city journey's direction is outbound.")
     origin: str
     destination: str
     flights: list[FlightView]
@@ -91,7 +94,8 @@ class FlightSearchView(BaseModel):
 
 class RepriceRequest(BaseModel):
     search_id: str = Field(min_length=8, max_length=64)
-    fare_ids: list[str] = Field(min_length=1, max_length=2, description="Outbound fare, then the return fare for a round trip.")
+    fare_ids: list[str] = Field(min_length=1, max_length=MAX_LEGS, description="Outbound fare, then the return fare for a round trip; "
+                                                                             "multi-city: one fare per leg, in leg order.")
 
 
 class PassengerPrice(BaseModel):
